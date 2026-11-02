@@ -81,6 +81,20 @@ function unitName(unitId) {
   return unitId;
 }
 
+function unitSubjectId(unitId) {
+  return S.data?.subjects.find((s) => s.units.some((u) => u.unitId === unitId))?.subjectId;
+}
+// 単元名の（…）を省いた短い名前（タイル用）
+function shortName(name) {
+  return name.replace(/（.*?）/g, '');
+}
+
+// 定着（濃い）と学習中（薄い）の横棒
+function barHtml(g) {
+  const pct = (n) => (g.total ? (n / g.total) * 100 : 0);
+  return `<span class="bar"><i class="bm" style="width:${pct(g.mastered)}%"></i><i class="bl" style="width:${pct(g.learning)}%"></i></span>`;
+}
+
 function toast(msg) {
   banner.textContent = msg;
   banner.className = 'banner info';
@@ -109,6 +123,8 @@ function home() {
   const due = L.countDue(ctx());
   const total = L.activeQuestions(S.data).length;
   const todayLogs = S.logs.filter((l) => L.localDate(new Date(l.answeredAt)) === today());
+  const g = L.groupProgress(L.activeQuestions(S.data), L.questionProgress(S.logs));
+  const ach = L.achievements(S.logs, S.data);
   show(
     `<header class="top"><h1>復習アプリ</h1></header>
     <section class="card stat">
@@ -116,6 +132,11 @@ function home() {
       <div><span class="big">${todayLogs.length}</span><span>今日解いた問題</span></div>
       <div><span class="big">${total}</span><span>出題中の問題</span></div>
     </section>
+    <button class="mapcard" data-go="record">
+      <span class="spread"><b>知識マップ</b><span class="go">記録を見る ›</span></span>
+      ${barHtml(g)}
+      <span class="spread small"><span>定着 ${g.mastered} ・ 学習中 ${g.learning} ／ ${g.total}問</span><span>実績 ${ach.filter((a) => a.achievedAt).length} / ${ach.length}</span></span>
+    </button>
     <nav class="menu">
       <button class="btn primary big" data-go="おまかせ">おまかせ</button>
       <button class="btn big" data-go="復習優先">復習優先<small>${due}問</small></button>
@@ -131,7 +152,10 @@ function home() {
         if (g === 'select') selectScreen();
         else if (g === 'target') targetScreen();
         else if (g === 'data') dataScreen();
-        else if (g === '復習優先' && due === 0) toast('期限の来た問題はありません');
+        else if (g === 'record') {
+          S.calMonth = null;
+          recordScreen('map');
+        } else if (g === '復習優先' && due === 0) toast('期限の来た問題はありません');
         else startSession(g, null);
       }),
   );
@@ -295,6 +319,230 @@ function targetScreen() {
       });
     },
   );
+}
+
+// ---- 記録：知識マップ・カレンダー・豆知識・実績（要件定義書 4.8、設計図 1.8） ----
+
+const SHADE_FILL = ['var(--card)', 'var(--m1)', 'var(--m2)', 'var(--m3)', 'var(--m4)'];
+const SHADE_LEGEND = `<p class="legend"><span><i class="u0"></i>未着手</span><span><i class="u1"></i>学習中</span><span><i class="u2"></i>定着 半分未満</span><span><i class="u3"></i>半分以上</span><span><i class="u4"></i>すべて定着</span></p>`;
+
+function recordScreen(tab) {
+  const tabs = [['map', 'マップ'], ['cal', 'カレンダー'], ['trivia', '豆知識'], ['ach', '実績']];
+  const body = { map: mapTab, cal: calendarTab, trivia: triviaTab, ach: achievementsTab }[tab]();
+  show(
+    `<header class="top"><button class="back" data-back>‹ ホーム</button><h1>記録</h1></header>
+    <nav class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${n}</button>`).join('')}</nav>
+    ${body.html}`,
+    () => {
+      on('[data-back]', 'click', home);
+      on('[data-tab]', 'click', (e) => recordScreen(e.currentTarget.dataset.tab));
+      body.bind?.();
+    },
+  );
+}
+
+// 辺の途中に点を足して少しずらし、海岸線らしいでこぼこにする（毎回同じ形になるよう乱数は使わない）
+function roughen(pts) {
+  return pts.flatMap((p, i) => {
+    const q = pts[(i + 1) % pts.length];
+    const dx = q[0] - p[0], dy = q[1] - p[1], len = Math.hypot(dx, dy) || 1;
+    const k = (((i * 7 + pts.length * 3) % 5) - 2) * 3; // -6〜+6
+    return [p, [(p[0] + q[0]) / 2 + (dy / len) * k, (p[1] + q[1]) / 2 - (dx / len) * k]];
+  });
+}
+// 輪郭の点をなめらかな閉曲線にする（Catmull-Rom → ベジェ）
+function smoothPath(pts) {
+  const n = pts.length, P = (i) => pts[(i + n) % n];
+  let d = `M${P(0)[0]},${P(0)[1]}`;
+  for (let i = 0; i < n; i++) {
+    const [p0, p1, p2, p3] = [P(i - 1), P(i), P(i + 1), P(i + 2)];
+    d += ` C${p1[0] + (p2[0] - p0[0]) / 6},${p1[1] + (p2[1] - p0[1]) / 6} ${p2[0] - (p3[0] - p1[0]) / 6},${p2[1] - (p3[1] - p1[1]) / 6} ${p2[0]},${p2[1]}`;
+  }
+  return d + 'Z';
+}
+
+// 全体マップ：島（分野）・町（科目）。問題データのある科目が登録済み、それ以外は点線の町（候補科目）
+function mapSvg(map, stats) {
+  const label = (name) => (name.length <= 6 ? [name] : [name.slice(0, Math.ceil(name.length / 2)), name.slice(Math.ceil(name.length / 2))]);
+  let g = '';
+  for (const r of map.regions) {
+    const open = map.places.some((p) => p.region === r.id && stats.has(p.subjectId));
+    g += `<path d="${smoothPath(roughen(r.pts))}" fill="var(--land)" stroke="var(--coast)" stroke-width="1.2" ${open ? '' : 'stroke-dasharray="3 4" opacity="0.55"'}/>`;
+  }
+  for (const r of map.regions) {
+    g += `<text x="${r.lx}" y="${r.ly}" text-anchor="middle" font-size="10" font-weight="600" letter-spacing="3" fill="var(--muted)">${esc(r.name)}</text>`;
+  }
+  for (const p of map.places) {
+    const st = stats.get(p.subjectId);
+    const name = label(st ? st.name : p.name).map((t, i) => `<tspan x="${p.x}" dy="${i ? 10 : 0}">${esc(t)}</tspan>`).join('');
+    const text = `<text y="${p.y + 25}" text-anchor="middle" font-size="8.5" font-weight="${st ? 600 : 400}" fill="var(--${st ? 'text' : 'muted'})" paint-order="stroke" stroke="var(--land)" stroke-width="4" stroke-linejoin="round">${name}</text>`;
+    if (st) {
+      const C = 2 * Math.PI * 13, r = st.g.total ? st.g.mastered / st.g.total : 0;
+      g += `<g class="node" data-subj="${esc(p.subjectId)}">
+        <circle cx="${p.x}" cy="${p.y}" r="20" fill="transparent"/>
+        <circle cx="${p.x}" cy="${p.y}" r="13" fill="var(--card)" stroke="var(--line)" stroke-width="2.5"/>
+        <circle cx="${p.x}" cy="${p.y}" r="13" fill="none" stroke="var(--m4)" stroke-width="2.5" stroke-dasharray="${C * r} ${C}" transform="rotate(-90 ${p.x} ${p.y})" stroke-linecap="round"/>
+        <circle cx="${p.x}" cy="${p.y}" r="9" fill="${SHADE_FILL[L.shadeLevel(st.g)]}"/>${text}</g>`;
+    } else {
+      g += `<g class="node" data-cand="${esc(p.name)}" opacity="0.6">
+        <circle cx="${p.x}" cy="${p.y}" r="18" fill="transparent"/>
+        <circle cx="${p.x}" cy="${p.y}" r="10" fill="var(--land)" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="2.5 3"/>${text}</g>`;
+    }
+  }
+  return `<svg class="kmap" viewBox="0 0 360 610" role="img" aria-label="知識マップ">${g}</svg>`;
+}
+
+function mapTab() {
+  const prog = L.questionProgress(S.logs);
+  const active = L.activeQuestions(S.data);
+  const stats = new Map();
+  for (const s of S.data.subjects) {
+    const qs = active.filter((q) => q.subjectId === s.subjectId);
+    if (qs.length) stats.set(s.subjectId, { name: s.name, g: L.groupProgress(qs, prog) });
+  }
+  const all = L.groupProgress(active, prog);
+  const map = S.data.map;
+  return {
+    html: `<section class="card map">
+      <p class="spread small maphead"><span>定着 ${all.mastered} ・ 学習中 ${all.learning} ／ ${all.total}問</span></p>
+      ${map ? mapSvg(map, stats) : '<p class="note">問題データを読み込み直すと、地図が表示されます</p>'}
+      ${map ? '<p class="legend"><span>点線の町＝まだ問題がない科目</span><span>薄い島＝まだ科目がない分野</span></p>' : ''}
+    </section>
+    <section class="card">
+      <h2>科目ごと</h2>
+      ${[...stats]
+        .map(([sid, st]) => `<button class="subjrow" data-subj="${esc(sid)}"><span class="spread"><b>${esc(st.name)}</b><span class="small">定着 ${st.g.mastered} ・ 学習中 ${st.g.learning} ／ ${st.g.total}問 ›</span></span>${barHtml(st.g)}</button>`)
+        .join('')}
+    </section>`,
+    bind: () => {
+      on('[data-subj]', 'click', (e) => subjectMapScreen(e.currentTarget.dataset.subj));
+      on('[data-cand]', 'click', (e) => toast(`${e.currentTarget.dataset.cand}は、まだ問題がない科目です`));
+    },
+  };
+}
+
+// 単元のタイル。sub は上に小さく出す科目名、chips は解放したレベルの印
+function tileLabel(g) {
+  return g.touched ? `定着 ${g.mastered}/${g.total}` : '未着手';
+}
+function unitTile(unitId, g, { sub = '', chips = '' } = {}) {
+  return `<div class="tile u${L.shadeLevel(g)}">${sub ? `<span class="sj">${esc(sub)}</span>` : ''}<span class="nm">${esc(shortName(unitName(unitId)))}</span><span class="ft"><span class="lb">${tileLabel(g)}</span>${chips ? `<span class="chips">${chips}</span>` : ''}</span></div>`;
+}
+
+function subjectMapScreen(subjectId) {
+  const s = subjectOf(subjectId);
+  const prog = L.questionProgress(S.logs);
+  const active = L.activeQuestions(S.data);
+  const correct = L.correctIdSet(S.logs);
+  const g = L.groupProgress(active.filter((q) => q.subjectId === subjectId), prog);
+  const units = [...s.units].sort((a, b) => a.order - b.order);
+  let withQ = 0, touched = 0;
+  const tiles = units
+    .map((u) => {
+      const inUnit = active.filter((q) => q.unitId === u.unitId);
+      if (!inUnit.length) return `<div class="tile none"><span class="nm">${esc(shortName(u.name))}</span><span class="ft">問題なし</span></div>`;
+      const gu = L.groupProgress(inUnit, prog);
+      withQ++;
+      if (gu.touched) touched++;
+      const st = L.unitUnlockStatus(u.unitId, active, correct, S.settings);
+      const chips = L.LEVELS.map((lv, i) =>
+        inUnit.some((q) => q.level === lv) ? `<span class="chip l${i + 1} ${st[lv].unlocked ? 'on' : ''}">${lv[0]}</span>` : '',
+      ).join('');
+      return unitTile(u.unitId, gu, { chips });
+    })
+    .join('');
+  show(
+    `<header class="top"><button class="back" data-back>‹ マップ</button><h1>${esc(s.name)}</h1></header>
+    <section class="card">
+      <p class="spread small"><span>定着 ${g.mastered} ・ 学習中 ${g.learning} ／ ${g.total}問</span><span>手を付けた単元 ${touched}/${withQ}</span></p>
+      ${barHtml(g)}
+    </section>
+    ${SHADE_LEGEND}
+    <div class="tiles">${tiles}</div>
+    <p class="note center">基・応・試：段階解放で、おまかせに出るようになったレベル（灰色はまだ）</p>`,
+    () => on('[data-back]', 'click', () => recordScreen('map')),
+  );
+}
+
+function calendarTab() {
+  const counts = L.dailyCounts(S.logs);
+  const now = new Date();
+  const first = S.logs.length ? new Date(S.logs[0].answeredAt) : now;
+  const months = [];
+  for (let d = new Date(first.getFullYear(), first.getMonth(), 1); d <= now; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+    months.push([d.getFullYear(), d.getMonth() + 1]);
+  }
+  const idx = Math.min(Math.max(S.calMonth ?? months.length - 1, 0), months.length - 1);
+  const [y, m] = months[idx];
+  const days = new Date(y, m, 0).getDate();
+  const lv = (n) => (!n ? '' : n <= 10 ? 'u1' : n <= 20 ? 'u2' : n <= 30 ? 'u3' : 'u4');
+  const cells = Array.from({ length: new Date(y, m - 1, 1).getDay() }, () => '<span></span>');
+  let nDays = 0, nQ = 0;
+  for (let d = 1; d <= days; d++) {
+    const key = L.localDate(new Date(y, m - 1, d));
+    const c = counts.get(key) || 0;
+    if (c) (nDays++, (nQ += c));
+    cells.push(`<span class="d ${lv(c)} ${key === today() ? 'today' : ''}">${d}</span>`);
+  }
+  return {
+    html: `<section class="card">
+      <div class="calhead"><button data-cal="-1" ${idx === 0 ? 'disabled' : ''} aria-label="前の月">‹</button><b>${y}年${m}月</b><button data-cal="1" ${idx === months.length - 1 ? 'disabled' : ''} aria-label="次の月">›</button></div>
+      <div class="cal">${'日月火水木金土'.split('').map((w) => `<span class="wd">${w}</span>`).join('')}${cells.join('')}</div>
+      <p class="legend right"><span>少</span><span><i class="u1"></i><i class="u2"></i><i class="u3"></i><i class="u4"></i></span><span>多</span></p>
+    </section>
+    <section class="card stat">
+      <div><span class="big">${nDays}</span><span>解いた日</span></div>
+      <div><span class="big">${nQ}</span><span>解いた問題</span></div>
+    </section>`,
+    bind: () =>
+      on('[data-cal]', 'click', (e) => {
+        S.calMonth = idx + Number(e.currentTarget.dataset.cal);
+        recordScreen('cal');
+      }),
+  };
+}
+
+function triviaTab() {
+  const answered = new Set(S.logs.map((l) => l.questionId));
+  const active = L.activeQuestions(S.data).filter((q) => q.trivia);
+  const order = new Map(S.data.subjects.flatMap((s) => s.units.map((u) => [u.unitId, u.order])));
+  const seenAll = active.filter((q) => answered.has(q.questionId)).length;
+  const groups = S.data.subjects
+    .map((s) => {
+      const qs = active.filter((q) => q.subjectId === s.subjectId);
+      const seen = qs.filter((q) => answered.has(q.questionId)).sort((a, b) => order.get(a.unitId) - order.get(b.unitId));
+      if (!qs.length) return '';
+      return `<details class="card tvgroup" ${seen.length ? '' : 'data-empty'}>
+        <summary class="spread"><b>${esc(s.name)}</b><span class="small">${seen.length} / ${qs.length}</span></summary>
+        ${seen.map((q) => `<div class="tv"><p class="h">${esc(shortName(unitName(q.unitId)))} ・ ${esc(q.title)}</p><p class="b">${rich(q.trivia)}</p></div>`).join('') || '<p class="note">この科目の問題を解くと、ここに集まります</p>'}
+      </details>`;
+    })
+    .join('');
+  return { html: `<p class="note center">集めた豆知識 ${seenAll} / ${active.length}（問題を解くと、その問題の豆知識がここに集まります）</p>${groups}` };
+}
+
+function achievementsTab() {
+  const list = L.achievements(S.logs, S.data);
+  const fmt = (d) => d.split('-').map(Number).join('/');
+  const detail = (a) => {
+    const p = a.progress;
+    if (!p) return esc(a.desc);
+    if (a.id === 'gap30') return `いちばん長くあけて正解：${p.have}日`;
+    if (a.id === 'unit-mastered') return `いちばん近い単元：${esc(subjectOf(unitSubjectId(p.unitId))?.name)}「${esc(shortName(unitName(p.unitId)))}」 ${p.have}/${p.need}`;
+    if (a.id === 'subject-touched') return `いちばん近い科目：${esc(subjectOf(p.subjectId)?.name)} ${p.have}/${p.need}単元`;
+    return `${p.have} / ${p.need}`;
+  };
+  return {
+    html: `<p class="note center">達成 ${list.filter((a) => a.achievedAt).length} / ${list.length}</p>
+    <section class="card">${list
+      .map(
+        (a) => `<div class="ach ${a.achievedAt ? '' : 'yet'}">
+          <span class="ic">${esc(a.icon)}</span>
+          <span><b>${esc(a.name)}</b><small>${a.achievedAt ? `${esc(a.desc)} ・ ${fmt(a.achievedAt)}` : detail(a)}</small>${a.progress ? `<span class="bar"><i class="bm" style="width:${Math.min(100, (a.progress.have / a.progress.need) * 100)}%"></i></span>` : ''}</span>
+        </div>`,
+      )
+      .join('')}</section>`,
+  };
 }
 
 // ---- セッション・出題・解説 ----
@@ -478,6 +726,18 @@ async function endSession(message = '') {
   ss.rec.endedAt = new Date().toISOString();
   await db.put('sessions', ss.rec);
   const n = (r) => ss.results.filter((x) => x.result === r).length;
+
+  // マップの変化と「今回のよかったこと」（設計図 1.8）
+  const sum = L.sessionSummary(S.logs.filter((l) => l.sessionId !== ss.sessionId), S.logs, S.data, S.settings);
+  const unitLabel = (u) => `${subjectOf(unitSubjectId(u))?.name}「${shortName(unitName(u))}」`;
+  const goods = [];
+  if (sum.recovered) goods.push(['k1', '✓', `前に間違えた${sum.recovered}問に正解した`]);
+  sum.mastered.slice(0, 3).forEach((q) => goods.push(['k2', '定', `「${q.title}」が定着した（7日以上あけて正解）`]));
+  if (sum.mastered.length > 3) goods.push(['k2', '定', `ほかに${sum.mastered.length - 3}問が定着した`]);
+  sum.unlocks.forEach((u) => goods.push(['k3', u.level[0], `${unitLabel(u.unitId)}で${u.level}レベルが出るようになった`]));
+  sum.newAchievements.forEach((a) => goods.push(['k5', '★', `実績「${a.name}」を達成`]));
+  const changes = sum.changes.slice(0, 4);
+
   show(
     `<header class="top"><h1>セッション結果</h1></header>
     ${message ? `<p class="note center">${esc(message)}</p>` : ''}
@@ -487,6 +747,20 @@ async function endSession(message = '') {
       <div><span class="big idk">${n('わからない')}</span><span>わからない</span></div>
     </section>
     <p class="note center">${ss.mode} ／ ${elapsed()}</p>
+    ${
+      changes.length
+        ? `<section class="card"><h2>マップの変化</h2><div class="tiles">${changes
+            .map((c) => unitTile(c.unitId, c.before, { sub: subjectOf(unitSubjectId(c.unitId))?.name }))
+            .join('')}</div></section>`
+        : ''
+    }
+    ${
+      goods.length
+        ? `<section class="card"><h2>今回のよかったこと</h2><ul class="good">${goods
+            .map(([k, mk, text]) => `<li><span class="mk ${k}">${esc(mk)}</span><span>${esc(text)}</span></li>`)
+            .join('')}</ul></section>`
+        : ''
+    }
     <ul class="resultlist">
       ${ss.results.map((x) => `<li><span class="dot ${{ 正解: 'ok', 不正解: 'ng', わからない: 'idk' }[x.result]}"></span><span class="lv lv-${x.q.level}">${x.q.level}</span>${esc(x.q.title)}</li>`).join('')}
     </ul>
@@ -495,6 +769,15 @@ async function endSession(message = '') {
       <button class="btn primary big" data-again>もう1セット</button>
     </div>`,
     () => {
+      // 単元の色を前の段階から後の段階へ変え、よかったことを1行ずつ出す
+      const tiles = app.querySelectorAll('.tiles .tile');
+      setTimeout(() => {
+        changes.forEach((c, i) => {
+          tiles[i].className = `tile u${L.shadeLevel(c.after)}`;
+          tiles[i].querySelector('.lb').textContent = tileLabel(c.after);
+        });
+      }, 500);
+      app.querySelectorAll('.good li').forEach((li, i) => setTimeout(() => li.classList.add('go'), 700 + i * 300));
       on('[data-home]', 'click', () => {
         S.session = null;
         banner.hidden = true;

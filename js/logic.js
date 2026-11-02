@@ -1,5 +1,5 @@
-// 出題・復習・段階解放・取り込みの計算（画面や保存に依存しない部分）
-// 仕様：要件定義書 4章、設計図 1.2〜1.5
+// 出題・復習・段階解放・取り込み・学習の記録の計算（画面や保存に依存しない部分）
+// 仕様：要件定義書 4章、設計図 1.2〜1.5・1.8
 
 export const LEVELS = ['基礎', '応用', '試験'];
 
@@ -229,5 +229,189 @@ export function mergeQuestionData(current, incoming) {
     } else questions.push(q);
   }
   const subjects = [...cur.subjects.filter((s) => !inSubjects.has(s.subjectId)), ...incoming.subjects];
-  return { data: { subjects, questions }, summary };
+  // 知識マップの地図は新しいファイルのもので置き換える。地図のない古いファイルなら今の地図を残す
+  const map = incoming.map || cur.map || null;
+  return { data: { subjects, questions, map }, summary };
+}
+
+// ---- 学習の記録：定着・実績・結果画面（要件定義書 4.8、設計図 1.8） ----
+
+export const MASTERY_DAYS = 7;
+
+export function daysBetween(a, b) {
+  const t = (s) => {
+    const [y, m, d] = s.split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.round((t(b) - t(a)) / 86400000);
+}
+
+// 回答記録（古い順）をたどって問題ごとの状態を作る。
+// 定着：正解で、1つ前の回答も正解、その間が7日以上。不正解・わからないで定着でなくなる。
+// maxGap は「正解→正解」の間があいた日数の最大。onStep(log, p) で途中経過を見られる
+export function questionProgress(logs, onStep) {
+  const map = new Map();
+  for (const l of logs) {
+    const date = localDate(new Date(l.answeredAt));
+    let p = map.get(l.questionId);
+    if (!p) map.set(l.questionId, (p = { answered: 0, lapses: 0, mastered: false, maxGap: 0, lastResult: null, lastDate: null }));
+    if (l.result === '正解') {
+      if (p.lastResult === '正解') {
+        const gap = daysBetween(p.lastDate, date);
+        if (gap >= MASTERY_DAYS) p.mastered = true;
+        p.maxGap = Math.max(p.maxGap, gap);
+      }
+    } else {
+      p.mastered = false;
+      p.lapses++;
+    }
+    p.answered++;
+    p.lastResult = l.result;
+    p.lastDate = date;
+    onStep?.(l, p);
+  }
+  return map;
+}
+
+// 問題の集まり（単元・科目）の定着の状況
+export function groupProgress(questions, prog) {
+  const g = { total: questions.length, mastered: 0, touched: 0 };
+  for (const q of questions) {
+    const p = prog.get(q.questionId);
+    if (!p) continue;
+    g.touched++;
+    if (p.mastered) g.mastered++;
+  }
+  g.learning = g.touched - g.mastered;
+  return g;
+}
+
+// 色の段階：0 未着手／1 学習中（定着0）／2 定着が半分未満／3 半分以上／4 すべて定着
+export function shadeLevel(g) {
+  if (!g.total || !g.touched) return 0;
+  if (!g.mastered) return 1;
+  const r = g.mastered / g.total;
+  return r < 0.5 ? 2 : r < 1 ? 3 : 4;
+}
+
+export const ACHIEVEMENTS = [
+  { id: 'first-correct', icon: '初', name: 'はじめての正解', desc: '1問正解する' },
+  { id: 'first-mastered', icon: '定', name: 'はじめての定着', desc: '7日以上あけて解いても正解できた' },
+  { id: 'first-exam', icon: '試', name: '試験レベルにはじめて正解', desc: '試験レベルの問題に正解する' },
+  { id: 'overcome', icon: '克', name: '苦手を克服', desc: '2回以上間違えた問題が定着した' },
+  { id: 'gap30', icon: '30', name: '30日あけても正解', desc: '正解のあと、30日以上あけて解いても正解' },
+  { id: 'unit-mastered', icon: '全', name: '単元をまるごと定着', desc: '2問以上ある単元で、すべてが定着' },
+  { id: 'subject-touched', icon: '科', name: '1科目の全単元に手を付ける', desc: 'ある科目のすべての単元で1問以上解いた' },
+  { id: 'mastered-10', icon: '10', name: '定着10問', desc: '定着している問題が10問', need: 10 },
+  { id: 'mastered-50', icon: '50', name: '定着50問', desc: '定着している問題が50問', need: 50 },
+  { id: 'mastered-100', icon: '100', name: '定着100問', desc: '定着している問題が100問', need: 100 },
+  { id: 'exam-10', icon: '試', name: '試験レベルを10問定着', desc: '定着している試験レベルの問題が10問', need: 10 },
+  { id: 'trivia-50', icon: '豆', name: '豆知識を50個集める', desc: '解いた問題の豆知識が50個', need: 50 },
+  { id: 'trivia-100', icon: '豆', name: '豆知識を100個集める', desc: '解いた問題の豆知識が100個', need: 100 },
+];
+
+// 実績ごとに、達成日（記録を古い順にたどって最初に条件を満たした日）と、未達成なら途中経過を返す
+export function achievements(logs, data) {
+  const qById = new Map((data?.questions || []).map((q) => [q.questionId, q]));
+  const active = activeQuestions(data);
+  const activeIds = new Set(active.map((q) => q.questionId));
+  const unitTotal = new Map();
+  const subjectUnits = new Map();
+  for (const q of active) {
+    unitTotal.set(q.unitId, (unitTotal.get(q.unitId) || 0) + 1);
+    if (!subjectUnits.has(q.subjectId)) subjectUnits.set(q.subjectId, new Set());
+    subjectUnits.get(q.subjectId).add(q.unitId);
+  }
+  const touchedUnits = new Map([...subjectUnits.keys()].map((s) => [s, new Set()]));
+  const unitMastered = new Map([...unitTotal.keys()].map((u) => [u, new Set()]));
+  const mastered = new Set();
+  const examMastered = new Set();
+  const trivia = new Set();
+  const got = {};
+  let date;
+  const hit = (id) => (got[id] ??= date);
+
+  const prog = questionProgress(logs, (l, p) => {
+    const q = qById.get(l.questionId);
+    if (!q) return;
+    date = localDate(new Date(l.answeredAt));
+    if (l.result === '正解') {
+      hit('first-correct');
+      if (q.level === '試験') hit('first-exam');
+      if (p.maxGap >= 30) hit('gap30');
+    }
+    if (!activeIds.has(q.questionId)) return;
+    if (q.trivia) trivia.add(q.questionId);
+    touchedUnits.get(q.subjectId).add(q.unitId);
+    for (const set of [mastered, unitMastered.get(q.unitId), ...(q.level === '試験' ? [examMastered] : [])]) {
+      if (p.mastered) set.add(q.questionId);
+      else set.delete(q.questionId);
+    }
+    if (p.mastered) {
+      hit('first-mastered');
+      if (p.lapses >= 2) hit('overcome');
+    }
+    if (unitTotal.get(q.unitId) >= 2 && unitMastered.get(q.unitId).size === unitTotal.get(q.unitId)) hit('unit-mastered');
+    if (touchedUnits.get(q.subjectId).size === subjectUnits.get(q.subjectId).size) hit('subject-touched');
+    for (const n of [10, 50, 100]) if (mastered.size >= n) hit(`mastered-${n}`);
+    if (examMastered.size >= 10) hit('exam-10');
+    for (const n of [50, 100]) if (trivia.size >= n) hit(`trivia-${n}`);
+  });
+
+  // 未達成の実績の途中経過
+  const best = (entries) => entries.sort((a, b) => b.have / b.need - a.have / a.need)[0] || null;
+  const progress = {
+    gap30: { have: Math.max(0, ...[...prog.values()].map((p) => p.maxGap)), need: 30 },
+    'unit-mastered': best([...unitTotal].filter(([, t]) => t >= 2).map(([u, t]) => ({ unitId: u, have: unitMastered.get(u).size, need: t }))),
+    'subject-touched': best([...subjectUnits].map(([s, us]) => ({ subjectId: s, have: touchedUnits.get(s).size, need: us.size }))),
+    'exam-10': { have: examMastered.size, need: 10 },
+  };
+  for (const n of [10, 50, 100]) progress[`mastered-${n}`] = { have: mastered.size, need: n };
+  for (const n of [50, 100]) progress[`trivia-${n}`] = { have: trivia.size, need: n };
+
+  return ACHIEVEMENTS.map((a) => ({ ...a, achievedAt: got[a.id] || null, progress: got[a.id] ? null : progress[a.id] || null }));
+}
+
+// 結果画面：セッション前の記録（before）と後の記録（after）を比べる
+export function sessionSummary(before, after, data, settings) {
+  const pb = questionProgress(before);
+  const pa = questionProgress(after);
+  const prev = new Set(before.map((l) => l.logId));
+  const sessionLogs = after.filter((l) => !prev.has(l.logId));
+  const qById = new Map((data?.questions || []).map((q) => [q.questionId, q]));
+  const qs = [...new Set(sessionLogs.map((l) => l.questionId))].map((id) => qById.get(id)).filter(Boolean);
+
+  // 前に間違えた問題（セッション前の最後の回答が不正解・わからない）に正解した
+  const recovered = sessionLogs.filter((l) => l.result === '正解' && ['不正解', 'わからない'].includes(pb.get(l.questionId)?.lastResult));
+  const mastered = qs.filter((q) => pa.get(q.questionId)?.mastered && !pb.get(q.questionId)?.mastered);
+
+  const active = activeQuestions(data);
+  const units = [...new Set(qs.filter((q) => q.status === '出題中').map((q) => q.unitId))];
+  const cb = correctIdSet(before);
+  const ca = correctIdSet(after);
+  const unlocks = [];
+  const changes = [];
+  for (const u of units) {
+    const sb = unitUnlockStatus(u, active, cb, settings);
+    const sa = unitUnlockStatus(u, active, ca, settings);
+    for (const lv of ['応用', '試験']) if (!sb[lv].unlocked && sa[lv].unlocked) unlocks.push({ unitId: u, level: lv });
+    const inUnit = active.filter((q) => q.unitId === u);
+    const gb = groupProgress(inUnit, pb);
+    const ga = groupProgress(inUnit, pa);
+    if (shadeLevel(gb) !== shadeLevel(ga)) changes.push({ unitId: u, before: gb, after: ga });
+  }
+
+  const had = new Set(achievements(before, data).filter((a) => a.achievedAt).map((a) => a.id));
+  const newAchievements = achievements(after, data).filter((a) => a.achievedAt && !had.has(a.id));
+  return { recovered: recovered.length, mastered, unlocks, changes, newAchievements };
+}
+
+// カレンダー：端末の日付ごとの回答数
+export function dailyCounts(logs) {
+  const m = new Map();
+  for (const l of logs) {
+    const d = localDate(new Date(l.answeredAt));
+    m.set(d, (m.get(d) || 0) + 1);
+  }
+  return m;
 }

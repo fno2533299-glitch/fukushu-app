@@ -16,6 +16,9 @@
   --lv1: #3b7d4f;
   --lv2: #2f6fdf;
   --lv3: #b0472c;
+  /* 定着の濃淡（1色の段階）と知識マップの地図 */
+  --m1: #e4ecfb; --m2: #b9cdf4; --m3: #6f97e8; --m4: #2f5fc4; --m-on-dark: #ffffff;
+  --sea: #edf2f7; --land: #fbfaf6; --coast: #d6d2c6;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -36,6 +39,8 @@
     --lv1: #6cc28a;
     --lv2: #7aa6f5;
     --lv3: #f08a6c;
+    --m1: #26324a; --m2: #2f4775; --m3: #3f66b5; --m4: #6f9cf2; --m-on-dark: #10131a;
+    --sea: #1d2128; --land: #2b2f35; --coast: #444951;
   }
 }
 
@@ -205,3 +210,78 @@ button.choice:active { border-color: var(--primary); }
 
 .katex { font-size: 1.05em; }
 .katex-display { overflow-x: auto; overflow-y: hidden; }
+
+/* 記録：知識マップ・カレンダー・豆知識・実績（要件定義書 4.8） */
+.spread { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 0; }
+.small { font-size: 0.8rem; color: var(--muted); }
+.bar { display: flex; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 6px 0 4px; }
+.bar i { display: block; height: 100%; }
+.bar .bm { background: var(--m4); } .bar .bl { background: var(--m2); }
+.mapcard { display: block; width: 100%; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; margin: 12px 0; }
+.mapcard b { font-size: 1rem; }
+.mapcard .go { color: var(--primary); font-size: 0.9rem; }
+
+.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 3px; margin-bottom: 8px; background: var(--line); border-radius: 10px; }
+.tabs button { border: 0; background: none; border-radius: 8px; padding: 6px 0; font-size: 0.85rem; }
+.tabs button.on { background: var(--card); font-weight: 600; }
+
+.card.map { padding: 0; overflow: hidden; }
+.maphead { padding: 10px 14px 6px; }
+.kmap { display: block; width: 100%; height: auto; background: var(--sea); }
+.kmap .node { cursor: pointer; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.75rem; color: var(--muted); margin: 0 4px 8px; }
+.card.map .legend { padding: 8px 14px 10px; margin: 0; }
+.legend.right { justify-content: flex-end; margin-top: 8px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; border: 1px solid var(--line); }
+.subjrow { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 8px 0 4px; }
+.subjrow:first-of-type { border-top: 0; }
+
+.u0 { background: var(--card); } .u1 { background: var(--m1); } .u2 { background: var(--m2); } .u3 { background: var(--m3); } .u4 { background: var(--m4); }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tile { display: flex; flex-direction: column; justify-content: space-between; min-height: 80px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; transition: background-color .9s ease, color .9s ease; }
+.tile.u3, .tile.u4 { color: var(--m-on-dark); }
+.tile .sj { font-size: 0.7rem; opacity: 0.8; }
+.tile .nm { font-size: 0.82rem; line-height: 1.35; font-weight: 600; }
+.tile .ft { display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; margin-top: 6px; }
+.tile.none { opacity: 0.45; border-style: dashed; }
+.chips { display: flex; gap: 2px; }
+.chip { width: 16px; height: 16px; line-height: 16px; text-align: center; font-size: 0.62rem; border-radius: 4px; background: rgba(127,127,127,.18); opacity: 0.55; }
+.chip.on { opacity: 1; color: #fff; }
+.chip.on.l1 { background: var(--lv1); } .chip.on.l2 { background: var(--lv2); } .chip.on.l3 { background: var(--lv3); }
+
+.good { list-style: none; padding: 0; margin: 0; }
+.good li { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 0.92rem; line-height: 1.5; opacity: 0; transform: translateY(6px); transition: opacity .5s, transform .5s; }
+.good li:last-child { border-bottom: 0; }
+.good li.go { opacity: 1; transform: none; }
+.good .mk { flex: none; width: 22px; height: 22px; margin-top: 1px; border-radius: 6px; text-align: center; line-height: 22px; font-size: 0.75rem; font-weight: 700; color: #fff; }
+.mk.k1 { background: var(--ok); } .mk.k2 { background: var(--m4); } .mk.k3 { background: var(--lv2); } .mk.k5 { background: var(--idk); }
+
+.calhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.calhead button { background: none; border: 0; color: var(--primary); font-size: 1.2rem; padding: 2px 12px; }
+.calhead button:disabled { visibility: hidden; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+.cal .wd { font-size: 0.7rem; color: var(--muted); }
+.cal .d { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 8px; font-size: 0.72rem; }
+.cal .d.u3, .cal .d.u4 { color: var(--m-on-dark); }
+.cal .d.today { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+.tvgroup summary { list-style: none; cursor: pointer; }
+.tvgroup summary::-webkit-details-marker { display: none; }
+.tvgroup[data-empty] { opacity: 0.6; }
+.tv { padding: 8px 0; border-top: 1px solid var(--line); }
+.tvgroup summary + .tv { margin-top: 8px; }
+.tv .h { font-size: 0.75rem; color: var(--muted); margin: 0; }
+.tv .b { font-size: 0.92rem; line-height: 1.6; background: var(--trivia-bg); border-radius: 8px; padding: 8px 10px; margin: 4px 0 0; }
+
+.ach { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.ach:last-child { border-bottom: 0; }
+.ach > span:last-child { display: flex; flex-direction: column; flex: 1; }
+.ach small { font-size: 0.78rem; color: var(--muted); }
+.ach .ic { flex: none; display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--m4); color: var(--m4); font-weight: 700; font-size: 0.85rem; }
+.ach.yet .ic { border: 2px dashed var(--line); color: var(--muted); }
+.ach.yet b { color: var(--muted); font-weight: 400; }
+.ach .bar { width: 140px; height: 5px; margin: 4px 0 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tile, .good li { transition: none; }
+}
