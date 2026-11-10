@@ -221,8 +221,8 @@ button.choice:active { border-color: var(--primary); }
 .mapcard b { font-size: 1rem; }
 .mapcard .go { color: var(--primary); font-size: 0.9rem; }
 
-.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 3px; margin-bottom: 8px; background: var(--line); border-radius: 10px; }
-.tabs button { border: 0; background: none; border-radius: 8px; padding: 6px 0; font-size: 0.85rem; }
+.tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; padding: 3px; margin-bottom: 8px; background: var(--line); border-radius: 10px; }
+.tabs button { border: 0; background: none; border-radius: 8px; padding: 6px 0; font-size: 0.8rem; white-space: nowrap; }
 .tabs button.on { background: var(--card); font-weight: 600; }
 
 .card.map { padding: 0; overflow: hidden; }
@@ -285,3 +285,30 @@ button.choice:active { border-color: var(--primary); }
 @media (prefers-reduced-motion: reduce) {
   .tile, .good li { transition: none; }
 }
+
+/* ホームのさっと出題（1問目をそのまま出しておく） */
+.card.quick { padding-top: 10px; }
+.card.quick .stem { margin: 6px 0 12px; }
+.card.quick .idk { margin-top: 12px; min-height: 44px; }
+
+/* 外部試験：合格まであと何点 */
+.mapcard.exam .erow { display: block; margin-top: 6px; }
+.erow.big { padding: 8px 0; border-top: 1px solid var(--line); }
+.erow.big:first-of-type { border-top: 0; }
+.erow b { font-variant-numeric: tabular-nums; }
+.erow .ok, .egain .ok { color: var(--ok); }
+.ebar {
+  position: relative; display: flex; height: 10px; margin: 6px 0 4px; border-radius: 5px;
+  background: repeating-linear-gradient(135deg, var(--line) 0 3px, transparent 3px 7px);
+}
+.ebar i { display: block; height: 100%; }
+.ebar i:first-child { border-radius: 5px 0 0 5px; }
+.ebar .g { background: var(--m4); }
+.ebar .r { background: var(--m1); outline: 1px solid var(--line); outline-offset: -1px; }
+.ebar .pass { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 1px; }
+.legend i.g { background: var(--m4); } .legend i.r { background: var(--m1); }
+.legend i.n { background: repeating-linear-gradient(135deg, var(--line) 0 2px, transparent 2px 4px); }
+.legend i.p { width: 3px; background: var(--text); border: 0; }
+.egain { text-align: center; font-size: 0.92rem; margin: 0 0 8px; }
+.tag.exam { color: var(--lv3); border-color: var(--lv3); }
+.mk.k4 { background: var(--lv3); }

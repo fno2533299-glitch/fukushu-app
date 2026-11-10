@@ -117,6 +117,48 @@ function ctx(extra = {}) {
 
 // ---- ホーム ----
 
+// ホームの一番上に出しておく「さっと出題」の1問目。答えるとそのままセットが始まる
+function quickCardHtml() {
+  if (!S.preview) {
+    const q = L.pickNext('さっと', ctx());
+    S.preview = q ? { q, order: L.shuffle(q.choices) } : null;
+  }
+  if (!S.preview) return '<section class="card"><p class="note">いま出せる問題がありません（「出題対象の設定」を確認してください）</p></section>';
+  const { q, order } = S.preview;
+  return `<section class="card quick">
+      <p class="spread small"><span>さっと${S.settings.quickSize}問 ・ 1問目</span><span class="lv lv-${q.level}">${q.level}</span></p>
+      ${figureHtml(q)}
+      <div class="stem">${rich(q.stem)}</div>
+      <div class="choices">
+        ${order.map((c, i) => `<button class="choice" data-qchoice="${esc(c.choiceId)}"><span class="mark">${'ABCD'[i]}</span><span>${rich(c.text)}</span></button>`).join('')}
+      </div>
+      <button class="btn idk" data-qidk>わからない</button>
+    </section>`;
+}
+
+// 外部試験の「合格まであと何点」（行の一覧。compact はホーム用）
+function examBar(r) {
+  const pct = (n) => Math.min(100, (n / r.full) * 100);
+  return `<span class="ebar"><i class="g" style="width:${pct(r.got)}%"></i><i class="r" style="width:${pct(r.made - r.got)}%"></i><b class="pass" style="left:${pct(r.pass)}%"></b></span>`;
+}
+function examLeft(r) {
+  return r.got >= r.pass ? '<b class="ok">合格点に到達</b>' : `合格まで あと<b>${r.pass - r.got}</b>点`;
+}
+
+function examCardHtml() {
+  const rows = L.examScores(S.data, S.logs);
+  if (!rows.length) return '';
+  const names = [...new Set(rows.map((r) => r.examName))];
+  return `<button class="mapcard exam" data-go="exam">
+      <span class="spread"><b>${esc(names.join('・'))}</b><span class="go">くわしく ›</span></span>
+      ${rows
+        .slice(0, 4)
+        .map((r) => `<span class="erow"><span class="spread small"><span>${names.length > 1 ? esc(r.examName) + ' ' : ''}${esc(r.subject)}（${r.year}年）</span><span>${examLeft(r)}</span></span>${examBar(r)}</span>`)
+        .join('')}
+      ${rows.length > 4 ? `<span class="small">ほか ${rows.length - 4}件</span>` : ''}
+    </button>`;
+}
+
 function home() {
   stopTimer();
   if (!S.data || L.activeQuestions(S.data).length === 0) return dataScreen();
@@ -127,18 +169,20 @@ function home() {
   const ach = L.achievements(S.logs, S.data);
   show(
     `<header class="top"><h1>復習アプリ</h1></header>
-    <section class="card stat">
-      <div><span class="big">${due}</span><span>復習期限の問題</span></div>
-      <div><span class="big">${todayLogs.length}</span><span>今日解いた問題</span></div>
-      <div><span class="big">${total}</span><span>出題中の問題</span></div>
-    </section>
+    ${quickCardHtml()}
+    ${examCardHtml()}
     <button class="mapcard" data-go="record">
       <span class="spread"><b>知識マップ</b><span class="go">記録を見る ›</span></span>
       ${barHtml(g)}
       <span class="spread small"><span>定着 ${g.mastered} ・ 学習中 ${g.learning} ／ ${g.total}問</span><span>実績 ${ach.filter((a) => a.achievedAt).length} / ${ach.length}</span></span>
     </button>
+    <section class="card stat">
+      <div><span class="big">${due}</span><span>復習期限の問題</span></div>
+      <div><span class="big">${todayLogs.length}</span><span>今日解いた問題</span></div>
+      <div><span class="big">${total}</span><span>出題中の問題</span></div>
+    </section>
     <nav class="menu">
-      <button class="btn primary big" data-go="おまかせ">おまかせ</button>
+      <button class="btn big" data-go="おまかせ">おまかせ<small>${S.settings.questionsPerSet}問</small></button>
       <button class="btn big" data-go="復習優先">復習優先<small>${due}問</small></button>
       <button class="btn big" data-go="select">科目・単元指定</button>
     </nav>
@@ -146,18 +190,28 @@ function home() {
       <button class="btn" data-go="target">出題対象の設定</button>
       <button class="btn" data-go="data">データ管理</button>
     </nav>`,
-    () =>
+    () => {
+      bindFigureZoom();
+      const quick = async (choiceId) => {
+        const first = S.preview;
+        S.preview = null;
+        await startSession('さっと', null, first);
+        answer(choiceId);
+      };
+      on('[data-qchoice]', 'click', (e) => quick(e.currentTarget.dataset.qchoice));
+      on('[data-qidk]', 'click', () => quick(null));
       on('[data-go]', 'click', (e) => {
         const g = e.currentTarget.dataset.go;
         if (g === 'select') selectScreen();
         else if (g === 'target') targetScreen();
         else if (g === 'data') dataScreen();
-        else if (g === 'record') {
+        else if (g === 'record' || g === 'exam') {
           S.calMonth = null;
-          recordScreen('map');
+          recordScreen(g === 'exam' ? 'exam' : 'map');
         } else if (g === '復習優先' && due === 0) toast('期限の来た問題はありません');
         else startSession(g, null);
-      }),
+      });
+    },
   );
 }
 
@@ -280,13 +334,17 @@ function targetScreen() {
     </section>
     <section class="card">
       <h2>セット</h2>
-      <label class="row"><span>1セットの問題数</span><input type="number" min="1" max="50" inputmode="numeric" data-num="questionsPerSet" value="${st.questionsPerSet}"></label>
+      <label class="row"><span>さっと出題の問題数（ホームの1問目から）</span><input type="number" min="1" max="20" inputmode="numeric" data-num="quickSize" value="${st.quickSize}"></label>
+      <label class="row"><span>1セットの問題数（おまかせ・復習優先・指定）</span><input type="number" min="1" max="50" inputmode="numeric" data-num="questionsPerSet" value="${st.questionsPerSet}"></label>
       <label class="row"><span>時間の目安（分）</span><input type="number" min="1" max="60" inputmode="numeric" data-num="sessionMinutes" value="${st.sessionMinutes}"></label>
       <label class="row"><span>再出題の間隔（日）</span><input type="text" inputmode="numeric" data-intervals value="${st.intervals.join(',')}"></label>
     </section>`,
     () => {
       on('[data-back]', 'click', home);
-      const save = () => db.putKV('settings', S.settings);
+      const save = () => {
+        S.preview = null; // 出題対象が変わったら、ホームの1問目も選び直す
+        return db.putKV('settings', S.settings);
+      };
       on('[data-level]', 'change', (e) => {
         st.levelEnabled[e.target.dataset.level] = e.target.checked;
         save();
@@ -327,8 +385,8 @@ const SHADE_FILL = ['var(--card)', 'var(--m1)', 'var(--m2)', 'var(--m3)', 'var(-
 const SHADE_LEGEND = `<p class="legend"><span><i class="u0"></i>未着手</span><span><i class="u1"></i>学習中</span><span><i class="u2"></i>定着 半分未満</span><span><i class="u3"></i>半分以上</span><span><i class="u4"></i>すべて定着</span></p>`;
 
 function recordScreen(tab) {
-  const tabs = [['map', 'マップ'], ['cal', 'カレンダー'], ['trivia', '豆知識'], ['ach', '実績']];
-  const body = { map: mapTab, cal: calendarTab, trivia: triviaTab, ach: achievementsTab }[tab]();
+  const tabs = [['map', 'マップ'], ...(L.examScores(S.data, S.logs).length ? [['exam', '試験']] : []), ['cal', 'カレンダー'], ['trivia', '豆知識'], ['ach', '実績']];
+  const body = { map: mapTab, exam: examTab, cal: calendarTab, trivia: triviaTab, ach: achievementsTab }[tab]();
   show(
     `<header class="top"><button class="back" data-back>‹ ホーム</button><h1>記録</h1></header>
     <nav class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${n}</button>`).join('')}</nav>
@@ -464,6 +522,31 @@ function subjectMapScreen(subjectId) {
   );
 }
 
+// 外部試験：過去問を改題した問題で測った「合格まであと何点」
+function examTab() {
+  const rows = L.examScores(S.data, S.logs);
+  const groups = [...new Set(rows.map((r) => r.examName))];
+  return {
+    html: `${groups
+      .map(
+        (name) => `<section class="card"><h2>${esc(name)}</h2>${rows
+          .filter((r) => r.examName === name)
+          .map(
+            (r) => `<div class="erow big">
+              <p class="spread"><b>${esc(r.subject)}（${r.year}年）</b><span>${examLeft(r)}</span></p>
+              ${examBar(r)}
+              <p class="small">取れる点 ${r.got} ／ 合格 ${r.pass} ／ 満点 ${r.full}</p>
+              <p class="small">問題がある範囲 ${r.made}点分（${r.items}問）・ 解いた範囲 ${r.tried}点分${r.made < r.pass ? ' ・ 合格点まで届くには、問題の追加が必要' : ''}</p>
+            </div>`,
+          )
+          .join('')}</section>`,
+      )
+      .join('')}
+    <p class="legend"><span><i class="g"></i>取れる点</span><span><i class="r"></i>まだ取れていない点</span><span><i class="n"></i>問題がまだない範囲</span><span><i class="p"></i>合格点</span></p>
+    <p class="note">その年の過去問を空欄ごとに4択にした問題で測っています。最後に解いた結果が正解の空欄の点だけを足すので、間違えたり「わからない」を押したりした空欄は、次に正解するまで数えません。</p>`,
+  };
+}
+
 function calendarTab() {
   const counts = L.dailyCounts(S.logs);
   const now = new Date();
@@ -557,7 +640,7 @@ function checkTimer() {
   if (!ss) return;
   const clock = app.querySelector('.clock');
   if (clock) clock.textContent = elapsed();
-  if (ss.timeNotified) return;
+  if (ss.timeNotified || ss.mode === 'さっと') return;
   if (Date.now() - ss.startMs >= S.settings.sessionMinutes * 60000) {
     ss.timeNotified = true;
     banner.className = 'banner time';
@@ -567,15 +650,22 @@ function checkTimer() {
   }
 }
 
-async function startSession(mode, scope) {
+// first：ホームに出しておいた1問目（さっと出題）。あれば、その問題から始める
+async function startSession(mode, scope, first = null) {
   const now = new Date();
   const rec = { sessionId: uid(), mode, scope: scope || null, startedAt: now.toISOString(), endedAt: null };
-  S.session = { ...rec, rec, startMs: now.getTime(), asked: [], results: [], timeNotified: false };
+  const size = mode === 'さっと' ? S.settings.quickSize : S.settings.questionsPerSet;
+  S.session = { ...rec, rec, size, startMs: now.getTime(), asked: [], results: [], timeNotified: false };
   banner.hidden = true;
   S.sessions.push(rec);
   await db.put('sessions', rec);
   stopTimer();
   timerId = setInterval(checkTimer, 1000);
+  if (first) {
+    S.session.asked.push(first.q.questionId);
+    S.session.current = { ...first };
+    return;
+  }
   nextQuestion();
 }
 
@@ -585,7 +675,7 @@ function sessionCtx() {
 
 function nextQuestion() {
   const ss = S.session;
-  if (ss.asked.length >= S.settings.questionsPerSet) return endSession();
+  if (ss.asked.length >= ss.size) return endSession();
   const q = L.pickNext(ss.mode, sessionCtx());
   if (!q) return endSession(ss.asked.length === 0 ? '出せる問題がありません' : '');
   ss.asked.push(q.questionId);
@@ -606,9 +696,9 @@ function elapsed() {
 function questionScreen() {
   const ss = S.session;
   const { q, order } = ss.current;
-  const hideTags = ss.mode === 'おまかせ';
+  const hideTags = ss.mode === 'おまかせ' || ss.mode === 'さっと';
   show(
-    `<header class="quizbar"><span>${ss.asked.length} / ${S.settings.questionsPerSet}</span><span class="lv lv-${q.level}">${q.level}</span><span class="clock">${elapsed()}</span><button class="btn small" data-end>終了</button></header>
+    `<header class="quizbar"><span>${ss.asked.length} / ${ss.size}</span><span class="lv lv-${q.level}">${q.level}</span><span class="clock">${elapsed()}</span><button class="btn small" data-end>終了</button></header>
     ${metaHtml(q, hideTags)}
     ${figureHtml(q)}
     <div class="stem">${rich(q.stem)}</div>
@@ -657,10 +747,17 @@ function answerScreen() {
   const { q, order, choiceId, result } = ss.current;
   const cls = { 正解: 'ok', 不正解: 'ng', わからない: 'idk' }[result];
   const label = { 正解: '正解！', 不正解: '不正解', わからない: 'わからない' }[result];
-  const last = ss.asked.length >= S.settings.questionsPerSet;
+  const last = ss.asked.length >= ss.size;
+  const ex = L.examItemInfo(S.data, q);
+  let gain = '';
+  if (ex && result === '正解') {
+    const r = L.examScores(S.data, S.logs).find((x) => x.key === ex.key);
+    if (r) gain = `<p class="egain">${esc(r.subject)}（${r.year}年）の ${ex.points}点を確保 ・ ${examLeft(r)}</p>`;
+  }
   show(
-    `<header class="quizbar"><span>${ss.asked.length} / ${S.settings.questionsPerSet}</span><span class="lv lv-${q.level}">${q.level}</span><span class="clock">${elapsed()}</span><button class="btn small" data-end>終了</button></header>
+    `<header class="quizbar"><span>${ss.asked.length} / ${ss.size}</span><span class="lv lv-${q.level}">${q.level}</span><span class="clock">${elapsed()}</span><button class="btn small" data-end>終了</button></header>
     <div class="verdict ${cls}">${label}</div>
+    ${gain}
     <div class="choices done">
       ${order
         .map((c, i) => {
@@ -676,6 +773,7 @@ function answerScreen() {
       <p><b>${esc(q.title)}</b></p>
       <p>${esc(subjectOf(q.subjectId)?.name)} ／ ${esc(unitName(q.unitId))}${(q.subUnitIds || []).map((u) => '・' + esc(unitName(u))).join('')}</p>
       <p>${esc(q.kind)}${(q.tags || []).length ? ' ／ 関連：' + q.tags.map(esc).join('・') : ''}${q.examRelevant ? ' ／ <span class="tag ok">試験で出題</span>' : ''}</p>
+      ${ex ? `<p><span class="tag exam">${esc(ex.examName)} ${ex.year}年 ${esc(ex.subject)} ${esc(ex.problem || '')} ${esc(ex.blank || '')} ・ ${ex.points}点</span></p>` : ''}
       <p class="src">出典（${esc(q.sourceKind)}）：${esc(q.source)}</p>
       <p class="src">${esc(q.questionId)} 第${q.revision}版</p>
     </section>
@@ -723,6 +821,7 @@ function reportDialog(q) {
 async function endSession(message = '') {
   const ss = S.session;
   stopTimer();
+  ss.ended = true;
   ss.rec.endedAt = new Date().toISOString();
   await db.put('sessions', ss.rec);
   const n = (r) => ss.results.filter((x) => x.result === r).length;
@@ -735,6 +834,9 @@ async function endSession(message = '') {
   sum.mastered.slice(0, 3).forEach((q) => goods.push(['k2', '定', `「${q.title}」が定着した（7日以上あけて正解）`]));
   if (sum.mastered.length > 3) goods.push(['k2', '定', `ほかに${sum.mastered.length - 3}問が定着した`]);
   sum.unlocks.forEach((u) => goods.push(['k3', u.level[0], `${unitLabel(u.unitId)}で${u.level}レベルが出るようになった`]));
+  sum.examGains.forEach((r) =>
+    goods.push(['k4', '点', `${r.examName} ${r.subject}（${r.year}年）で +${r.gain}点 → ${r.got >= r.pass ? '合格点に到達！' : `合格まであと${r.pass - r.got}点`}`]),
+  );
   sum.newAchievements.forEach((a) => goods.push(['k5', '★', `実績「${a.name}」を達成`]));
   const changes = sum.changes.slice(0, 4);
 
@@ -746,7 +848,7 @@ async function endSession(message = '') {
       <div><span class="big ng">${n('不正解')}</span><span>不正解</span></div>
       <div><span class="big idk">${n('わからない')}</span><span>わからない</span></div>
     </section>
-    <p class="note center">${ss.mode} ／ ${elapsed()}</p>
+    <p class="note center">${ss.mode === 'さっと' ? `さっと${ss.size}問` : ss.mode} ／ ${elapsed()}</p>
     ${
       changes.length
         ? `<section class="card"><h2>マップの変化</h2><div class="tiles">${changes
@@ -765,8 +867,8 @@ async function endSession(message = '') {
       ${ss.results.map((x) => `<li><span class="dot ${{ 正解: 'ok', 不正解: 'ng', わからない: 'idk' }[x.result]}"></span><span class="lv lv-${x.q.level}">${x.q.level}</span>${esc(x.q.title)}</li>`).join('')}
     </ul>
     <div class="actions">
-      <button class="btn" data-home>ホームへ</button>
-      <button class="btn primary big" data-again>もう1セット</button>
+      <button class="btn" data-home>${ss.mode === 'さっと' ? '終わる' : 'ホームへ'}</button>
+      <button class="btn primary big" data-again>${ss.mode === 'さっと' ? `もう${ss.size}問` : 'もう1セット'}</button>
     </div>`,
     () => {
       // 単元の色を前の段階から後の段階へ変え、よかったことを1行ずつ出す
@@ -785,6 +887,7 @@ async function endSession(message = '') {
       });
       on('[data-again]', 'click', () => {
         if (ss.mode === '復習優先' && L.countDue(ctx()) === 0) return toast('期限の来た問題はありません');
+        if (ss.mode === 'さっと' && !L.pickNext('さっと', ctx())) return toast('いま出せる問題がありません');
         startSession(ss.mode, ss.scope);
       });
     },
@@ -929,6 +1032,7 @@ async function importFlow() {
       on('[data-ok]', 'click', async () => {
         data.importedAt = new Date().toISOString();
         S.data = data;
+        S.preview = null;
         await db.putKV('questionData', data);
         navigator.storage?.persist?.();
         toast('問題データを読み込みました');
@@ -1011,10 +1115,25 @@ async function load() {
   S.sessions = all.sessions;
   S.reports = all.issueReports;
   S.lastBackup = all.lastBackup;
+  S.preview = null;
 }
 
+// しばらく閉じていたあとに開いたら、ホーム（さっと出題の1問目）から始める。解いている途中なら、そのまま続ける
+const REOPEN_HOME_MS = 10 * 60000;
+let hiddenAt = null;
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) checkTimer();
+  if (document.hidden) {
+    hiddenAt = Date.now();
+    return;
+  }
+  checkTimer();
+  const away = hiddenAt != null && Date.now() - hiddenAt >= REOPEN_HOME_MS;
+  hiddenAt = null;
+  if (away && S.data && (!S.session || S.session.ended) && !document.querySelector('.modal, .zoom')) {
+    S.session = null;
+    banner.hidden = true;
+    home();
+  }
 });
 
 try {

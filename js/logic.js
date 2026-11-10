@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS = {
   unlockThreshold: null, // null は「半数（切り上げ、最低1問）」
   sessionMinutes: 7,
   questionsPerSet: 10,
+  quickSize: 3, // ホームの「さっと出題」の問題数
   intervals: [1, 3, 7, 14, 30],
   subjectTarget: {}, // subjectId → false で対象外（未設定は対象）
   unitTarget: {}, // unitId → false で対象外
@@ -141,6 +142,8 @@ export function candidates(mode, ctx) {
 }
 
 export function pickNext(mode, ctx) {
+  // さっと出題：期限の来た問題を先に、なければおまかせ
+  if (mode === 'さっと') return pickNext('復習優先', ctx) || pickNext('おまかせ', ctx);
   const rng = ctx.rng || Math.random;
   const list = candidates(mode, ctx);
   if (list.length === 0) return null;
@@ -187,6 +190,7 @@ export function validateQuestionFile(json) {
   if (json?.format !== 'fukushu-questions') return ['問題データのファイルではありません（format が違います）'];
   if (!Array.isArray(json.subjects) || !Array.isArray(json.questions)) return ['subjects / questions がありません'];
   const unitIds = new Set(json.subjects.flatMap((s) => (s.units || []).map((u) => u.unitId)));
+  const papers = new Set((json.exams || []).flatMap((ex) => (ex.papers || []).map((p) => paperKey({ examId: ex.examId, ...p }))));
   const seen = new Set();
   for (const q of json.questions) {
     const id = q.questionId || '(IDなし)';
@@ -198,6 +202,11 @@ export function validateQuestionFile(json) {
     else if (!q.choices.some((c) => c.choiceId === q.correctChoiceId)) errors.push(`${id}: 正解の選択肢がありません`);
     if (!unitIds.has(q.unitId)) errors.push(`${id}: 単元 ${q.unitId} が定義されていません`);
     if (!['出題中', '保留', '廃止'].includes(q.status)) errors.push(`${id}: status が不正です`);
+    if (q.examItem != null) {
+      const e = q.examItem;
+      if (!(typeof e.points === 'number' && e.points > 0)) errors.push(`${id}: examItem の points が不正です`);
+      else if (!papers.has(paperKey(e))) errors.push(`${id}: 外部試験 ${e.examId} ${e.year}年 ${e.subject} が exams に定義されていません`);
+    }
   }
   return errors;
 }
@@ -231,7 +240,9 @@ export function mergeQuestionData(current, incoming) {
   const subjects = [...cur.subjects.filter((s) => !inSubjects.has(s.subjectId)), ...incoming.subjects];
   // 知識マップの地図は新しいファイルのもので置き換える。地図のない古いファイルなら今の地図を残す
   const map = incoming.map || cur.map || null;
-  return { data: { subjects, questions, map }, summary };
+  // 外部試験の定義（合格点など）も同じ扱い
+  const exams = incoming.exams || cur.exams || [];
+  return { data: { subjects, questions, map, exams }, summary };
 }
 
 // ---- 学習の記録：定着・実績・結果画面（要件定義書 4.8、設計図 1.8） ----
@@ -403,7 +414,13 @@ export function sessionSummary(before, after, data, settings) {
 
   const had = new Set(achievements(before, data).filter((a) => a.achievedAt).map((a) => a.id));
   const newAchievements = achievements(after, data).filter((a) => a.achievedAt && !had.has(a.id));
-  return { recovered: recovered.length, mastered, unlocks, changes, newAchievements };
+
+  // 外部試験の点が増えた年度・科目
+  const eb = new Map(examScores(data, before).map((r) => [r.key, r]));
+  const examGains = examScores(data, after)
+    .filter((r) => r.got > (eb.get(r.key)?.got ?? 0))
+    .map((r) => ({ ...r, gain: r.got - (eb.get(r.key)?.got ?? 0) }));
+  return { recovered: recovered.length, mastered, unlocks, changes, newAchievements, examGains };
 }
 
 // カレンダー：端末の日付ごとの回答数
@@ -414,4 +431,45 @@ export function dailyCounts(logs) {
     m.set(d, (m.get(d) || 0) + 1);
   }
   return m;
+}
+
+// ---- 外部試験の物差し：過去問の改題で「合格まであと何点」 ----
+// data.exams = [{ examId, name, papers: [{ year, subject, full, pass }] }]
+// 問題の examItem = { examId, year, subject, problem, blank, points }（過去問の空欄1つ分）
+// 取れる点：最後に解いた結果が「正解」の空欄の点の合計（今の実力。間違えるとその空欄は数えない）
+
+export function paperKey(e) {
+  return `${e.examId}|${e.year}|${e.subject}`;
+}
+
+// 問題が1つ以上ある年度・科目ごとに { key, examId, examName, year, subject, full, pass, made, tried, got, items }
+export function examScores(data, logs) {
+  const rows = new Map();
+  for (const ex of data?.exams || []) {
+    for (const p of ex.papers || []) {
+      const key = paperKey({ examId: ex.examId, ...p });
+      rows.set(key, { key, examId: ex.examId, examName: ex.name, year: p.year, subject: p.subject, full: p.full, pass: p.pass, made: 0, tried: 0, got: 0, items: 0 });
+    }
+  }
+  if (!rows.size) return [];
+  const prog = questionProgress(logs);
+  for (const q of activeQuestions(data)) {
+    const r = q.examItem && rows.get(paperKey(q.examItem));
+    if (!r) continue;
+    r.made += q.examItem.points;
+    r.items++;
+    const p = prog.get(q.questionId);
+    if (!p) continue;
+    r.tried += q.examItem.points;
+    if (p.lastResult === '正解') r.got += q.examItem.points;
+  }
+  return [...rows.values()].filter((r) => r.items > 0);
+}
+
+// 1問分の外部試験の情報（表示用）。定義がなければ null
+export function examItemInfo(data, q) {
+  const e = q.examItem;
+  if (!e) return null;
+  const ex = (data?.exams || []).find((x) => x.examId === e.examId);
+  return ex ? { ...e, examName: ex.name, key: paperKey(e) } : null;
 }
