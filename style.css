@@ -312,3 +312,73 @@ button.choice:active { border-color: var(--primary); }
 .egain { text-align: center; font-size: 0.92rem; margin: 0 0 8px; }
 .tag.exam { color: var(--lv3); border-color: var(--lv3); }
 .mk.k4 { background: var(--lv3); }
+
+/* 1.3.0：解き始めやすくする */
+.top .streak { margin-left: auto; font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+.top .streak b { color: var(--text); font-size: 0.95rem; }
+.readyline { display: block; margin-top: 2px; }
+.spark { color: var(--spark); fill: var(--spark); text-shadow: 0 0 6px var(--spark-glow); animation: twinkle 2.6s ease-in-out infinite; }
+svg .spark { text-shadow: none; filter: drop-shadow(0 0 2px var(--spark-glow)); }
+@keyframes twinkle { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+
+button.tile { width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+button.tile:active { border-color: var(--primary); }
+.tile { position: relative; }
+.tile .tsp { position: absolute; top: 4px; right: 7px; font-size: 0.85rem; line-height: 1; }
+.tile .tsp ~ .nm { padding-right: 14px; }
+.tile.u3 .tsp, .tile.u4 .tsp { color: #ffd84d; text-shadow: 0 0 5px rgba(0, 0, 0, .35); }
+.unitnow { margin: 12px 0 0; }
+.tile.mini { min-height: 0; max-width: 60%; padding: 6px 10px; }
+.tile.mini .nm { font-size: 0.78rem; }
+.tile.mini .ft { margin-top: 2px; }
+
+.quizbar .endbtn { margin-left: auto; }
+.row input[type=radio] + span small { display: block; line-height: 1.5; }
+.mapcard .go { white-space: nowrap; }
+
+.streakline { text-align: center; font-size: 0.9rem; color: var(--muted); margin: 0 0 4px; }
+.streakline b { color: var(--text); font-size: 1.05rem; }
+.mk.k6 { background: var(--primary); }
+
+/* テーマ「演出あり」：色・正解の光・結果画面の演出（「シンプル」は今までどおり、出題中の演出なし） */
+:root { --spark: #c99400; --spark-glow: rgba(255, 196, 0, .45); --glow: rgba(30, 138, 76, .45); }
+@media (prefers-color-scheme: dark) {
+  :root { --spark: #f2c14e; --spark-glow: rgba(255, 210, 80, .5); --glow: rgba(92, 201, 138, .5); }
+}
+:root[data-theme=fx] {
+  --bg: #f4f1fa; --card: #ffffff; --line: #e1dbee;
+  --primary: #6a4fd6; --trivia-bg: #f1ecfb;
+  --m1: #ebe5fb; --m2: #c9bbf3; --m3: #8f72e4; --m4: #5a3cc4;
+  --sea: #e9e4f6; --land: #fdfcff; --coast: #d5cce8;
+  --glow: rgba(40, 170, 90, .55);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme=fx] {
+    --bg: #17141f; --card: #221e2e; --line: #3a3449;
+    --primary: #9a83f7; --trivia-bg: #2c2540;
+    --m1: #2b2445; --m2: #43367a; --m3: #6b52c4; --m4: #a28cf8; --m-on-dark: #120f1a;
+    --sea: #1b1726; --land: #2a2537; --coast: #463f57;
+    --glow: rgba(92, 220, 140, .55);
+  }
+}
+@keyframes flash {
+  0% { box-shadow: 0 0 0 0 var(--glow); filter: brightness(1); }
+  35% { box-shadow: 0 0 0 7px var(--glow); filter: brightness(1.12); }
+  100% { box-shadow: 0 0 0 12px transparent; filter: brightness(1); }
+}
+[data-theme=fx] .choice.correct.flash { animation: flash .35s ease-out; }
+@keyframes tileglow {
+  0% { box-shadow: 0 0 0 0 var(--spark-glow); }
+  40% { box-shadow: 0 0 14px 4px var(--spark-glow); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+[data-theme=fx] .tile.glow { animation: tileglow 1.6s ease-out .4s; }
+@keyframes pop { 0% { transform: scale(.6); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
+[data-theme=fx] .good li.go .mk { animation: pop .45s ease-out; }
+[data-theme=fx] .good li.milestone { font-weight: 700; font-size: 1rem; }
+[data-theme=fx] .streakline.hit b { color: var(--primary); font-size: 1.4rem; display: inline-block; animation: pop .6s ease-out .3s both; }
+[data-theme=fx] .streakline.hit::before, [data-theme=fx] .streakline.hit::after { content: ' ✦ '; color: var(--spark); text-shadow: 0 0 6px var(--spark-glow); }
+
+@media (prefers-reduced-motion: reduce) {
+  .spark, .choice.flash, .tile.glow, .good li .mk, .streakline b { animation: none !important; }
+}

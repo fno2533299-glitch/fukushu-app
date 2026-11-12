@@ -95,6 +95,48 @@ function barHtml(g) {
   return `<span class="bar"><i class="bm" style="width:${pct(g.mastered)}%"></i><i class="bl" style="width:${pct(g.learning)}%"></i></span>`;
 }
 
+// ---- テーマ（シンプル／演出あり）と効果音 ----
+
+function applyTheme() {
+  document.documentElement.dataset.theme = S.settings.theme === 'fx' ? 'fx' : 'simple';
+}
+const fx = () => S.settings.theme === 'fx';
+
+// 効果音は Web Audio で作る（ファイルを同梱しない）。iPhone のマナーモードでは鳴らさない（ambient）
+let audioCtx = null;
+function primeAudio() {
+  if (!fx()) return null;
+  try {
+    if (navigator.audioSession) navigator.audioSession.type = 'ambient';
+    audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch {
+    audioCtx = null;
+  }
+  return audioCtx;
+}
+function playCorrect() {
+  const ac = primeAudio();
+  if (!ac) return;
+  try {
+    const t = ac.currentTime + 0.02;
+    [[880, 0], [1318.5, 0.08]].forEach(([f, d]) => {
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.type = 'sine';
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + d);
+      g.gain.exponentialRampToValueAtTime(0.16, t + d + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.28);
+      o.connect(g).connect(ac.destination);
+      o.start(t + d);
+      o.stop(t + d + 0.3);
+    });
+  } catch {
+    /* 音が出せなくても続ける */
+  }
+}
+
 function toast(msg) {
   banner.textContent = msg;
   banner.className = 'banner info';
@@ -120,7 +162,7 @@ function ctx(extra = {}) {
 // ホームの一番上に出しておく「さっと出題」の1問目。答えるとそのままセットが始まる
 function quickCardHtml() {
   if (!S.preview) {
-    const q = L.pickNext('さっと', ctx());
+    const q = L.pickWarmup(ctx()); // 1問目は始めやすい問題（期限が来て前回正解 → 基礎）
     S.preview = q ? { q, order: L.shuffle(q.choices) } : null;
   }
   if (!S.preview) return '<section class="card"><p class="note">いま出せる問題がありません（「出題対象の設定」を確認してください）</p></section>';
@@ -159,22 +201,33 @@ function examCardHtml() {
     </button>`;
 }
 
+// 継続日数（今日まだ解いていなければ昨日まで）。途切れても責めない言い方にする
+function streakHtml() {
+  if (!S.logs.length) return '';
+  const k = L.streakInfo(S.logs, today());
+  const best = k.best > 1 ? ` ・ 最長 ${k.best}日` : '';
+  return `<span class="streak">${k.current ? `継続 <b>${k.current}</b>日` : '今日解くと 1日目'}${best}</span>`;
+}
+
 function home() {
   stopTimer();
+  S.reading = null;
   if (!S.data || L.activeQuestions(S.data).length === 0) return dataScreen();
   const due = L.countDue(ctx());
   const total = L.activeQuestions(S.data).length;
   const todayLogs = S.logs.filter((l) => L.localDate(new Date(l.answeredAt)) === today());
   const g = L.groupProgress(L.activeQuestions(S.data), L.questionProgress(S.logs));
   const ach = L.achievements(S.logs, S.data);
+  const ready = [...L.masteryReadyByUnit(ctx()).values()].reduce((a, b) => a + b, 0);
   show(
-    `<header class="top"><h1>復習アプリ</h1></header>
+    `<header class="top"><h1>復習アプリ</h1>${streakHtml()}</header>
     ${quickCardHtml()}
     ${examCardHtml()}
     <button class="mapcard" data-go="record">
       <span class="spread"><b>知識マップ</b><span class="go">記録を見る ›</span></span>
       ${barHtml(g)}
       <span class="spread small"><span>定着 ${g.mastered} ・ 学習中 ${g.learning} ／ ${g.total}問</span><span>実績 ${ach.filter((a) => a.achievedAt).length} / ${ach.length}</span></span>
+      ${ready ? `<span class="small readyline"><span class="spark">✦</span> 今日解くと定着しそう ${ready}問</span>` : ''}
     </button>
     <section class="card stat">
       <div><span class="big">${due}</span><span>復習期限の問題</span></div>
@@ -185,6 +238,7 @@ function home() {
       <button class="btn big" data-go="おまかせ">おまかせ<small>${S.settings.questionsPerSet}問</small></button>
       <button class="btn big" data-go="復習優先">復習優先<small>${due}問</small></button>
       <button class="btn big" data-go="select">科目・単元指定</button>
+      <button class="btn big" data-go="read">読み流し<small>答えずに読むだけ・記録しない</small></button>
     </nav>
     <nav class="menu sub">
       <button class="btn" data-go="target">出題対象の設定</button>
@@ -198,13 +252,17 @@ function home() {
         await startSession('さっと', null, first);
         answer(choiceId);
       };
-      on('[data-qchoice]', 'click', (e) => quick(e.currentTarget.dataset.qchoice));
+      on('[data-qchoice]', 'click', (e) => {
+        primeAudio(); // iPhone では、タップの直後でないと音を出す準備ができない
+        quick(e.currentTarget.dataset.qchoice);
+      });
       on('[data-qidk]', 'click', () => quick(null));
       on('[data-go]', 'click', (e) => {
         const g = e.currentTarget.dataset.go;
         if (g === 'select') selectScreen();
         else if (g === 'target') targetScreen();
         else if (g === 'data') dataScreen();
+        else if (g === 'read') startReading();
         else if (g === 'record' || g === 'exam') {
           S.calMonth = null;
           recordScreen(g === 'exam' ? 'exam' : 'map');
@@ -334,10 +392,15 @@ function targetScreen() {
     </section>
     <section class="card">
       <h2>セット</h2>
-      <label class="row"><span>さっと出題の問題数（ホームの1問目から）</span><input type="number" min="1" max="20" inputmode="numeric" data-num="quickSize" value="${st.quickSize}"></label>
+      <label class="row"><span>さっと出題・マップの単元から解くときの問題数</span><input type="number" min="1" max="20" inputmode="numeric" data-num="quickSize" value="${st.quickSize}"></label>
       <label class="row"><span>1セットの問題数（おまかせ・復習優先・指定）</span><input type="number" min="1" max="50" inputmode="numeric" data-num="questionsPerSet" value="${st.questionsPerSet}"></label>
       <label class="row"><span>時間の目安（分）</span><input type="number" min="1" max="60" inputmode="numeric" data-num="sessionMinutes" value="${st.sessionMinutes}"></label>
       <label class="row"><span>再出題の間隔（日）</span><input type="text" inputmode="numeric" data-intervals value="${st.intervals.join(',')}"></label>
+    </section>
+    <section class="card">
+      <h2>テーマ</h2>
+      <label class="row"><input type="radio" name="theme" value="simple" ${st.theme !== 'fx' ? 'checked' : ''}><span>シンプル<small>今のまま。出題中の演出なし</small></span></label>
+      <label class="row"><input type="radio" name="theme" value="fx" ${st.theme === 'fx' ? 'checked' : ''}><span>演出あり<small>正解すると選択肢が光り、短い音が鳴る（マナーモードでは鳴らない）。結果画面の演出も少し強め</small></span></label>
     </section>`,
     () => {
       on('[data-back]', 'click', home);
@@ -345,6 +408,12 @@ function targetScreen() {
         S.preview = null; // 出題対象が変わったら、ホームの1問目も選び直す
         return db.putKV('settings', S.settings);
       };
+      on('input[name=theme]', 'change', (e) => {
+        st.theme = e.target.value;
+        applyTheme();
+        if (fx()) playCorrect(); // どんな音か試しに鳴らす
+        save();
+      });
       on('[data-level]', 'change', (e) => {
         st.levelEnabled[e.target.dataset.level] = e.target.checked;
         save();
@@ -440,7 +509,7 @@ function mapSvg(map, stats) {
         <circle cx="${p.x}" cy="${p.y}" r="20" fill="transparent"/>
         <circle cx="${p.x}" cy="${p.y}" r="13" fill="var(--card)" stroke="var(--line)" stroke-width="2.5"/>
         <circle cx="${p.x}" cy="${p.y}" r="13" fill="none" stroke="var(--m4)" stroke-width="2.5" stroke-dasharray="${C * r} ${C}" transform="rotate(-90 ${p.x} ${p.y})" stroke-linecap="round"/>
-        <circle cx="${p.x}" cy="${p.y}" r="9" fill="${SHADE_FILL[L.shadeLevel(st.g)]}"/>${text}</g>`;
+        <circle cx="${p.x}" cy="${p.y}" r="9" fill="${SHADE_FILL[L.shadeLevel(st.g)]}"/>${text}${st.ready ? `<text class="spark" x="${p.x - 15}" y="${p.y - 9}" font-size="12" text-anchor="middle">✦</text>` : ''}</g>`;
     } else {
       g += `<g class="node" data-cand="${esc(p.name)}" opacity="0.6">
         <circle cx="${p.x}" cy="${p.y}" r="18" fill="transparent"/>
@@ -453,10 +522,12 @@ function mapSvg(map, stats) {
 function mapTab() {
   const prog = L.questionProgress(S.logs);
   const active = L.activeQuestions(S.data);
+  const readyUnits = L.masteryReadyByUnit(ctx());
   const stats = new Map();
   for (const s of S.data.subjects) {
     const qs = active.filter((q) => q.subjectId === s.subjectId);
-    if (qs.length) stats.set(s.subjectId, { name: s.name, g: L.groupProgress(qs, prog) });
+    const ready = s.units.reduce((a, u) => a + (readyUnits.get(u.unitId) || 0), 0);
+    if (qs.length) stats.set(s.subjectId, { name: s.name, g: L.groupProgress(qs, prog), ready });
   }
   const all = L.groupProgress(active, prog);
   const map = S.data.map;
@@ -464,12 +535,12 @@ function mapTab() {
     html: `<section class="card map">
       <p class="spread small maphead"><span>定着 ${all.mastered} ・ 学習中 ${all.learning} ／ ${all.total}問</span></p>
       ${map ? mapSvg(map, stats) : '<p class="note">問題データを読み込み直すと、地図が表示されます</p>'}
-      ${map ? '<p class="legend"><span>点線の町＝まだ問題がない科目</span><span>薄い島＝まだ科目がない分野</span></p>' : ''}
+      ${map ? `<p class="legend"><span>点線の町＝まだ問題がない科目</span><span>薄い島＝まだ科目がない分野</span>${readyUnits.size ? '<span><b class="spark">✦</b> 今日解くと定着しそうな問題がある</span>' : ''}</p>` : ''}
     </section>
     <section class="card">
       <h2>科目ごと</h2>
       ${[...stats]
-        .map(([sid, st]) => `<button class="subjrow" data-subj="${esc(sid)}"><span class="spread"><b>${esc(st.name)}</b><span class="small">定着 ${st.g.mastered} ・ 学習中 ${st.g.learning} ／ ${st.g.total}問 ›</span></span>${barHtml(st.g)}</button>`)
+        .map(([sid, st]) => `<button class="subjrow" data-subj="${esc(sid)}"><span class="spread"><b>${esc(st.name)}${st.ready ? ' <span class="spark">✦</span>' : ''}</b><span class="small">定着 ${st.g.mastered} ・ 学習中 ${st.g.learning} ／ ${st.g.total}問 ›</span></span>${barHtml(st.g)}</button>`)
         .join('')}
     </section>`,
     bind: () => {
@@ -483,8 +554,10 @@ function mapTab() {
 function tileLabel(g) {
   return g.touched ? `定着 ${g.mastered}/${g.total}` : '未着手';
 }
-function unitTile(unitId, g, { sub = '', chips = '' } = {}) {
-  return `<div class="tile u${L.shadeLevel(g)}">${sub ? `<span class="sj">${esc(sub)}</span>` : ''}<span class="nm">${esc(shortName(unitName(unitId)))}</span><span class="ft"><span class="lb">${tileLabel(g)}</span>${chips ? `<span class="chips">${chips}</span>` : ''}</span></div>`;
+// button：押せるタイル（科目マップの「この単元を3問」）。spark：✦ の印（今日解くと定着しそう）
+function unitTile(unitId, g, { sub = '', chips = '', button = false, spark = false, label = tileLabel(g), cls = '' } = {}) {
+  const tag = button ? 'button' : 'div';
+  return `<${tag} class="tile u${L.shadeLevel(g)}${cls ? ' ' + cls : ''}"${button ? ` data-unit="${esc(unitId)}"` : ''}>${spark ? '<span class="spark tsp">✦</span>' : ''}${sub ? `<span class="sj">${esc(sub)}</span>` : ''}<span class="nm">${esc(shortName(unitName(unitId)))}</span><span class="ft"><span class="lb">${label}</span>${chips ? `<span class="chips">${chips}</span>` : ''}</span></${tag}>`;
 }
 
 function subjectMapScreen(subjectId) {
@@ -492,6 +565,7 @@ function subjectMapScreen(subjectId) {
   const prog = L.questionProgress(S.logs);
   const active = L.activeQuestions(S.data);
   const correct = L.correctIdSet(S.logs);
+  const readyUnits = L.masteryReadyByUnit(ctx());
   const g = L.groupProgress(active.filter((q) => q.subjectId === subjectId), prog);
   const units = [...s.units].sort((a, b) => a.order - b.order);
   let withQ = 0, touched = 0;
@@ -506,7 +580,7 @@ function subjectMapScreen(subjectId) {
       const chips = L.LEVELS.map((lv, i) =>
         inUnit.some((q) => q.level === lv) ? `<span class="chip l${i + 1} ${st[lv].unlocked ? 'on' : ''}">${lv[0]}</span>` : '',
       ).join('');
-      return unitTile(u.unitId, gu, { chips });
+      return unitTile(u.unitId, gu, { chips, button: true, spark: readyUnits.has(u.unitId) });
     })
     .join('');
   show(
@@ -517,9 +591,19 @@ function subjectMapScreen(subjectId) {
     </section>
     ${SHADE_LEGEND}
     <div class="tiles">${tiles}</div>
-    <p class="note center">基・応・試：段階解放で、おまかせに出るようになったレベル（灰色はまだ）</p>`,
-    () => on('[data-back]', 'click', () => recordScreen('map')),
+    <p class="note center">単元を押すと、その単元を${S.settings.quickSize}問${readyUnits.size ? '<br><span class="spark">✦</span> 今日解くと定着しそうな問題がある単元' : ''}<br>基・応・試：段階解放で、おまかせに出るようになったレベル（灰色はまだ）</p>`,
+    () => {
+      on('[data-back]', 'click', () => recordScreen('map'));
+      on('[data-unit]', 'click', (e) => startUnit(subjectId, e.currentTarget.dataset.unit));
+    },
   );
+}
+
+// 科目マップの単元タイルから「この単元を3問」
+function startUnit(subjectId, unitId) {
+  const scope = { subjectId, unitId };
+  if (!L.pickNext('単元', ctx({ scope }))) return toast('この単元で出せる問題がありません（レベルのON/OFFを確認してください）');
+  startSession('単元', scope);
 }
 
 // 外部試験：過去問を改題した問題で測った「合格まであと何点」
@@ -640,7 +724,7 @@ function checkTimer() {
   if (!ss) return;
   const clock = app.querySelector('.clock');
   if (clock) clock.textContent = elapsed();
-  if (ss.timeNotified || ss.mode === 'さっと') return;
+  if (ss.timeNotified || isShort(ss.mode)) return;
   if (Date.now() - ss.startMs >= S.settings.sessionMinutes * 60000) {
     ss.timeNotified = true;
     banner.className = 'banner time';
@@ -650,11 +734,14 @@ function checkTimer() {
   }
 }
 
+// さっと出題と「この単元を3問」は短いセット（7分の通知なし、結果画面は「もう3問」「終わる」）
+const isShort = (mode) => mode === 'さっと' || mode === '単元';
+
 // first：ホームに出しておいた1問目（さっと出題）。あれば、その問題から始める
 async function startSession(mode, scope, first = null) {
   const now = new Date();
   const rec = { sessionId: uid(), mode, scope: scope || null, startedAt: now.toISOString(), endedAt: null };
-  const size = mode === 'さっと' ? S.settings.quickSize : S.settings.questionsPerSet;
+  const size = isShort(mode) ? S.settings.quickSize : S.settings.questionsPerSet;
   S.session = { ...rec, rec, size, startMs: now.getTime(), asked: [], results: [], timeNotified: false };
   banner.hidden = true;
   S.sessions.push(rec);
@@ -696,7 +783,7 @@ function elapsed() {
 function questionScreen() {
   const ss = S.session;
   const { q, order } = ss.current;
-  const hideTags = ss.mode === 'おまかせ' || ss.mode === 'さっと';
+  const hideTags = ss.mode === 'おまかせ' || ss.mode === 'さっと'; // 単元から始めたときは出す
   show(
     `<header class="quizbar"><span>${ss.asked.length} / ${ss.size}</span><span class="lv lv-${q.level}">${q.level}</span><span class="clock">${elapsed()}</span><button class="btn small" data-end>終了</button></header>
     ${metaHtml(q, hideTags)}
@@ -708,7 +795,10 @@ function questionScreen() {
     <button class="btn idk" data-idk>わからない</button>`,
     () => {
       bindFigureZoom();
-      on('[data-choice]', 'click', (e) => answer(e.currentTarget.dataset.choice));
+      on('[data-choice]', 'click', (e) => {
+        primeAudio();
+        answer(e.currentTarget.dataset.choice);
+      });
       on('[data-idk]', 'click', () => answer(null));
       on('[data-end]', 'click', () => {
         ss.asked.pop(); // 答えていない問題は出題しなかった扱い
@@ -733,18 +823,23 @@ async function answer(choiceId) {
     selectedChoiceId: choiceId,
   };
   const state = L.nextReviewState(S.states[q.questionId], q.questionId, result, now, S.settings.intervals);
+  if (result === '正解') playCorrect(); // 演出ありのときだけ鳴る。不正解・わからないでは鳴らさない
+  // 解説画面に出す単元のタイル：この回答の前と後の定着の状況
+  const inU = L.activeQuestions(S.data).filter((x) => x.unitId === q.unitId);
+  const tileBefore = L.groupProgress(inU, L.questionProgress(S.logs));
   S.logs.push(log);
   S.states[q.questionId] = state;
   ss.results.push({ q, result });
   ss.current.choiceId = choiceId;
   ss.current.result = result;
+  ss.current.tile = inU.length ? { before: tileBefore, after: L.groupProgress(inU, L.questionProgress(S.logs)) } : null;
   answerScreen();
   await db.saveAnswer(log, state);
 }
 
 function answerScreen() {
   const ss = S.session;
-  const { q, order, choiceId, result } = ss.current;
+  const { q, order, choiceId, result, tile } = ss.current;
   const cls = { 正解: 'ok', 不正解: 'ng', わからない: 'idk' }[result];
   const label = { 正解: '正解！', 不正解: '不正解', わからない: 'わからない' }[result];
   const last = ss.asked.length >= ss.size;
@@ -761,7 +856,7 @@ function answerScreen() {
     <div class="choices done">
       ${order
         .map((c, i) => {
-          const k = c.choiceId === q.correctChoiceId ? 'correct' : c.choiceId === choiceId ? 'wrong' : '';
+          const k = c.choiceId === q.correctChoiceId ? `correct${result === '正解' ? ' flash' : ''}` : c.choiceId === choiceId ? 'wrong' : '';
           return `<div class="choice ${k}"><span class="mark">${'ABCD'[i]}</span><span>${rich(c.text)}</span></div>`;
         })
         .join('')}
@@ -769,6 +864,7 @@ function answerScreen() {
     <section class="card expl"><h2>解説</h2><p>${rich(q.explanation)}</p></section>
     ${q.trivia ? `<section class="card trivia"><h2>豆知識</h2><p>${rich(q.trivia)}</p></section>` : ''}
     <details class="stem-again"><summary>問題文${q.figure ? 'と図' : ''}を見る</summary>${figureHtml(q)}<div class="stem">${rich(q.stem)}</div></details>
+    ${tile ? `<div class="unitnow">${unitTile(q.unitId, tile.before, { sub: subjectOf(q.subjectId)?.name, label: unitNowLabel(tile.before), cls: 'mini' })}</div>` : ''}
     <section class="info">
       <p><b>${esc(q.title)}</b></p>
       <p>${esc(subjectOf(q.subjectId)?.name)} ／ ${esc(unitName(q.unitId))}${(q.subUnitIds || []).map((u) => '・' + esc(unitName(u))).join('')}</p>
@@ -783,11 +879,24 @@ function answerScreen() {
     </div>`,
     () => {
       bindFigureZoom();
+      // 色の段階が変わったら、前の色から後の色へ（結果画面の「マップの変化」と同じ）
+      const el = app.querySelector('.unitnow .tile');
+      if (el && tile) {
+        setTimeout(() => {
+          const changed = L.shadeLevel(tile.before) !== L.shadeLevel(tile.after);
+          el.className = `tile mini u${L.shadeLevel(tile.after)}${changed ? ' glow' : ''}`;
+          el.querySelector('.lb').textContent = unitNowLabel(tile.after);
+        }, 400);
+      }
       on('[data-next]', 'click', nextQuestion);
       on('[data-end]', 'click', () => endSession());
       on('[data-report]', 'click', () => reportDialog(q));
     },
   );
+}
+
+function unitNowLabel(g) {
+  return `定着 ${g.mastered} ／ 全 ${g.total}問`;
 }
 
 function reportDialog(q) {
@@ -837,8 +946,15 @@ async function endSession(message = '') {
   sum.examGains.forEach((r) =>
     goods.push(['k4', '点', `${r.examName} ${r.subject}（${r.year}年）で +${r.gain}点 → ${r.got >= r.pass ? '合格点に到達！' : `合格まであと${r.pass - r.got}点`}`]),
   );
-  sum.newAchievements.forEach((a) => goods.push(['k5', '★', `実績「${a.name}」を達成`]));
+  // 継続日数の節目（3・7・14・30・100日）は1行にまとめる（実績と重ねて出さない）
+  if (sum.streakMilestone) goods.push(['k6', '続', `${sum.streakMilestone}日続けて解いた！`, 'milestone']);
+  sum.newAchievements
+    .filter((a) => !(sum.streakMilestone && a.id.startsWith('streak-')))
+    .forEach((a) => goods.push(['k5', '★', `実績「${a.name}」を達成`]));
   const changes = sum.changes.slice(0, 4);
+  const short = isShort(ss.mode);
+  const k = L.streakInfo(S.logs, today());
+  const modeLabel = ss.mode === 'さっと' ? `さっと${ss.size}問` : ss.mode === '単元' ? `「${shortName(unitName(ss.scope.unitId))}」を${ss.size}問` : ss.mode;
 
   show(
     `<header class="top"><h1>セッション結果</h1></header>
@@ -848,7 +964,8 @@ async function endSession(message = '') {
       <div><span class="big ng">${n('不正解')}</span><span>不正解</span></div>
       <div><span class="big idk">${n('わからない')}</span><span>わからない</span></div>
     </section>
-    <p class="note center">${ss.mode === 'さっと' ? `さっと${ss.size}問` : ss.mode} ／ ${elapsed()}</p>
+    <p class="note center">${esc(modeLabel)} ／ ${elapsed()}</p>
+    ${k.current ? `<p class="streakline${sum.streakMilestone ? ' hit' : ''}">継続 <b>${k.current}</b>日目${k.best > k.current ? ` ・ 最長 ${k.best}日` : ''}</p>` : ''}
     ${
       changes.length
         ? `<section class="card"><h2>マップの変化</h2><div class="tiles">${changes
@@ -859,7 +976,7 @@ async function endSession(message = '') {
     ${
       goods.length
         ? `<section class="card"><h2>今回のよかったこと</h2><ul class="good">${goods
-            .map(([k, mk, text]) => `<li><span class="mk ${k}">${esc(mk)}</span><span>${esc(text)}</span></li>`)
+            .map(([k, mk, text, cls = '']) => `<li class="${cls}"><span class="mk ${k}">${esc(mk)}</span><span>${esc(text)}</span></li>`)
             .join('')}</ul></section>`
         : ''
     }
@@ -867,15 +984,15 @@ async function endSession(message = '') {
       ${ss.results.map((x) => `<li><span class="dot ${{ 正解: 'ok', 不正解: 'ng', わからない: 'idk' }[x.result]}"></span><span class="lv lv-${x.q.level}">${x.q.level}</span>${esc(x.q.title)}</li>`).join('')}
     </ul>
     <div class="actions">
-      <button class="btn" data-home>${ss.mode === 'さっと' ? '終わる' : 'ホームへ'}</button>
-      <button class="btn primary big" data-again>${ss.mode === 'さっと' ? `もう${ss.size}問` : 'もう1セット'}</button>
+      <button class="btn" data-home>${short ? '終わる' : 'ホームへ'}</button>
+      <button class="btn primary big" data-again>${short ? `もう${ss.size}問` : 'もう1セット'}</button>
     </div>`,
     () => {
       // 単元の色を前の段階から後の段階へ変え、よかったことを1行ずつ出す
       const tiles = app.querySelectorAll('.tiles .tile');
       setTimeout(() => {
         changes.forEach((c, i) => {
-          tiles[i].className = `tile u${L.shadeLevel(c.after)}`;
+          tiles[i].className = `tile u${L.shadeLevel(c.after)} glow`;
           tiles[i].querySelector('.lb').textContent = tileLabel(c.after);
         });
       }, 500);
@@ -883,13 +1000,72 @@ async function endSession(message = '') {
       on('[data-home]', 'click', () => {
         S.session = null;
         banner.hidden = true;
-        home();
+        if (ss.mode === '単元') subjectMapScreen(ss.scope.subjectId); // マップから始めたら、マップに戻る
+        else home();
       });
       on('[data-again]', 'click', () => {
         if (ss.mode === '復習優先' && L.countDue(ctx()) === 0) return toast('期限の来た問題はありません');
         if (ss.mode === 'さっと' && !L.pickNext('さっと', ctx())) return toast('いま出せる問題がありません');
+        if (ss.mode === '単元' && !L.pickNext('単元', ctx({ scope: ss.scope }))) return toast('この単元で出せる問題がありません');
         startSession(ss.mode, ss.scope);
       });
+    },
+  );
+}
+
+// ---- 読み流し：答えずに問題と解説を読むだけ。何も記録しない（ANSWER_LOG・復習状態・定着・実績に影響しない） ----
+
+function startReading() {
+  stopTimer();
+  banner.hidden = true;
+  S.session = null;
+  S.reading = { asked: [] };
+  nextReading();
+}
+
+function nextReading() {
+  const r = S.reading;
+  // おまかせと同じ選び方（出題対象・段階解放・重み）。同じ問題は出さない
+  const q = L.pickNext('おまかせ', ctx({ asked: new Set(r.asked) }));
+  if (!q) {
+    toast(r.asked.length ? '読み流せる問題がなくなりました' : 'いま出せる問題がありません');
+    return home();
+  }
+  r.asked.push(q.questionId);
+  r.q = q;
+  r.order = L.shuffle(q.choices);
+  readScreen();
+}
+
+function readScreen() {
+  const { q, order, asked } = S.reading;
+  const ex = L.examItemInfo(S.data, q);
+  show(
+    `<header class="quizbar"><span>読み流し ・ ${asked.length}問目</span><span class="lv lv-${q.level}">${q.level}</span><button class="btn small endbtn" data-end>終了</button></header>
+    ${metaHtml(q, false)}
+    ${figureHtml(q)}
+    <div class="stem">${rich(q.stem)}</div>
+    <div class="choices done">
+      ${order.map((c, i) => `<div class="choice ${c.choiceId === q.correctChoiceId ? 'correct' : ''}"><span class="mark">${'ABCD'[i]}</span><span>${rich(c.text)}</span></div>`).join('')}
+    </div>
+    <section class="card expl"><h2>解説</h2><p>${rich(q.explanation)}</p></section>
+    ${q.trivia ? `<section class="card trivia"><h2>豆知識</h2><p>${rich(q.trivia)}</p></section>` : ''}
+    <section class="info">
+      <p><b>${esc(q.title)}</b></p>
+      <p>${esc(q.kind)}${(q.tags || []).length ? ' ／ 関連：' + q.tags.map(esc).join('・') : ''}${q.examRelevant ? ' ／ <span class="tag ok">試験で出題</span>' : ''}</p>
+      ${ex ? `<p><span class="tag exam">${esc(ex.examName)} ${ex.year}年 ${esc(ex.subject)} ${esc(ex.problem || '')} ${esc(ex.blank || '')} ・ ${ex.points}点</span></p>` : ''}
+      <p class="src">出典（${esc(q.sourceKind)}）：${esc(q.source)}</p>
+      <p class="src">${esc(q.questionId)} 第${q.revision}版 ・ 読み流しは記録しません</p>
+    </section>
+    <div class="actions sticky">
+      <button class="btn" data-report>疑問がある</button>
+      <button class="btn primary big" data-next>次へ</button>
+    </div>`,
+    () => {
+      bindFigureZoom();
+      on('[data-next]', 'click', nextReading);
+      on('[data-end]', 'click', home);
+      on('[data-report]', 'click', () => reportDialog(q));
     },
   );
 }
@@ -1116,6 +1292,7 @@ async function load() {
   S.reports = all.issueReports;
   S.lastBackup = all.lastBackup;
   S.preview = null;
+  applyTheme();
 }
 
 // しばらく閉じていたあとに開いたら、ホーム（さっと出題の1問目）から始める。解いている途中なら、そのまま続ける
@@ -1129,7 +1306,7 @@ document.addEventListener('visibilitychange', () => {
   checkTimer();
   const away = hiddenAt != null && Date.now() - hiddenAt >= REOPEN_HOME_MS;
   hiddenAt = null;
-  if (away && S.data && (!S.session || S.session.ended) && !document.querySelector('.modal, .zoom')) {
+  if (away && S.data && (!S.session || S.session.ended) && !S.reading && !document.querySelector('.modal, .zoom')) {
     S.session = null;
     banner.hidden = true;
     home();

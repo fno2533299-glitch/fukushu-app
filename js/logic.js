@@ -8,7 +8,8 @@ export const DEFAULT_SETTINGS = {
   unlockThreshold: null, // null は「半数（切り上げ、最低1問）」
   sessionMinutes: 7,
   questionsPerSet: 10,
-  quickSize: 3, // ホームの「さっと出題」の問題数
+  quickSize: 3, // ホームの「さっと出題」・マップの「この単元を3問」の問題数
+  theme: 'simple', // 'simple'（シンプル）／'fx'（演出あり：正解の光と効果音）
   intervals: [1, 3, 7, 14, 30],
   subjectTarget: {}, // subjectId → false で対象外（未設定は対象）
   unitTarget: {}, // unitId → false で対象外
@@ -112,6 +113,21 @@ function freshness(q, states, today) {
   return 0.3; // 正解して間隔待ち
 }
 
+// 段階解放の判定（おまかせと同じ）。単元ごとに結果を覚えておく
+function unlockedFn(ctx) {
+  const correct = correctIdSet(ctx.logs);
+  const all = activeQuestions(ctx.data);
+  const cache = new Map();
+  return (q) => {
+    if (!cache.has(q.unitId)) cache.set(q.unitId, unitUnlockStatus(q.unitId, all, correct, ctx.settings));
+    return cache.get(q.unitId)[q.level].unlocked;
+  };
+}
+
+function inUnit(q, unitId) {
+  return q.unitId === unitId || (q.subUnitIds || []).includes(unitId);
+}
+
 // ctx = { data, states, logs, settings, asked: Set, scope, today, rng }
 export function candidates(mode, ctx) {
   const { settings, asked, states, today } = ctx;
@@ -119,17 +135,16 @@ export function candidates(mode, ctx) {
     (q) => settings.levelEnabled[q.level] && !asked.has(q.questionId),
   );
   if (mode === 'おまかせ') {
-    const correct = correctIdSet(ctx.logs);
-    const all = activeQuestions(ctx.data);
-    const cache = new Map();
-    const unlocked = (q) => {
-      if (!cache.has(q.unitId)) cache.set(q.unitId, unitUnlockStatus(q.unitId, all, correct, settings));
-      return cache.get(q.unitId)[q.level].unlocked;
-    };
+    const unlocked = unlockedFn(ctx);
     return active.filter((q) => isTargeted(q, settings) && unlocked(q));
   }
   if (mode === '復習優先') {
     return active.filter((q) => isTargeted(q, settings) && isDue(states[q.questionId], today));
+  }
+  if (mode === '単元') {
+    // 科目マップの「この単元を3問」：scope = { unitId }。ONで段階解放済みのレベル（出題対象の設定は見ない）
+    const unlocked = unlockedFn(ctx);
+    return active.filter((q) => inUnit(q, ctx.scope.unitId) && unlocked(q));
   }
   // 科目・単元指定：scope = { subjectId, unitIds, levels }
   const { subjectId, unitIds, levels } = ctx.scope;
@@ -140,6 +155,22 @@ export function candidates(mode, ctx) {
       [q.unitId, ...(q.subUnitIds || [])].some((u) => unitIds.includes(u)),
   );
 }
+
+// おまかせの重み：試験で出題された内容を多め、講義資料のみの内容を少なめに
+function omakaseWeight(q, states, today) {
+  return (q.examRelevant ? 2 : 1) * (q.sourceKind === '講義資料' && !q.examRelevant ? 0.5 : 1) * freshness(q, states, today);
+}
+
+// おまかせと同じ選び方：科目を等確率で選び、その中で重み付き抽選
+function pickOmakase(list, ctx, rng) {
+  if (list.length === 0) return null;
+  const subjects = [...new Set(list.map((q) => q.subjectId))];
+  const sid = subjects[Math.floor(rng() * subjects.length)];
+  const pool = list.filter((q) => q.subjectId === sid);
+  return weightedPick(pool, (q) => omakaseWeight(q, ctx.states, ctx.today), rng);
+}
+
+const pickAny = (list, rng) => (list.length ? list[Math.floor(rng() * list.length)] : null);
 
 export function pickNext(mode, ctx) {
   // さっと出題：期限の来た問題を先に、なければおまかせ
@@ -155,19 +186,32 @@ export function pickNext(mode, ctx) {
     keyed.sort((a, b) => a.st.stage - b.st.stage || a.st.dueDate.localeCompare(b.st.dueDate) || a.r - b.r);
     return keyed[0].q;
   }
-  if (mode === 'おまかせ') {
-    // 科目間で配分してから、試験で出題された内容を多め、講義資料のみの内容を少なめに
-    const subjects = [...new Set(list.map((q) => q.subjectId))];
-    const sid = subjects[Math.floor(rng() * subjects.length)];
-    const pool = list.filter((q) => q.subjectId === sid);
-    return weightedPick(
-      pool,
-      (q) =>
-        (q.examRelevant ? 2 : 1) * (q.sourceKind === '講義資料' && !q.examRelevant ? 0.5 : 1) * freshness(q, states, today),
-      rng,
+  if (mode === 'おまかせ') return pickOmakase(list, ctx, rng);
+  if (mode === '単元') {
+    // 今日解くと定着しそうな問題（その単元が主の問題）→ 期限の来た問題 → おまかせと同じ重み
+    const ready = masteryReadyIds(ctx.logs, today);
+    return (
+      pickAny(list.filter((q) => q.unitId === ctx.scope.unitId && ready.has(q.questionId)), rng) ||
+      pickAny(list.filter((q) => isDue(states[q.questionId], today)), rng) ||
+      weightedPick(list, (q) => omakaseWeight(q, states, today), rng)
     );
   }
   return weightedPick(list, (q) => freshness(q, states, today), rng);
+}
+
+// さっと出題の1問目（ホームに出しておく問題）。始めやすい問題から選ぶ
+//  1. 期限が来た問題のうち、最後の回答が正解のもの（stage 1 以上）。今日解くと定着しそうなものを先に
+//  2. なければ基礎（おまかせと同じ対象・重み。基礎が OFF なら飛ばす）。最後が不正解・わからない（stage 0）の問題は除く
+//  3. どちらもなければ、今までどおり pickNext('さっと')
+export function pickWarmup(ctx) {
+  const rng = ctx.rng || Math.random;
+  const due = candidates('復習優先', ctx).filter((q) => ctx.states[q.questionId].stage >= 1);
+  if (due.length) {
+    const ready = masteryReadyIds(ctx.logs, ctx.today);
+    return pickAny(due.filter((q) => ready.has(q.questionId)), rng) || pickAny(due, rng);
+  }
+  const basic = candidates('おまかせ', ctx).filter((q) => q.level === '基礎' && ctx.states[q.questionId]?.stage !== 0);
+  return pickOmakase(basic, ctx, rng) || pickNext('さっと', ctx);
 }
 
 export function countDue(ctx) {
@@ -305,6 +349,46 @@ export function shadeLevel(g) {
   return r < 0.5 ? 2 : r < 1 ? 3 : 4;
 }
 
+// 今日解くと定着しそうな問題：最後の回答が正解で、その回答から7日以上たち、まだ定着していない
+// （設計図 1.8 の判定で、次に正解すれば定着になる問題）
+export function masteryReadyIds(logs, today, prog = questionProgress(logs)) {
+  const ids = new Set();
+  for (const [id, p] of prog) {
+    if (!p.mastered && p.lastResult === '正解' && daysBetween(p.lastDate, today) >= MASTERY_DAYS) ids.add(id);
+  }
+  return ids;
+}
+
+// 印を付ける単元：unitId → 今日解くと定着しそうな問題の数。
+// 「この単元を3問」で出せる問題（出題中・ONのレベル・段階解放済み）に限る
+export function masteryReadyByUnit(ctx) {
+  const ready = masteryReadyIds(ctx.logs, ctx.today);
+  const unlocked = unlockedFn(ctx);
+  const m = new Map();
+  for (const q of activeQuestions(ctx.data)) {
+    if (!ready.has(q.questionId) || !ctx.settings.levelEnabled[q.level] || !unlocked(q)) continue;
+    m.set(q.unitId, (m.get(q.unitId) || 0) + 1);
+  }
+  return m;
+}
+
+// ---- 継続日数：1問以上回答した日（端末の日付）が何日続いているか。1日でも空くと0に戻る ----
+
+export const STREAK_MILESTONES = [3, 7, 14, 30, 100];
+
+// current：今日まで（今日まだ解いていなければ昨日まで）続いている日数。best：これまでの最長
+export function streakInfo(logs, today) {
+  const days = [...new Set(logs.map((l) => localDate(new Date(l.answeredAt))))].sort();
+  let run = 0, best = 0, prev = null;
+  for (const d of days) {
+    run = prev && daysBetween(prev, d) === 1 ? run + 1 : 1;
+    best = Math.max(best, run);
+    prev = d;
+  }
+  const gap = prev ? daysBetween(prev, today) : Infinity;
+  return { current: gap === 0 || gap === 1 ? run : 0, best, todayDone: gap === 0 };
+}
+
 export const ACHIEVEMENTS = [
   { id: 'first-correct', icon: '初', name: 'はじめての正解', desc: '1問正解する' },
   { id: 'first-mastered', icon: '定', name: 'はじめての定着', desc: '7日以上あけて解いても正解できた' },
@@ -319,6 +403,7 @@ export const ACHIEVEMENTS = [
   { id: 'exam-10', icon: '試', name: '試験レベルを10問定着', desc: '定着している試験レベルの問題が10問', need: 10 },
   { id: 'trivia-50', icon: '豆', name: '豆知識を50個集める', desc: '解いた問題の豆知識が50個', need: 50 },
   { id: 'trivia-100', icon: '豆', name: '豆知識を100個集める', desc: '解いた問題の豆知識が100個', need: 100 },
+  ...STREAK_MILESTONES.map((n) => ({ id: `streak-${n}`, icon: `${n}日`, name: `${n}日連続`, desc: `${n}日続けて解いた`, need: n })),
 ];
 
 // 実績ごとに、達成日（記録を古い順にたどって最初に条件を満たした日）と、未達成なら途中経過を返す
@@ -340,12 +425,19 @@ export function achievements(logs, data) {
   const trivia = new Set();
   const got = {};
   let date;
+  let streakDay = null, streakRun = 0, streakBest = 0;
   const hit = (id) => (got[id] ??= date);
 
   const prog = questionProgress(logs, (l, p) => {
+    date = localDate(new Date(l.answeredAt));
+    if (date !== streakDay) {
+      streakRun = streakDay && daysBetween(streakDay, date) === 1 ? streakRun + 1 : 1;
+      streakBest = Math.max(streakBest, streakRun);
+      streakDay = date;
+      for (const n of STREAK_MILESTONES) if (streakRun >= n) hit(`streak-${n}`);
+    }
     const q = qById.get(l.questionId);
     if (!q) return;
-    date = localDate(new Date(l.answeredAt));
     if (l.result === '正解') {
       hit('first-correct');
       if (q.level === '試験') hit('first-exam');
@@ -379,6 +471,7 @@ export function achievements(logs, data) {
   };
   for (const n of [10, 50, 100]) progress[`mastered-${n}`] = { have: mastered.size, need: n };
   for (const n of [50, 100]) progress[`trivia-${n}`] = { have: trivia.size, need: n };
+  for (const n of STREAK_MILESTONES) progress[`streak-${n}`] = { have: streakBest, need: n };
 
   return ACHIEVEMENTS.map((a) => ({ ...a, achievedAt: got[a.id] || null, progress: got[a.id] ? null : progress[a.id] || null }));
 }
@@ -420,7 +513,12 @@ export function sessionSummary(before, after, data, settings) {
   const examGains = examScores(data, after)
     .filter((r) => r.got > (eb.get(r.key)?.got ?? 0))
     .map((r) => ({ ...r, gain: r.got - (eb.get(r.key)?.got ?? 0) }));
-  return { recovered: recovered.length, mastered, unlocks, changes, newAchievements, examGains };
+  // 継続日数：その日の最初のセッションで節目（3・7・14・30・100日）に達したら出す
+  const day = sessionLogs.length ? localDate(new Date(sessionLogs[sessionLogs.length - 1].answeredAt)) : null;
+  const sb = day ? streakInfo(before, day).current : 0;
+  const streak = day ? streakInfo(after, day) : null;
+  const streakMilestone = streak ? STREAK_MILESTONES.find((n) => sb < n && streak.current >= n) || null : null;
+  return { recovered: recovered.length, mastered, unlocks, changes, newAchievements, examGains, streak, streakMilestone };
 }
 
 // カレンダー：端末の日付ごとの回答数
