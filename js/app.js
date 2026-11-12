@@ -13,6 +13,9 @@ const S = {
   sessions: [],
   reports: [],
   session: null,
+  cards: null, // カードと称号のデータ { series, cards, titles }（1.4.0）
+  gacha: [], // ガチャの記録
+  collection: { titles: {}, awakened: {} }, // 称号を手に入れた日・カードが覚醒した日（一度入ったら消えない）
 };
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -116,11 +119,19 @@ function primeAudio() {
   return audioCtx;
 }
 function playCorrect() {
+  playNotes([[880, 0], [1318.5, 0.08]]);
+}
+// ガチャでカードが表になったとき（演出ありのみ）。レア度が高いほど音が増える
+function playReveal(rarity) {
+  const notes = [[659.3, 0], [880, 0.09], [1108.7, 0.18], [1318.5, 0.27]];
+  playNotes(notes.slice(0, rarity + 1));
+}
+function playNotes(notes) {
   const ac = primeAudio();
   if (!ac) return;
   try {
     const t = ac.currentTime + 0.02;
-    [[880, 0], [1318.5, 0.08]].forEach(([f, d]) => {
+    notes.forEach(([f, d]) => {
       const o = ac.createOscillator();
       const g = ac.createGain();
       o.type = 'sine';
@@ -155,6 +166,57 @@ function ctx(extra = {}) {
     today: today(),
     ...extra,
   };
+}
+
+// ---- 通貨・レベル・称号・カード（1.4.0） ----
+
+const num = (n) => Number(n).toLocaleString('ja-JP');
+const walletNow = () => L.wallet(S.logs, S.data, S.gacha);
+const RARITY_STARS = { 1: '★', 2: '★★', 3: '★★★' };
+
+// 称号とカードの覚醒を記録から判定し、新しく手に入ったものを保存する（一度入ったら消えない）
+async function syncCollection() {
+  const got = { titles: [], awakened: [] };
+  if (!S.cards || !S.data) return got;
+  const col = S.collection;
+  const dates = L.titleDates(S.cards.titles, { logs: S.logs, data: S.data, gachaLog: S.gacha, cards: S.cards });
+  for (const [id, d] of dates) {
+    if (col.titles[id]) continue;
+    col.titles[id] = d;
+    got.titles.push(S.cards.titles.find((t) => t.titleId === id));
+  }
+  const prog = L.questionProgress(S.logs);
+  for (const id of L.ownedCards(S.gacha).keys()) {
+    const card = cardById(id);
+    if (!card || col.awakened[id] || !L.canAwaken(card, S.data, prog)) continue;
+    col.awakened[id] = today();
+    got.awakened.push(card);
+  }
+  if (got.titles.length || got.awakened.length) await db.putKV('collection', col);
+  return got;
+}
+
+function cardById(id) {
+  return S.cards?.cards.find((c) => c.cardId === id);
+}
+function titleById(id) {
+  return S.cards?.titles.find((t) => t.titleId === id);
+}
+function equippedTitle() {
+  const id = S.settings.titleId;
+  return id && S.collection.titles[id] ? titleById(id) : null;
+}
+
+// ホームの上の1行：レベル・次のレベルまで・付けている称号
+function levelLineHtml() {
+  const w = walletNow();
+  const t = equippedTitle();
+  return `<button class="lvline" data-go="card">
+      <span class="lvb">Lv<b>${w.level}</b></span>
+      <span class="ttl">${t ? esc(t.name) : '<span class="small">称号なし</span>'}</span>
+      <span class="nx">${w.tickets ? `<span class="ticket">券 ${w.tickets}</span>` : ''}次まで ${num(w.toNext)}</span>
+      <span class="lvbar"><i style="width:${(w.into / w.need) * 100}%"></i></span>
+    </button>`;
 }
 
 // ---- ホーム ----
@@ -221,6 +283,7 @@ function home() {
   const ready = [...L.masteryReadyByUnit(ctx()).values()].reduce((a, b) => a + b, 0);
   show(
     `<header class="top"><h1>復習アプリ</h1>${streakHtml()}</header>
+    ${levelLineHtml()}
     ${quickCardHtml()}
     ${examCardHtml()}
     <button class="mapcard" data-go="record">
@@ -263,9 +326,9 @@ function home() {
         else if (g === 'target') targetScreen();
         else if (g === 'data') dataScreen();
         else if (g === 'read') startReading();
-        else if (g === 'record' || g === 'exam') {
+        else if (g === 'record' || g === 'exam' || g === 'card') {
           S.calMonth = null;
-          recordScreen(g === 'exam' ? 'exam' : 'map');
+          recordScreen(g === 'record' ? 'map' : g);
         } else if (g === '復習優先' && due === 0) toast('期限の来た問題はありません');
         else startSession(g, null);
       });
@@ -454,11 +517,11 @@ const SHADE_FILL = ['var(--card)', 'var(--m1)', 'var(--m2)', 'var(--m3)', 'var(-
 const SHADE_LEGEND = `<p class="legend"><span><i class="u0"></i>未着手</span><span><i class="u1"></i>学習中</span><span><i class="u2"></i>定着 半分未満</span><span><i class="u3"></i>半分以上</span><span><i class="u4"></i>すべて定着</span></p>`;
 
 function recordScreen(tab) {
-  const tabs = [['map', 'マップ'], ...(L.examScores(S.data, S.logs).length ? [['exam', '試験']] : []), ['cal', 'カレンダー'], ['trivia', '豆知識'], ['ach', '実績']];
-  const body = { map: mapTab, exam: examTab, cal: calendarTab, trivia: triviaTab, ach: achievementsTab }[tab]();
+  const tabs = [['map', 'マップ'], ...(L.examScores(S.data, S.logs).length ? [['exam', '試験']] : []), ['cal', 'カレンダー'], ['trivia', '豆知識'], ['ach', '実績'], ['title', '称号'], ['card', 'カード']];
+  const body = { map: mapTab, exam: examTab, cal: calendarTab, trivia: triviaTab, ach: achievementsTab, title: titleTab, card: cardTab }[tab]();
   show(
     `<header class="top"><button class="back" data-back>‹ ホーム</button><h1>記録</h1></header>
-    <nav class="tabs">${tabs.map(([k, n]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${n}</button>`).join('')}</nav>
+    <nav class="tabs${tabs.length > 5 ? ' two' : ''}">${tabs.map(([k, n]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${n}</button>`).join('')}</nav>
     ${body.html}`,
     () => {
       on('[data-back]', 'click', home);
@@ -712,6 +775,176 @@ function achievementsTab() {
   };
 }
 
+// ---- 称号（1.4.0）：持っている称号だけを出す。持っていない称号・隠し称号の条件は出さない ----
+
+const fmtDate = (d) => d.split('-').map(Number).join('/');
+const NO_CARD_DATA = '<p class="note">「カードと称号.json」を「データ管理」→「問題データを読み込む」で読み込むと、使えるようになります。</p>';
+
+function titleTab() {
+  if (!S.cards) return { html: `<section class="card">${NO_CARD_DATA}</section>` };
+  const cur = equippedTitle();
+  const got = Object.entries(S.collection.titles)
+    .map(([id, d]) => ({ t: titleById(id), d }))
+    .filter((x) => x.t)
+    .sort((a, b) => b.d.localeCompare(a.d));
+  return {
+    html: `<section class="card">
+      <h2>付けている称号</h2>
+      <p class="spread"><b class="curtitle">${cur ? esc(cur.name) : '<span class="small">なし</span>'}</b>${cur ? '<button class="btn small" data-equip="">外す</button>' : ''}</p>
+    </section>
+    <p class="note center">手に入れた称号 ${got.length}${got.length ? ' ・ 押すとホームに付けられます' : ''}</p>
+    ${
+      got.length
+        ? `<section class="card">${got
+            .map(
+              ({ t, d }) => `<button class="titlerow${cur?.titleId === t.titleId ? ' on' : ''}" data-equip="${esc(t.titleId)}">
+                <span class="spread"><b>${esc(t.name)}</b><small>${fmtDate(d)}</small></span>
+                <span class="desc">${rich(t.description)}</span>
+              </button>`,
+            )
+            .join('')}</section>`
+        : '<section class="card"><p class="note">まだ称号はありません。解いているうちに、思わぬところで手に入ります。</p></section>'
+    }`,
+    bind: () =>
+      on('[data-equip]', 'click', async (e) => {
+        S.settings.titleId = e.currentTarget.dataset.equip || null;
+        await db.putKV('settings', S.settings);
+        recordScreen('title');
+      }),
+  };
+}
+
+// ---- カード（1.4.0）：ガチャ・図鑑・覚醒。持っていないカードの枚数・中身は出さない ----
+
+// カードの絵柄（枠・名前・レア度はアプリが描く。画像がないときはレア度の色の仮の絵柄）
+function cardFace(c, awakened = false) {
+  const art = c.image ? `<img src="${c.image}" alt="" loading="lazy">` : '<span class="ph">◆</span>';
+  return `<span class="cf r${c.rarity}${awakened ? ' awake' : ''}"><span class="art">${art}</span><span class="cn">${esc(c.name)}</span><span class="rs">${RARITY_STARS[c.rarity] || ''}</span></span>`;
+}
+
+function subjectLabel(id) {
+  return subjectOf(id)?.name || S.data?.map?.places?.find((p) => p.subjectId === id)?.name || id;
+}
+
+function cardTab() {
+  const w = walletNow();
+  if (!S.cards) {
+    return { html: `<section class="card wallet"><p class="spread"><span>コイン <b>${num(w.balance)}</b></span><span>ガチャ券 <b>${w.tickets}</b>枚</span></p>${NO_CARD_DATA}</section>` };
+  }
+  const owned = L.ownedCards(S.gacha);
+  const pool = L.gachaPool(S.cards, owned);
+  const enough = w.balance >= L.COIN.gacha;
+  const gacha = !pool.length
+    ? '<p class="soldout">入荷待ち</p><p class="note center">新しいカードが届くと、また引けるようになります</p>'
+    : `<div class="gbtns">
+        ${w.tickets ? `<button class="btn primary big" data-draw="ticket">券で引く<small>残り ${w.tickets}枚</small></button>` : ''}
+        <button class="btn ${w.tickets ? '' : 'primary big'}" data-draw="coin" ${enough ? '' : 'disabled'}>コインで引く<small>${num(L.COIN.gacha)}</small></button>
+      </div>
+      ${!enough && !w.tickets ? `<p class="note center">あと ${num(L.COIN.gacha - w.balance)} コインで引けます（レベルが上がると券が1枚もらえます）</p>` : ''}`;
+  const groups = S.cards.series
+    .map((s) => {
+      const mine = S.cards.cards.filter((c) => c.seriesId === s.seriesId && owned.has(c.cardId)).sort((a, b) => a.cardId.localeCompare(b.cardId));
+      if (!mine.length) return '';
+      const members = S.cards.cards.filter((c) => c.seriesId === s.seriesId && !c.retired);
+      const complete = members.length && members.every((c) => owned.has(c.cardId));
+      return `<section class="card"><h2>${esc(s.name)}${complete ? ' <span class="tag ok">コンプリート</span>' : ''}</h2>
+        <div class="cgrid">${mine.map((c) => `<button class="cthumb" data-card="${esc(c.cardId)}">${cardFace(c, !!S.collection.awakened[c.cardId])}</button>`).join('')}</div></section>`;
+    })
+    .join('');
+  return {
+    html: `<section class="card wallet">
+        <p class="spread"><span>コイン <b>${num(w.balance)}</b></span><span>ガチャ券 <b>${w.tickets}</b>枚</span></p>
+        <p class="small">Lv ${w.level} ・ 次のレベルまで ${num(w.toNext)}（正解 100・定着 1,000・外部試験の初正解 配点×100・実績）</p>
+        ${gacha}
+      </section>
+      <p class="note center">所持 ${owned.size}枚</p>
+      ${groups || '<p class="note center">まだカードがありません。ガチャを引くと、ここに並びます</p>'}`,
+    bind: () => {
+      on('[data-draw]', 'click', (e) => {
+        primeAudio();
+        drawGacha(e.currentTarget.dataset.draw);
+      });
+      on('[data-card]', 'click', (e) => cardDetail(e.currentTarget.dataset.card));
+    },
+  };
+}
+
+async function drawGacha(paid) {
+  const w = walletNow();
+  if (paid === 'ticket' ? w.tickets < 1 : w.balance < L.COIN.gacha) return toast(paid === 'ticket' ? 'ガチャ券がありません' : 'コインが足りません');
+  const card = L.drawCard(S.cards, L.ownedCards(S.gacha), L.recentMasteredSubjects(S.logs, S.data, today()));
+  if (!card) {
+    toast('入荷待ちです');
+    return recordScreen('card');
+  }
+  // 先に保存してから演出を出す（途中でアプリを閉じても、引いたカードは残る）
+  S.gacha.push({ gachaId: uid(), at: new Date().toISOString(), cardId: card.cardId, paid, coins: paid === 'coin' ? L.COIN.gacha : 0 });
+  await db.putKV('gachaLog', S.gacha);
+  const got = await syncCollection();
+  recordScreen('card');
+  revealCard(card, got);
+}
+
+// 引いたときの演出：カードが裏返り、レア度で光り方が変わる（1〜2秒。演出ありでは少し派手に）
+function revealCard(card, got) {
+  const awakened = !!S.collection.awakened[card.cardId];
+  const ov = document.createElement('div');
+  ov.className = `gacha r${card.rarity}`;
+  ov.innerHTML = `<div class="gstage"><div class="flip"><div class="gback"><span>？</span></div><div class="gfront">${cardFace(card, awakened)}</div></div></div>
+    <div class="gres">
+      <p class="rs">${RARITY_STARS[card.rarity] || ''}</p>
+      <p class="gname">${esc(card.name)}</p>
+      ${awakened ? '<p class="gnote">はじめから覚醒している！</p>' : ''}
+      ${got.titles.map((t) => `<p class="gnote">称号「${esc(t.name)}」を手に入れた</p>`).join('')}
+      <div class="actions"><button class="btn" data-close>閉じる</button><button class="btn primary" data-view>カードを見る</button></div>
+    </div>`;
+  document.body.append(ov);
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const wait = still ? 0 : fx() ? 1100 : 500;
+  setTimeout(() => {
+    ov.classList.add('open');
+    if (fx()) playReveal(card.rarity);
+  }, wait);
+  setTimeout(() => ov.classList.add('done'), still ? 0 : wait + 700);
+  ov.querySelector('[data-close]').onclick = () => ov.remove();
+  ov.querySelector('[data-view]').onclick = () => {
+    ov.remove();
+    cardDetail(card.cardId);
+  };
+}
+
+// 図鑑のカードを大きく表示：名前・説明文・つながる科目と単元・手に入れた日。覚醒したら続きの説明文も
+function cardDetail(id) {
+  const c = cardById(id);
+  if (!c) return;
+  const aw = S.collection.awakened[id];
+  const g = L.cardGroup(c, S.data, L.questionProgress(S.logs));
+  const links = (c.unitIds || []).length
+    ? c.unitIds.map((u) => `${esc(subjectLabel(unitSubjectId(u)))}「${esc(shortName(unitName(u)))}」`)
+    : (c.subjectIds || []).map((s) => esc(subjectLabel(s)));
+  const awakenNote = aw
+    ? ''
+    : g.total
+      ? `<p class="note">つながる${(c.unitIds || []).length ? '単元' : '科目'}の定着が半分以上になると覚醒し、続きが読めます（いま 定着 ${g.mastered} ／ ${g.total}問）</p>`
+      : '<p class="note">つながる科目の問題が増えると、覚醒できるようになります</p>';
+  const dlg = document.createElement('div');
+  dlg.className = 'modal cardview';
+  dlg.innerHTML = `<div class="sheet">
+      <div class="cbig">${cardFace(c, !!aw)}</div>
+      <p class="spread"><b class="gname">${esc(c.name)}</b><span class="rs r${c.rarity}">${RARITY_STARS[c.rarity] || ''}</span></p>
+      <p class="story">${rich(c.story)}</p>
+      ${aw ? `<p class="story awake">${rich(c.awakenedStory)}</p>` : ''}
+      ${awakenNote}
+      ${links.length ? `<p class="small">つながり：${links.join('・')}</p>` : ''}
+      <p class="small">手に入れた日 ${fmtDate(L.ownedCards(S.gacha).get(id) || today())}${aw ? ` ・ 覚醒した日 ${fmtDate(aw)}` : ''}</p>
+      <div class="actions"><button class="btn primary" data-close>閉じる</button></div>
+    </div>`;
+  document.body.append(dlg);
+  renderMath(dlg);
+  dlg.querySelector('[data-close]').onclick = () => dlg.remove();
+  dlg.addEventListener('click', (e) => e.target === dlg && dlg.remove());
+}
+
 // ---- セッション・出題・解説 ----
 
 let timerId = null;
@@ -951,6 +1184,20 @@ async function endSession(message = '') {
   sum.newAchievements
     .filter((a) => !(sum.streakMilestone && a.id.startsWith('streak-')))
     .forEach((a) => goods.push(['k5', '★', `実績「${a.name}」を達成`]));
+  // 通貨・レベル・称号・覚醒（1.4.0）
+  const got = await syncCollection();
+  const c = sum.coins;
+  if (c.total) {
+    const parts = [['correct', '正解'], ['mastered', '定着'], ['exam', '外部試験'], ['achievement', '実績']]
+      .filter(([k]) => c[k])
+      .map(([k, n]) => `${n} ${num(c[k])}`);
+    goods.push(['k7', '貨', `コイン +${num(c.total)}（${parts.join('・')}）`]);
+  }
+  if (sum.level.after > sum.level.before) {
+    goods.push(['k8', 'Lv', `レベルアップ！ Lv${sum.level.before} → Lv${sum.level.after}（ガチャ券 +${sum.level.after - sum.level.before}枚）`, 'milestone levelup']);
+  }
+  got.titles.forEach((t) => goods.push(['k9', '称', `称号「${t.name}」を手に入れた`]));
+  got.awakened.forEach((card) => goods.push(['k9', '覚', `カード「${card.name}」が覚醒した`, 'milestone']));
   const changes = sum.changes.slice(0, 4);
   const short = isShort(ss.mode);
   const k = L.streakInfo(S.logs, today());
@@ -1131,6 +1378,7 @@ function dataScreen() {
               .join('') + `<p class="note">読み込み日時：${esc(new Date(S.data.importedAt).toLocaleString('ja-JP'))}</p>`
           : '<p class="note">まだありません</p>'
       }
+      <p class="note">カードと称号のデータ：${S.cards ? `読み込み済み（${esc(new Date(S.cards.importedAt).toLocaleString('ja-JP'))}）` : 'まだありません（「カードと称号.json」も同じボタンで読み込めます）'}</p>
       <button class="btn primary" data-import>問題データを読み込む</button>
     </section>
     <section class="card">
@@ -1181,6 +1429,7 @@ async function importFlow() {
   } catch {
     return toast('JSONとして読めないファイルです');
   }
+  if (json?.format === 'fukushu-cards') return importCards(json);
   const errors = L.validateQuestionFile(json);
   if (errors.length) {
     return show(
@@ -1218,6 +1467,40 @@ async function importFlow() {
   );
 }
 
+// カードと称号のデータ（format: fukushu-cards）。中身（枚数・名前）は確認画面にも出さない
+function importCards(json) {
+  const errors = L.validateCardFile(json);
+  if (errors.length) {
+    return show(
+      `<header class="top"><h1>読み込めません</h1></header>
+      <section class="card"><ul>${errors.slice(0, 20).map((e) => `<li>${esc(e)}</li>`).join('')}</ul></section>
+      <div class="actions"><button class="btn primary" data-ok>戻る</button></div>`,
+      () => on('[data-ok]', 'click', dataScreen),
+    );
+  }
+  show(
+    `<header class="top"><h1>取り込み内容の確認</h1></header>
+    <section class="card">
+      <p>カードと称号のデータです。</p>
+      <p class="note">中身は、ガチャで引いたり条件を満たしたりするまで見えません。持っているカードと称号、ガチャの記録はそのまま残ります。新しいカードがあれば、ガチャに入荷します。</p>
+    </section>
+    <div class="actions"><button class="btn" data-cancel>取り消し</button><button class="btn primary big" data-ok>確定</button></div>`,
+    () => {
+      on('[data-cancel]', 'click', dataScreen);
+      on('[data-ok]', 'click', async () => {
+        const { data } = L.mergeCardData(S.cards, json, new Set(L.ownedCards(S.gacha).keys()));
+        data.importedAt = new Date().toISOString();
+        S.cards = data;
+        await db.putKV('cardData', data);
+        navigator.storage?.persist?.();
+        const got = await syncCollection();
+        toast(got.titles.length ? `読み込みました。これまでの記録で称号を${got.titles.length}個 手に入れた` : 'カードと称号のデータを読み込みました');
+        dataScreen();
+      });
+    },
+  );
+}
+
 async function exportBackup() {
   const backup = {
     format: 'fukushu-backup',
@@ -1229,6 +1512,10 @@ async function exportBackup() {
     answerLogs: S.logs,
     sessions: S.sessions,
     issueReports: S.reports,
+    // 1.4.0：カードと称号のデータ・ガチャの記録・覚醒した日と称号を手に入れた日
+    cardData: S.cards,
+    gachaLog: S.gacha,
+    collection: S.collection,
   };
   await saveFile(`復習アプリ_バックアップ_${stamp()}.json`, JSON.stringify(backup));
   S.lastBackup = backup.exportedAt;
@@ -1257,8 +1544,9 @@ async function restoreFlow() {
     () => {
       on('[data-cancel]', 'click', dataScreen);
       on('[data-ok]', 'click', async () => {
-        await db.replaceAll(b);
+        await db.replaceAll(b, S.cards); // 古いバックアップ（カードのデータなし）なら、今のカードのデータを残す
         await load();
+        await syncCollection();
         toast('復元しました');
         dataScreen();
       });
@@ -1291,6 +1579,9 @@ async function load() {
   S.sessions = all.sessions;
   S.reports = all.issueReports;
   S.lastBackup = all.lastBackup;
+  S.cards = all.cardData;
+  S.gacha = [...all.gachaLog].sort((a, b) => a.at.localeCompare(b.at));
+  S.collection = { titles: { ...(all.collection?.titles || {}) }, awakened: { ...(all.collection?.awakened || {}) } };
   S.preview = null;
   applyTheme();
 }
@@ -1306,7 +1597,7 @@ document.addEventListener('visibilitychange', () => {
   checkTimer();
   const away = hiddenAt != null && Date.now() - hiddenAt >= REOPEN_HOME_MS;
   hiddenAt = null;
-  if (away && S.data && (!S.session || S.session.ended) && !S.reading && !document.querySelector('.modal, .zoom')) {
+  if (away && S.data && (!S.session || S.session.ended) && !S.reading && !document.querySelector('.modal, .zoom, .gacha')) {
     S.session = null;
     banner.hidden = true;
     home();
@@ -1315,6 +1606,7 @@ document.addEventListener('visibilitychange', () => {
 
 try {
   await load();
+  await syncCollection(); // これまでの記録で手に入る称号・覚醒（さかのぼって効く）
   home();
 } catch (e) {
   app.innerHTML = `<p class="warn">データを読み込めませんでした：${esc(e.message)}</p>`;
@@ -1324,4 +1616,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js');
 }
 
-window.__app = { S, L, db, load, home }; // 動作確認用
+window.__app = { S, L, db, load, home, syncCollection }; // 動作確認用

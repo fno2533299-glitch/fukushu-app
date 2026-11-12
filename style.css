@@ -382,3 +382,112 @@ button.tile:active { border-color: var(--primary); }
 @media (prefers-reduced-motion: reduce) {
   .spark, .choice.flash, .tile.glow, .good li .mk, .streakline b { animation: none !important; }
 }
+
+/* 1.4.0：通貨・レベル・称号・カード */
+.lvline {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 10px;
+  width: 100%; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+  padding: 8px 14px 9px; margin: 0 0 4px;
+}
+.lvline .lvb { font-size: 0.75rem; color: var(--muted); font-weight: 700; }
+.lvline .lvb b { font-size: 1.15rem; color: var(--primary); margin-left: 2px; }
+.lvline .ttl { font-size: 0.88rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lvline .nx { font-size: 0.75rem; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lvline .lvbar { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.lvline .lvbar i { display: block; height: 100%; background: var(--primary); }
+.ticket { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 6px; background: var(--spark); color: var(--bg); font-weight: 700; }
+
+.tabs.two { grid-auto-flow: row; grid-template-columns: repeat(4, 1fr); }
+
+.curtitle { font-size: 1.05rem; }
+.titlerow { display: block; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding: 10px 0; }
+.titlerow:first-child { border-top: 0; }
+.titlerow small { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+.titlerow .desc { display: block; font-size: 0.85rem; line-height: 1.65; color: var(--muted); margin-top: 2px; }
+.titlerow.on b { color: var(--primary); }
+.titlerow.on b::before { content: '◆ '; }
+
+.wallet b { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.gbtns { display: flex; gap: 10px; margin-top: 10px; }
+.gbtns .btn { flex: 1; flex-direction: column; gap: 0; margin: 0; line-height: 1.3; }
+.soldout { text-align: center; font-weight: 700; font-size: 1.1rem; letter-spacing: .3em; color: var(--muted); margin: 14px 0 0; }
+
+/* カードの絵柄：枠・名前・レア度はアプリが描く。どちらの配色でも暗い札にする */
+.cf { --rc: #9a8a74; --rg: rgba(154, 138, 116, .45);
+  position: relative; display: flex; flex-direction: column; overflow: hidden;
+  border: 2px solid var(--rc); border-radius: 9px; background: #15131b; color: #ece7dc;
+}
+.cf.r2 { --rc: #7ea6dd; --rg: rgba(126, 166, 221, .55); }
+.cf.r3 { --rc: #d9ad3c; --rg: rgba(240, 190, 60, .6); border-width: 3px; }
+.cf .art { position: relative; display: block; aspect-ratio: 2 / 3; overflow: hidden; background: #0e0c12; }
+.cf .art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.cf .ph { display: grid; place-items: center; width: 100%; height: 100%; font-size: 2.2em; color: var(--rc); opacity: .7;
+  background: radial-gradient(circle at 50% 42%, var(--rg), transparent 62%), linear-gradient(160deg, #221d2c, #0c0a10); }
+.cf .cn { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  padding: 4px 6px 5px; font-size: 0.68rem; line-height: 1.35; font-weight: 600; text-align: center;
+  border-top: 1px solid var(--rc); background: linear-gradient(#1d1925, #121016); height: calc(2.7em + 10px); }
+.cf .rs { position: absolute; top: 3px; left: 5px; font-size: 0.6rem; color: var(--rc); text-shadow: 0 0 3px #000, 0 0 2px #000; letter-spacing: -1px; }
+.cf.awake { box-shadow: 0 0 10px 1px var(--rg); }
+.cf.awake .art::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 245, 210, .35) 45%, transparent 60%) no-repeat;
+  background-size: 250% 100%; animation: sheen 3.2s ease-in-out infinite; mix-blend-mode: screen; }
+@keyframes sheen { 0% { background-position: 130% 0; } 60%, 100% { background-position: -130% 0; } }
+
+.cgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cthumb { display: block; padding: 0; border: 0; background: none; text-align: left; }
+.cthumb:active .cf { transform: scale(.97); }
+
+.cardview .sheet { max-height: 92vh; overflow-y: auto; }
+.cardview .cbig { width: 58%; max-width: 240px; margin: 4px auto 12px; }
+.cardview .cbig .cf .cn { font-size: 0.85rem; }
+.cardview .cbig .cf .rs { font-size: 0.85rem; }
+.gname { font-size: 1.1rem; }
+.rs.r1 { color: #9a8a74; } .rs.r2 { color: #6f97d0; } .rs.r3 { color: #c9981d; }
+.story { font-size: 0.92rem; line-height: 1.8; margin: 8px 0; }
+.story.awake { padding: 8px 12px; border-radius: 10px; background: var(--trivia-bg); border-left: 3px solid var(--spark); }
+
+.mk.k7 { background: var(--spark); } .mk.k8 { background: var(--primary); font-size: 0.62rem; } .mk.k9 { background: var(--lv3); }
+.good li.levelup { font-weight: 700; }
+
+/* ガチャ：カードが裏返り、レア度で光り方が変わる */
+.gacha { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  padding: 16px; background: rgba(8, 6, 14, .95); color: #ece7dc; }
+.gstage { position: relative; perspective: 900px; width: min(56vw, 230px); }
+.gstage::before { content: ''; position: absolute; inset: -40%; border-radius: 50%; opacity: 0; transition: opacity .6s; pointer-events: none;
+  background: radial-gradient(circle, var(--gg, rgba(200, 190, 170, .35)), transparent 65%); }
+.gacha.r2 { --gg: rgba(126, 166, 221, .55); } .gacha.r3 { --gg: rgba(255, 200, 70, .7); }
+.gacha.open .gstage::before { opacity: 1; }
+.flip { position: relative; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.3, .7, .3, 1); animation: hover 1.2s ease-in-out infinite; }
+.gacha.open .flip { transform: rotateY(180deg); animation: none; }
+.gback, .gfront { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.gfront { transform: rotateY(180deg); }
+.gback { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; border-radius: 9px; border: 2px solid #5c5068;
+  background: repeating-linear-gradient(45deg, #231d2d 0 8px, #1a1522 8px 16px); font-size: 2.4rem; color: #8b7d9c; }
+.gfront .cf .cn { font-size: 0.85rem; }
+.gfront .cf .rs { font-size: 0.85rem; }
+.gacha.open .gfront .cf { box-shadow: 0 0 24px 4px var(--rg); }
+.gres { text-align: center; opacity: 0; transform: translateY(8px); transition: opacity .4s, transform .4s; width: min(100%, 360px); }
+.gacha.done .gres { opacity: 1; transform: none; }
+.gres .rs { font-size: 1.1rem; margin: 0; }
+.gacha.r1 .gres .rs { color: #b8a78e; } .gacha.r2 .gres .rs { color: #9cc0f0; } .gacha.r3 .gres .rs { color: #f2c14e; }
+.gres .gname { font-weight: 700; margin: 2px 0 6px; }
+.gres .gnote { font-size: 0.9rem; color: #f2c14e; }
+.gres .btn { background: #2a2433; border-color: #463d55; color: #ece7dc; }
+.gres .btn.primary { background: #6a4fd6; border-color: #6a4fd6; color: #fff; }
+@keyframes hover { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes shake { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-3deg); } 40% { transform: rotate(3deg); } 60% { transform: rotate(-2deg); } 80% { transform: rotate(2deg); } }
+/* 演出あり：引く前に揺れ、レア度が高いと光の輪が回る */
+[data-theme=fx] .gacha:not(.open) .flip { animation: shake .45s ease-in-out infinite; }
+[data-theme=fx] .gacha.r2.open .gstage::after, [data-theme=fx] .gacha.r3.open .gstage::after {
+  content: ''; position: absolute; inset: -55%; border-radius: 50%; pointer-events: none; z-index: -1; animation: spin 10s linear infinite; }
+[data-theme=fx] .gacha.r2.open .gstage::after { background: repeating-conic-gradient(rgba(140, 180, 240, .18) 0 6deg, transparent 6deg 24deg); }
+[data-theme=fx] .gacha.r3.open .gstage::after { background: repeating-conic-gradient(rgba(255, 210, 90, .3) 0 8deg, transparent 8deg 22deg); }
+[data-theme=fx] .gacha.open .gfront .cf { box-shadow: 0 0 40px 8px var(--rg); }
+@keyframes spin { to { transform: rotate(360deg); } }
+[data-theme=fx] .good li.levelup { font-size: 1.05rem; color: var(--primary); }
+[data-theme=fx] .good li.levelup.go .mk { animation: pop .6s ease-out; box-shadow: 0 0 10px var(--spark-glow); }
+
+@media (prefers-reduced-motion: reduce) {
+  .flip, .gres, .gstage::before { transition: none !important; animation: none !important; }
+  .cf.awake .art::after, .gstage::after { animation: none !important; }
+}

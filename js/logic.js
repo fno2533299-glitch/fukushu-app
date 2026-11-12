@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS = {
   questionsPerSet: 10,
   quickSize: 3, // ホームの「さっと出題」・マップの「この単元を3問」の問題数
   theme: 'simple', // 'simple'（シンプル）／'fx'（演出あり：正解の光と効果音）
+  titleId: null, // ホームに付けている称号（1.4.0）
   intervals: [1, 3, 7, 14, 30],
   subjectTarget: {}, // subjectId → false で対象外（未設定は対象）
   unitTarget: {}, // unitId → false で対象外
@@ -389,21 +390,23 @@ export function streakInfo(logs, today) {
   return { current: gap === 0 || gap === 1 ? run : 0, best, todayDone: gap === 0 };
 }
 
+// coin：達成したときにもらえる通貨（1.4.0。重い実績ほど多い）
+const STREAK_COIN = { 3: 3000, 7: 5000, 14: 6000, 30: 8000, 100: 10000 };
 export const ACHIEVEMENTS = [
-  { id: 'first-correct', icon: '初', name: 'はじめての正解', desc: '1問正解する' },
-  { id: 'first-mastered', icon: '定', name: 'はじめての定着', desc: '7日以上あけて解いても正解できた' },
-  { id: 'first-exam', icon: '試', name: '試験レベルにはじめて正解', desc: '試験レベルの問題に正解する' },
-  { id: 'overcome', icon: '克', name: '苦手を克服', desc: '2回以上間違えた問題が定着した' },
-  { id: 'gap30', icon: '30', name: '30日あけても正解', desc: '正解のあと、30日以上あけて解いても正解' },
-  { id: 'unit-mastered', icon: '全', name: '単元をまるごと定着', desc: '2問以上ある単元で、すべてが定着' },
-  { id: 'subject-touched', icon: '科', name: '1科目の全単元に手を付ける', desc: 'ある科目のすべての単元で1問以上解いた' },
-  { id: 'mastered-10', icon: '10', name: '定着10問', desc: '定着している問題が10問', need: 10 },
-  { id: 'mastered-50', icon: '50', name: '定着50問', desc: '定着している問題が50問', need: 50 },
-  { id: 'mastered-100', icon: '100', name: '定着100問', desc: '定着している問題が100問', need: 100 },
-  { id: 'exam-10', icon: '試', name: '試験レベルを10問定着', desc: '定着している試験レベルの問題が10問', need: 10 },
-  { id: 'trivia-50', icon: '豆', name: '豆知識を50個集める', desc: '解いた問題の豆知識が50個', need: 50 },
-  { id: 'trivia-100', icon: '豆', name: '豆知識を100個集める', desc: '解いた問題の豆知識が100個', need: 100 },
-  ...STREAK_MILESTONES.map((n) => ({ id: `streak-${n}`, icon: `${n}日`, name: `${n}日連続`, desc: `${n}日続けて解いた`, need: n })),
+  { id: 'first-correct', icon: '初', name: 'はじめての正解', desc: '1問正解する', coin: 3000 },
+  { id: 'first-mastered', icon: '定', name: 'はじめての定着', desc: '7日以上あけて解いても正解できた', coin: 3000 },
+  { id: 'first-exam', icon: '試', name: '試験レベルにはじめて正解', desc: '試験レベルの問題に正解する', coin: 3000 },
+  { id: 'overcome', icon: '克', name: '苦手を克服', desc: '2回以上間違えた問題が定着した', coin: 5000 },
+  { id: 'gap30', icon: '30', name: '30日あけても正解', desc: '正解のあと、30日以上あけて解いても正解', coin: 5000 },
+  { id: 'unit-mastered', icon: '全', name: '単元をまるごと定着', desc: '2問以上ある単元で、すべてが定着', coin: 5000 },
+  { id: 'subject-touched', icon: '科', name: '1科目の全単元に手を付ける', desc: 'ある科目のすべての単元で1問以上解いた', coin: 5000 },
+  { id: 'mastered-10', icon: '10', name: '定着10問', desc: '定着している問題が10問', need: 10, coin: 5000 },
+  { id: 'mastered-50', icon: '50', name: '定着50問', desc: '定着している問題が50問', need: 50, coin: 8000 },
+  { id: 'mastered-100', icon: '100', name: '定着100問', desc: '定着している問題が100問', need: 100, coin: 10000 },
+  { id: 'exam-10', icon: '試', name: '試験レベルを10問定着', desc: '定着している試験レベルの問題が10問', need: 10, coin: 8000 },
+  { id: 'trivia-50', icon: '豆', name: '豆知識を50個集める', desc: '解いた問題の豆知識が50個', need: 50, coin: 5000 },
+  { id: 'trivia-100', icon: '豆', name: '豆知識を100個集める', desc: '解いた問題の豆知識が100個', need: 100, coin: 8000 },
+  ...STREAK_MILESTONES.map((n) => ({ id: `streak-${n}`, icon: `${n}日`, name: `${n}日連続`, desc: `${n}日続けて解いた`, need: n, coin: STREAK_COIN[n] })),
 ];
 
 // 実績ごとに、達成日（記録を古い順にたどって最初に条件を満たした日）と、未達成なら途中経過を返す
@@ -518,7 +521,12 @@ export function sessionSummary(before, after, data, settings) {
   const sb = day ? streakInfo(before, day).current : 0;
   const streak = day ? streakInfo(after, day) : null;
   const streakMilestone = streak ? STREAK_MILESTONES.find((n) => sb < n && streak.current >= n) || null : null;
-  return { recovered: recovered.length, mastered, unlocks, changes, newAchievements, examGains, streak, streakMilestone };
+  // 通貨（このセットでもらった分の内訳）とレベル（1.4.0）
+  const cb2 = coinTotals(coinEvents(before, data));
+  const ca2 = coinTotals(coinEvents(after, data));
+  const coins = Object.fromEntries(Object.keys(ca2).map((k) => [k, Math.max(0, ca2[k] - cb2[k])]));
+  const level = { before: levelInfo(cb2.total).level, after: levelInfo(ca2.total).level };
+  return { recovered: recovered.length, mastered, unlocks, changes, newAchievements, examGains, streak, streakMilestone, coins, level };
 }
 
 // カレンダー：端末の日付ごとの回答数
@@ -570,4 +578,272 @@ export function examItemInfo(data, q) {
   if (!e) return null;
   const ex = (data?.exams || []).find((x) => x.examId === e.examId);
   return ex ? { ...e, examName: ex.name, key: paperKey(e) } : null;
+}
+
+// ---- 通貨・レベル・称号・カード（1.4.0：要件定義書 4.10、設計図 1.10） ----
+// もらった通貨は ANSWER_LOG と問題データから計算する（さかのぼって効く）。使った分はガチャの記録から
+
+export const COIN = { correct: 100, mastered: 1000, examPerPoint: 100, gacha: 10000 };
+
+// 通貨をもらったできごと（日付の順）。kind：correct（問題ごとに1日1回）／mastered（定着になった回答ごと）／
+// exam（examItem のある問題に初めて正解。配点×100）／achievement（実績の coin）。不正解・わからないは0で、減ることもない
+export function coinEvents(logs, data) {
+  const qById = new Map((data?.questions || []).map((q) => [q.questionId, q]));
+  const ev = [];
+  const correctDay = new Set();
+  const examDone = new Set();
+  const was = new Map();
+  questionProgress(logs, (l, p) => {
+    const date = localDate(new Date(l.answeredAt));
+    if (l.result === '正解') {
+      const k = `${l.questionId}|${date}`;
+      if (!correctDay.has(k)) {
+        correctDay.add(k);
+        ev.push({ kind: 'correct', amount: COIN.correct, date, questionId: l.questionId });
+      }
+      const e = qById.get(l.questionId)?.examItem;
+      if (e && e.points > 0 && !examDone.has(l.questionId)) {
+        examDone.add(l.questionId);
+        ev.push({ kind: 'exam', amount: e.points * COIN.examPerPoint, date, questionId: l.questionId });
+      }
+    }
+    if (p.mastered && !was.get(l.questionId)) ev.push({ kind: 'mastered', amount: COIN.mastered, date, questionId: l.questionId });
+    was.set(l.questionId, p.mastered);
+  });
+  for (const a of achievements(logs, data)) {
+    if (a.achievedAt && a.coin) ev.push({ kind: 'achievement', amount: a.coin, date: a.achievedAt, achievementId: a.id });
+  }
+  return ev.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function coinTotals(events) {
+  const t = { correct: 0, mastered: 0, exam: 0, achievement: 0, total: 0 };
+  for (const e of events) {
+    t[e.kind] += e.amount;
+    t.total += e.amount;
+  }
+  return t;
+}
+
+// レベル：経験値＝もらった通貨の合計（使っても減らない）。Lv1→2 が 3,000、以後 2,000 ずつ増える
+// （Lv2→3 は 5,000、Lv3→4 は 7,000）。Lv L に達する合計は 1000×(L²−1)
+export const levelXp = (lv) => 1000 * (lv * lv - 1);
+export function levelInfo(xp) {
+  let level = Math.max(1, Math.floor(Math.sqrt(xp / 1000 + 1)));
+  while (levelXp(level + 1) <= xp) level++;
+  while (level > 1 && levelXp(level) > xp) level--;
+  const base = levelXp(level);
+  const next = levelXp(level + 1);
+  return { level, xp, into: xp - base, need: next - base, toNext: next - xp };
+}
+
+// 財布：残高＝もらった合計 − 使った合計。ガチャ券はレベルが上がるたびに1枚（Lv L までに L−1 枚）
+// gachaLog = [{ gachaId, at, cardId, paid: 'coin' | 'ticket', coins }]
+export function wallet(logs, data, gachaLog = [], events = coinEvents(logs, data)) {
+  const earned = coinTotals(events).total;
+  const spent = gachaLog.reduce((a, g) => a + (g.coins || 0), 0);
+  const lv = levelInfo(earned);
+  const ticketsUsed = gachaLog.filter((g) => g.paid === 'ticket').length;
+  return { earned, spent, balance: Math.max(0, earned - spent), ...lv, tickets: Math.max(0, lv.level - 1 - ticketsUsed) };
+}
+
+// 継続日数が n 日に初めて達した日（first[n]）
+function streakFirstDates(logs) {
+  const days = [...new Set(logs.map((l) => localDate(new Date(l.answeredAt))))].sort();
+  const first = [];
+  let run = 0, prev = null;
+  for (const d of days) {
+    run = prev && daysBetween(prev, d) === 1 ? run + 1 : 1;
+    first[run] ??= d;
+    prev = d;
+  }
+  return first;
+}
+
+export const HIDDEN_KEYS = ['midnight', 'idk3ThenCorrect'];
+
+// 称号ごとに、最初に条件を満たした日。titleId → 'YYYY-MM-DD'（満たしていない称号は入らない）。
+// コードにない条件（type・key）は無視する。cards：カードのデータ（seriesComplete 用）
+export function titleDates(titles, { logs, data, gachaLog = [], cards = null }) {
+  const res = new Map();
+  const list = (titles || []).filter((t) => t?.titleId && t.condition && !t.retired);
+  if (!list.length) return res;
+  const of = (type) => list.filter((t) => t.condition.type === type);
+  const set = (t, d) => d && !res.has(t.titleId) && res.set(t.titleId, d);
+
+  if (of('achievement').length) {
+    const got = new Map(achievements(logs, data).map((a) => [a.id, a.achievedAt]));
+    for (const t of of('achievement')) set(t, got.get(t.condition.achievementId));
+  }
+  if (of('level').length) {
+    let sum = 0;
+    const reached = [];
+    for (const e of coinEvents(logs, data)) {
+      sum += e.amount;
+      for (let lv = levelInfo(sum).level; lv >= 1 && !reached[lv]; lv--) reached[lv] = e.date;
+    }
+    for (const t of of('level')) set(t, reached[t.condition.level]);
+  }
+  if (of('streak').length) {
+    const first = streakFirstDates(logs);
+    for (const t of of('streak')) set(t, first.slice(t.condition.days).find(Boolean));
+  }
+
+  // 回答記録をたどって判定するもの：unitMastery・examPass・hidden
+  const active = activeQuestions(data);
+  const unitTitles = of('unitMastery')
+    .map((t) => {
+      const units = new Set(t.condition.unitIds || []);
+      return { t, ids: new Set(active.filter((q) => units.has(q.unitId)).map((q) => q.questionId)) };
+    })
+    .filter((u) => u.ids.size > 0);
+  const papers = new Map();
+  for (const ex of data?.exams || []) for (const p of ex.papers || []) papers.set(paperKey({ examId: ex.examId, ...p }), { pass: p.pass, got: 0 });
+  const examQ = new Map(active.filter((q) => q.examItem && papers.has(paperKey(q.examItem))).map((q) => [q.questionId, q.examItem]));
+  const mastered = new Set();
+  const lastOk = new Map();
+  const idk = new Map();
+  let passDate = null, midnight = null, idk3 = null;
+  questionProgress(logs, (l, p) => {
+    const date = localDate(new Date(l.answeredAt));
+    if (p.mastered) mastered.add(l.questionId);
+    else mastered.delete(l.questionId);
+    for (const u of unitTitles) {
+      if (!res.has(u.t.titleId) && u.ids.has(l.questionId) && [...u.ids].every((id) => mastered.has(id))) set(u.t, date);
+    }
+    const e = examQ.get(l.questionId);
+    if (e) {
+      const r = papers.get(paperKey(e));
+      const ok = l.result === '正解';
+      if (ok !== !!lastOk.get(l.questionId)) r.got += ok ? e.points : -e.points;
+      lastOk.set(l.questionId, ok);
+      if (!passDate && r.got >= r.pass) passDate = date;
+    }
+    if (!midnight && new Date(l.answeredAt).getHours() < 4) midnight = date;
+    if (l.result === 'わからない') idk.set(l.questionId, (idk.get(l.questionId) || 0) + 1);
+    else if (l.result === '正解' && !idk3 && (idk.get(l.questionId) || 0) >= 3) idk3 = date;
+  });
+  for (const t of of('examPass')) set(t, passDate);
+  for (const t of of('hidden')) set(t, { midnight, idk3ThenCorrect: idk3 }[t.condition.key]);
+
+  if (of('seriesComplete').length && cards) {
+    const owned = new Set();
+    const done = new Map();
+    for (const g of [...gachaLog].sort((a, b) => a.at.localeCompare(b.at))) {
+      owned.add(g.cardId);
+      for (const t of of('seriesComplete')) {
+        if (done.has(t.titleId)) continue;
+        const members = (cards.cards || []).filter((c) => c.seriesId === t.condition.seriesId && !c.retired);
+        if (members.length && members.every((c) => owned.has(c.cardId))) done.set(t.titleId, localDate(new Date(g.at)));
+      }
+    }
+    for (const t of of('seriesComplete')) set(t, done.get(t.titleId));
+  }
+  return res;
+}
+
+// ---- カード ----
+
+// 持っているカード：cardId → 手に入れた日
+export function ownedCards(gachaLog = []) {
+  const m = new Map();
+  for (const g of gachaLog) if (!m.has(g.cardId)) m.set(g.cardId, localDate(new Date(g.at)));
+  return m;
+}
+
+// 最近（今日を含めて14日）定着した問題がある科目
+export function recentMasteredSubjects(logs, data, today, days = 14) {
+  const qById = new Map((data?.questions || []).map((q) => [q.questionId, q]));
+  const s = new Set();
+  for (const e of coinEvents(logs, data)) {
+    if (e.kind !== 'mastered' || daysBetween(e.date, today) >= days) continue;
+    const q = qById.get(e.questionId);
+    if (q) s.add(q.subjectId);
+  }
+  return s;
+}
+
+export const RARITY_WEIGHT = { 1: 60, 2: 30, 3: 10 };
+
+// ガチャに出るカード：持っていないもの（重複は出さない）。ファイルからなくなったカード（retired）は出さない
+export function gachaPool(cards, owned) {
+  return (cards?.cards || []).filter((c) => !c.retired && !owned.has(c.cardId));
+}
+
+// 出やすさ：レア度の重み。関係する科目で最近14日に定着した問題があれば2倍
+export function cardWeight(card, recentSubjects) {
+  return (RARITY_WEIGHT[card.rarity] || 1) * ((card.subjectIds || []).some((s) => recentSubjects.has(s)) ? 2 : 1);
+}
+
+// 1枚引く。持っていないカードがなければ null（入荷待ち）
+export function drawCard(cards, owned, recentSubjects, rng = Math.random) {
+  const pool = gachaPool(cards, owned);
+  return pool.length ? weightedPick(pool, (c) => cardWeight(c, recentSubjects), rng) : null;
+}
+
+// 覚醒の判定に使う問題の集まり：unitIds（空なら subjectIds）の出題中の問題
+export function cardGroup(card, data, prog) {
+  const units = new Set(card.unitIds || []);
+  const subjects = new Set(card.subjectIds || []);
+  const qs = activeQuestions(data).filter((q) => (units.size ? units.has(q.unitId) : subjects.has(q.subjectId)));
+  return groupProgress(qs, prog);
+}
+
+// 覚醒の条件：関係する単元（なければ科目）の定着が半分以上（単元の色の段階 3 以上）。問題がまだなければ覚醒できない
+export function canAwaken(card, data, prog) {
+  const g = cardGroup(card, data, prog);
+  return g.total > 0 && shadeLevel(g) >= 3;
+}
+
+// ---- カードと称号のデータ（問題データとは別のファイル。format: fukushu-cards） ----
+
+export function validateCardFile(json) {
+  if (json?.format !== 'fukushu-cards') return ['カードと称号のファイルではありません（format が違います）'];
+  if (!Array.isArray(json.cards) || !Array.isArray(json.series) || !Array.isArray(json.titles)) return ['series / cards / titles がありません'];
+  const errors = [];
+  const series = new Set(json.series.map((s) => s.seriesId));
+  const seen = new Set();
+  for (const c of json.cards) {
+    const id = c.cardId || '(IDなし)';
+    if (!c.cardId) errors.push('cardId のないカードがあります');
+    if (seen.has(c.cardId)) errors.push(`${id}: IDが重複しています`);
+    seen.add(c.cardId);
+    if (![1, 2, 3].includes(c.rarity)) errors.push(`${id}: rarity が 1〜3 ではありません`);
+    if (!series.has(c.seriesId)) errors.push(`${id}: シリーズが定義されていません`);
+    if (c.image != null && !/^data:image\//.test(c.image)) errors.push(`${id}: image が data URI ではありません`);
+  }
+  const tseen = new Set();
+  for (const t of json.titles) {
+    const id = t.titleId || '(IDなし)';
+    if (!t.titleId) errors.push('titleId のない称号があります');
+    if (tseen.has(t.titleId)) errors.push(`${id}: IDが重複しています`);
+    tseen.add(t.titleId);
+    if (!t.condition?.type) errors.push(`${id}: condition がありません`);
+  }
+  return errors;
+}
+
+// 取り込み：cardId・titleId・seriesId で照合して置き換える。ファイルからなくなったカードは、
+// 持っていれば retired にして残し（図鑑に残り、ガチャには出ない）、持っていなければ消す。称号は retired で残す
+export function mergeCardData(current, incoming, ownedIds = new Set()) {
+  const cur = current || { series: [], cards: [], titles: [] };
+  const ids = (xs, k) => new Set(xs.map((x) => x[k]));
+  const inCards = ids(incoming.cards, 'cardId');
+  const inTitles = ids(incoming.titles, 'titleId');
+  const inSeries = ids(incoming.series, 'seriesId');
+  const curCards = ids(cur.cards, 'cardId');
+  const keptCards = cur.cards.filter((c) => !inCards.has(c.cardId) && ownedIds.has(c.cardId)).map((c) => ({ ...c, retired: true }));
+  const needSeries = new Set(keptCards.map((c) => c.seriesId));
+  return {
+    data: {
+      format: 'fukushu-cards',
+      series: [...incoming.series, ...cur.series.filter((s) => !inSeries.has(s.seriesId) && needSeries.has(s.seriesId))],
+      cards: [...incoming.cards, ...keptCards],
+      titles: [...incoming.titles, ...cur.titles.filter((t) => !inTitles.has(t.titleId)).map((t) => ({ ...t, retired: true }))],
+    },
+    summary: {
+      added: incoming.cards.filter((c) => !curCards.has(c.cardId)).length,
+      retired: cur.cards.filter((c) => !inCards.has(c.cardId) && !c.retired).length,
+    },
+  };
 }
