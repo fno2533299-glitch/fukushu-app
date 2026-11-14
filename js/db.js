@@ -1,6 +1,7 @@
 // 端末内の保存（IndexedDB）。起動時に全部を読み込み、変更は1件ずつ書く
 // kv: questionData（問題データ）・settings（本人の設定）・lastBackup（最終書き出し日時）
-//     cardData（カードと称号のデータ）・gachaLog（ガチャの記録）・collection（覚醒した日・称号を手に入れた日）
+//     cardData（カードと称号のデータ）・gachaLog（ガチャの記録と系統の支出）・collection（覚醒した日・称号を手に入れた日）
+//     grid（動く系統の状態。1.5.0）
 // reviewStates / answerLogs / sessions / issueReports: 学習データ（設計図 1.1）
 
 const DB_NAME = 'fukushu-app';
@@ -47,13 +48,14 @@ export async function loadAll() {
   const db = await open();
   const tx = db.transaction(Object.keys(STORES), 'readonly');
   const kv = tx.objectStore('kv');
-  const [questionData, settings, lastBackup, cardData, gachaLog, collection, states, answerLogs, sessions, issueReports] = await Promise.all([
+  const [questionData, settings, lastBackup, cardData, gachaLog, collection, grid, states, answerLogs, sessions, issueReports] = await Promise.all([
     request(kv.get('questionData')),
     request(kv.get('settings')),
     request(kv.get('lastBackup')),
     request(kv.get('cardData')),
     request(kv.get('gachaLog')),
     request(kv.get('collection')),
+    request(kv.get('grid')),
     request(tx.objectStore('reviewStates').getAll()),
     request(tx.objectStore('answerLogs').getAll()),
     request(tx.objectStore('sessions').getAll()),
@@ -66,6 +68,7 @@ export async function loadAll() {
     cardData: cardData || null,
     gachaLog: gachaLog || [],
     collection: collection || null,
+    grid: grid || null,
     reviewStates: Object.fromEntries(states.map((s) => [s.questionId, s])),
     answerLogs,
     sessions,
@@ -109,6 +112,8 @@ export async function replaceAll(backup, keepCardData = null) {
   if (cardData) kv.put(cardData, 'cardData');
   if (Array.isArray(backup.gachaLog)) kv.put(backup.gachaLog, 'gachaLog');
   if (backup.collection) kv.put(backup.collection, 'collection');
+  // 系統の状態（1.5.0）。古いバックアップにはないので、そのときは最初の島から始まる（支出の台帳も一緒に戻るため）
+  if (backup.grid) kv.put(backup.grid, 'grid');
   for (const s of backup.reviewStates) tx.objectStore('reviewStates').put(s);
   for (const l of backup.answerLogs) tx.objectStore('answerLogs').put(l);
   for (const s of backup.sessions) tx.objectStore('sessions').put(s);

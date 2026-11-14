@@ -457,27 +457,30 @@ function runNet(G, lc, t, net, dem, fc, o) {
   // 起動・停止：優先順位の順に、先の需要（予備力の目標つき）をまかなえるまで起動する
   const reserve = net.dc ? Math.min(G.reserve, 0.1) : G.reserve;
   const need = (k) => fc(net, t + k) * (1 + G.lossRatio) * (1 + reserve);
-  let acc = 0;
+  // 先に決めた発電機の出力（at：使えるようになる時刻。起動中のものは、その時刻までは数えない）
+  const committed = [];
+  const accAt = (k) => committed.reduce((a, c) => a + (c.at <= t + k ? c.cap : 0), 0);
   const online = [];
   for (const p of ready) {
     const D = P(p);
     const cap = capNow(G, p, t, true);
-    let want = 0, keep = 0;
+    // want：いま起動すれば間に合う時刻（起動時間のあと）に足りない。keep：これから先のどこかで足りない
+    let want = false, keep = false;
     for (let k = 0; k <= D.start + 4; k++) {
-      const v = need(k);
-      if (k <= D.start + 1) want = Math.max(want, v);
-      keep = Math.max(keep, v);
+      if (need(k) <= accAt(k) + 1e-9) continue;
+      keep = true;
+      if (k >= D.start && k <= D.start + 1) want = true;
     }
     let on = p.on, onAt = p.onAt;
     if (o.assume) on = true;
-    else if (on && keep <= acc + 1e-9) on = false;
-    else if (!on && onAt == null && want > acc + 1e-9) {
+    else if (on && !keep) on = false;
+    else if (!on && onAt == null && want) {
       if (D.start === 0) on = true;
       else onAt = t + D.start;
-    } else if (!on && onAt != null && keep <= acc + 1e-9) onAt = null;
+    } else if (!on && onAt != null && !keep) onAt = null;
     if (!on && onAt != null && onAt <= t) (on = true), (onAt = null);
     if (!o.dry) (p.on = on), (p.onAt = on ? null : onAt);
-    if (on || onAt != null) acc += cap;
+    if (on || onAt != null) committed.push({ cap, at: on ? t : onAt });
     if (on) online.push(p);
   }
   for (const p of net.plants) if (!o.dry && !ready.includes(p) && !(p.hold > t)) (p.on = false), (p.onAt = null);
@@ -652,19 +655,28 @@ export function solve(G, lc, t, o = {}) {
   const dcCap = (net, tt) => net.plants.filter((p) => plantReady(p, tt)).reduce((s, p) => s + p.kw, 0);
   const dcOf = new Map();
   for (const net of dcNets) for (const n of net.nodes) dcOf.set(n, net);
-  const acFc = (net, tt) => {
-    const seen = new Set();
-    let s = 0;
-    for (const n of net.nodes) {
-      const d = dcOf.get(n);
-      if (!d || seen.has(d)) continue;
-      seen.add(d);
-      const total = sumTowns(d, tt);
-      const inNet = d.nodes.filter((x) => net.nodes.includes(x)).reduce((a, x) => a + (fcTown(tt).get(x) || 0), 0);
-      s += total > 0 ? (Math.max(0, total - dcCap(d, t) * 0.95) * inNet) / total : 0;
+  const acOf = new Map();
+  for (const net of acNets) for (const n of net.nodes) acOf.set(n, net);
+  const acCan = (n) => acOf.get(n).plants.some((p) => plantReady(p, t));
+  // 直流の電気は、交流が来ていない町に先に回す。戻り値：町 → 直流でまかなえる割合
+  const share = (net, total, val) => {
+    const m = new Map();
+    let left = total;
+    for (const group of [net.nodes.filter((n) => val(n) > 0 && !acCan(n)), net.nodes.filter((n) => val(n) > 0 && acCan(n))]) {
+      const sum = group.reduce((x, n) => x + val(n), 0);
+      const k = sum > 0 ? Math.min(1, left / sum) : 0;
+      for (const n of group) m.set(n, k);
+      left -= sum * k;
     }
-    return s;
+    return m;
   };
+  const fcShare = new Map();
+  const dcShareAt = (d, tt) => {
+    const key = `${d.nodes[0]}|${tt}`;
+    if (!fcShare.has(key)) fcShare.set(key, share(d, dcCap(d, t) * 0.95, (n) => fcTown(tt).get(n) || 0));
+    return fcShare.get(key);
+  };
+  const acFc = (net, tt) => net.nodes.reduce((x, n) => x + (fcTown(tt).get(n) || 0) * (1 - (dcShareAt(dcOf.get(n), tt).get(n) || 0)), 0);
   const results = [];
   const served = new Map(); // 町 → 届いた割合
   const rest = new Map();
@@ -673,12 +685,13 @@ export function solve(G, lc, t, o = {}) {
     const r = runNet(G, lc, t, net, dem, sumTowns, o);
     r.net = net;
     results.push(r);
+    const got = [...r.served].reduce((x, [n, ratio]) => x + dem.get(n).a * ratio, 0);
+    r.served = share(net, got, (n) => dem.get(n)?.a || 0);
     for (const [n, ratio] of r.served) served.set(n, ratio);
   }
   for (const [n, d] of dem) {
     const k = 1 - (served.get(n) || 0);
-    const net = dcOf.get(n);
-    const fk = net?.plants.length ? Math.max(0, 1 - (dcCap(net, t) * 0.95) / Math.max(sumTowns(net, t), 1e-9)) : 1;
+    const fk = 1 - (dcShareAt(dcOf.get(n), t).get(n) || 0);
     if (k > 1e-9) rest.set(n, { f: d.f * fk, a: d.a * k, q: d.q * k });
   }
   for (const net of acNets) {
@@ -1170,12 +1183,6 @@ export function step(G, lc) {
 
 // 現実の時刻まで進める（閉じていた分は開いたときに計算。上限は現実の14日）。戻り値：進めた刻みの数
 export function catchUp(G, lc, nowMs) {
-  let steps = Math.floor((nowMs - G.realAt) / HOUR_MS);
-  if (steps <= 0) return 0;
-  if (steps > MAX_CATCHUP) {
-    G.realAt += (steps - MAX_CATCHUP) * HOUR_MS;
-    steps = MAX_CATCHUP;
-  }
   // 性能の上乗せは、これまでの最大値を残す（下がらない）
   for (const k of Object.keys(lc.perf)) G.perfMax[k] = Math.max(G.perfMax[k] || 0, lc.perf[k]);
   if (lc.era > G.era) {
@@ -1184,6 +1191,12 @@ export function catchUp(G, lc, nowMs) {
     const E = ERAS[lc.era - 1];
     note(G, `時代が ${E.name} に進んだ`);
     addReport(G, { title: `時代が進んだ：${E.name}（${E.year}）`, what: '新しい設備と需要が登場する。', units: [] });
+  }
+  let steps = Math.floor((nowMs - G.realAt) / HOUR_MS);
+  if (steps <= 0) return 0;
+  if (steps > MAX_CATCHUP) {
+    G.realAt += (steps - MAX_CATCHUP) * HOUR_MS;
+    steps = MAX_CATCHUP;
   }
   for (let i = 0; i < steps; i++) step(G, lc);
   G.realAt += steps * HOUR_MS;

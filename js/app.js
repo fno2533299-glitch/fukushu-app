@@ -1,6 +1,7 @@
 // 画面と操作（設計図 2章の画面遷移）
 import * as db from './db.js';
 import * as L from './logic.js';
+import * as GU from './gridui.js';
 
 const app = document.getElementById('app');
 const banner = document.getElementById('banner');
@@ -16,6 +17,8 @@ const S = {
   cards: null, // カードと称号のデータ { series, cards, titles }（1.4.0）
   gacha: [], // ガチャの記録
   collection: { titles: {}, awakened: {} }, // 称号を手に入れた日・カードが覚醒した日（一度入ったら消えない）
+  grid: null, // 動く系統の状態（1.5.0。js/grid.js）
+  view: null, // いま出している画面（'grid'＝系統。時間が進んだら描き直すため）
 };
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -46,6 +49,7 @@ function renderMath(el) {
 }
 
 function show(html, after) {
+  S.view = null;
   app.innerHTML = html;
   renderMath(app);
   window.scrollTo(0, 0);
@@ -286,6 +290,7 @@ function home() {
     ${levelLineHtml()}
     ${quickCardHtml()}
     ${examCardHtml()}
+    ${GU.homeCard()}
     <button class="mapcard" data-go="record">
       <span class="spread"><b>知識マップ</b><span class="go">記録を見る ›</span></span>
       ${barHtml(g)}
@@ -326,6 +331,7 @@ function home() {
         else if (g === 'target') targetScreen();
         else if (g === 'data') dataScreen();
         else if (g === 'read') startReading();
+        else if (g === 'grid') GU.screen('map', true);
         else if (g === 'record' || g === 'exam' || g === 'card') {
           S.calMonth = null;
           recordScreen(g === 'record' ? 'map' : g);
@@ -527,7 +533,7 @@ const SHADE_FILL = ['var(--card)', 'var(--m1)', 'var(--m2)', 'var(--m3)', 'var(-
 const SHADE_LEGEND = `<p class="legend"><span><i class="u0"></i>未着手</span><span><i class="u1"></i>学習中</span><span><i class="u2"></i>定着 半分未満</span><span><i class="u3"></i>半分以上</span><span><i class="u4"></i>すべて定着</span></p>`;
 
 function recordScreen(tab) {
-  const tabs = [['map', 'マップ'], ...(L.examScores(S.data, S.logs).length ? [['exam', '試験']] : []), ['cal', 'カレンダー'], ['trivia', '豆知識'], ['ach', '実績'], ['title', '称号'], ['card', 'カード']];
+  const tabs = [['map', 'マップ'], ...(L.examScores(S.data, S.logs).length ? [['exam', '試験']] : []), ['cal', 'カレンダー'], ['trivia', '豆知識'], ['ach', '実績'], ['title', '称号'], ['card', 'カード'], ...(S.grid ? [['grid', '系統']] : [])];
   const body = { map: mapTab, exam: examTab, cal: calendarTab, trivia: triviaTab, ach: achievementsTab, title: titleTab, card: cardTab }[tab]();
   show(
     `<header class="top"><button class="back" data-back>‹ ホーム</button><h1>記録</h1></header>
@@ -535,7 +541,7 @@ function recordScreen(tab) {
     ${body.html}`,
     () => {
       on('[data-back]', 'click', home);
-      on('[data-tab]', 'click', (e) => recordScreen(e.currentTarget.dataset.tab));
+      on('[data-tab]', 'click', (e) => (e.currentTarget.dataset.tab === 'grid' ? GU.screen('map', true) : recordScreen(e.currentTarget.dataset.tab)));
       body.bind?.();
     },
   );
@@ -1529,6 +1535,8 @@ async function exportBackup() {
     cardData: S.cards,
     gachaLog: S.gacha,
     collection: S.collection,
+    // 1.5.0：動く系統の状態（学習通貨の支出は gachaLog に入っている）
+    grid: S.grid,
   };
   await saveFile(`復習アプリ_バックアップ_${stamp()}.json`, JSON.stringify(backup));
   S.lastBackup = backup.exportedAt;
@@ -1560,6 +1568,7 @@ async function restoreFlow() {
         await db.replaceAll(b, S.cards); // 古いバックアップ（カードのデータなし）なら、今のカードのデータを残す
         await load();
         await syncCollection();
+        await GU.sync();
         toast('復元しました');
         dataScreen();
       });
@@ -1595,6 +1604,7 @@ async function load() {
   S.cards = all.cardData;
   S.gacha = [...all.gachaLog].sort((a, b) => a.at.localeCompare(b.at));
   S.collection = { titles: { ...(all.collection?.titles || {}) }, awakened: { ...(all.collection?.awakened || {}) } };
+  S.grid = all.grid || null;
   S.preview = null;
   applyTheme();
 }
@@ -1608,18 +1618,27 @@ document.addEventListener('visibilitychange', () => {
     return;
   }
   checkTimer();
+  GU.onVisible(); // 閉じていた分だけ系統を進める
   const away = hiddenAt != null && Date.now() - hiddenAt >= REOPEN_HOME_MS;
   hiddenAt = null;
-  if (away && S.data && (!S.session || S.session.ended) && !S.reading && !document.querySelector('.modal, .zoom, .gacha')) {
+  if (away && S.data && (!S.session || S.session.ended) && !S.reading && S.view !== 'grid' && !document.querySelector('.modal, .zoom, .gacha, .goverlay')) {
     S.session = null;
     banner.hidden = true;
     home();
   }
 });
 
+GU.init({
+  S, db, show, on, esc, rich, toast, num, uid, fx, playNotes, primeAudio, figureHtml, bindFigureZoom, reportDialog,
+  subjectOf, unitName, unitSubjectId, shortName, startUnit, syncCollection,
+  walletNow: () => walletNow(),
+  home: () => home(),
+});
+
 try {
   await load();
   await syncCollection(); // これまでの記録で手に入る称号・覚醒（さかのぼって効く）
+  await GU.sync(); // 閉じていた分だけ系統を進める（1.5.0）
   home();
 } catch (e) {
   app.innerHTML = `<p class="warn">データを読み込めませんでした：${esc(e.message)}</p>`;
@@ -1629,4 +1648,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js');
 }
 
-window.__app = { S, L, db, load, home, syncCollection }; // 動作確認用
+window.__app = { S, L, db, load, home, syncCollection, GU }; // 動作確認用

@@ -491,3 +491,103 @@ button.tile:active { border-color: var(--primary); }
   .flip, .gres, .gstage::before { transition: none !important; animation: none !important; }
   .cf.awake .art::after, .gstage::after { animation: none !important; }
 }
+
+/* ---- 動く系統（1.5.0） ---- */
+:root {
+  --gline: #2f6fdf; --gdc: #a8743a; --gcoal: #5a5f68; --ghydro: #2f9bd6;
+  --glit: #ffe9a3; --gdark: #4a4e57; --gidle: #f1efe9; --gidleplant: #b9bcc2;
+  --gsnow: #e7eef6; --gmount: #cfc9bb; --griver: #9cc7e8;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --gline: #7aa6f5; --gdc: #d2a063; --gcoal: #a9aeb7; --ghydro: #63bdec;
+    --glit: #c9a43c; --gdark: #15171b; --gidle: #33373e; --gidleplant: #5c616a;
+    --gsnow: #39414d; --gmount: #4b4a45; --griver: #3f6c8f;
+  }
+}
+.gridcard .gchips { display: block; margin-top: 6px; }
+.tag.gng { color: var(--ng); border-color: var(--ng); font-weight: 600; }
+.ghead { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px 14px 10px; margin-bottom: 8px; overflow: hidden; }
+.ghead p { position: relative; margin: 0; }
+.ghead p + p { margin-top: 2px; }
+.ghead b { font-variant-numeric: tabular-nums; }
+.gpic { display: block; overflow: hidden; border-radius: 10px; background: var(--sea); color: var(--muted); }
+.gpic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.gpic.ph svg { display: block; width: 100%; height: 100%; }
+.gpic.band { position: absolute; inset: 0; border-radius: 0; opacity: .16; }
+.gpic.band.ph svg { width: auto; height: 100%; margin-left: auto; }
+.gpic.wide { width: 100%; aspect-ratio: 16 / 7; margin: 4px 0 8px; }
+.gpic.mini { width: 48px; height: 36px; flex: none; border-radius: 8px; }
+.gneg { color: var(--ng); }
+.gok { color: var(--ok); }
+.gwarnc { color: var(--idk); }
+.btn.gwide { display: block; width: 100%; margin: 8px 0 0; }
+.btn.gwide small { display: block; }
+.btn.gwarn { background: var(--ng); border-color: var(--ng); color: #fff; }
+.gmap { display: block; width: 100%; height: auto; background: var(--sea); touch-action: manipulation; }
+.gmap .gnode, .gmap .gline { cursor: pointer; }
+.gmap text { font-family: inherit; }
+.gmap .gname { font-size: 8.5px; font-weight: 600; text-anchor: middle; fill: var(--text); paint-order: stroke; stroke: var(--land); stroke-width: 3.5px; stroke-linejoin: round; }
+.gmap .glabel { font-size: 7px; text-anchor: middle; fill: var(--muted); paint-order: stroke; stroke: var(--land); stroke-width: 3px; }
+.gmap .gland { font-size: 8px; letter-spacing: 2px; text-anchor: middle; fill: var(--muted); opacity: .7; }
+.gmap .gmark { font-size: 7px; text-anchor: middle; fill: var(--text); }
+.gmap .gbang { font-size: 9px; font-weight: 800; text-anchor: middle; fill: #fff; }
+.gstatus { padding: 8px 14px 0; margin: 0; line-height: 1.6; }
+.legend i.gl-lit { background: var(--glit); } .legend i.gl-dark { background: var(--gdark); }
+.legend i.gl-coal { background: var(--gcoal); } .legend i.gl-hydro { background: var(--ghydro); }
+.legend i.gl-dc { background: var(--gdc); } .legend i.gl-okband { background: var(--ok-bg); }
+.legend i.gl-dem { height: 2px; width: 14px; background: var(--text); border: 0; vertical-align: 3px; }
+.legend i.tri { border: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.gsum h2 { margin-bottom: 4px; }
+.gsum p { margin: 2px 0; }
+.gnotes { margin: 6px 0 0; padding-left: 18px; font-size: 0.85rem; line-height: 1.6; }
+.gev { padding-top: 8px; padding-bottom: 8px; }
+.gevrow { display: flex; gap: 10px; align-items: center; margin: 4px 0; }
+.gevrow span { display: flex; flex-direction: column; }
+.gevrow small { color: var(--muted); font-size: 0.8rem; }
+.gsheet .sheet { max-height: 88vh; overflow-y: auto; }
+.gsheet h3, .card h3 { font-size: 0.85rem; color: var(--muted); margin: 12px 0 2px; }
+.gsheet select { min-height: 40px; max-width: 64%; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 4px 8px; font-size: 16px; margin-left: auto; }
+.gsheet .row > span:first-child { flex: none; }
+.gsheet .row input + span small { display: block; line-height: 1.5; }
+.grow { min-height: 36px; align-items: center; padding: 3px 0; }
+.grow .btn { margin: 0; flex: none; }
+.gbtns2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.gbtns2 .btn { margin: 0; min-height: 48px; }
+.gbtns2 .btn small { display: block; }
+.gquote { margin: 10px 0 0; line-height: 1.6; }
+.gquote b { font-size: 1.1rem; }
+.gunits { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.gunits .btn { margin: 0; min-height: 44px; text-align: left; }
+.gchart { display: block; width: 100%; height: auto; margin: 4px 0 6px; overflow: visible; }
+.gh2 { margin-top: 14px; }
+.gitem { display: block; border-top: 1px solid var(--line); padding: 10px 0; }
+.card h2 + .gitem { border-top: 0; padding-top: 2px; }
+.gitem p { margin: 0 0 4px; }
+.gitem .btn { margin: 4px 10px 0 0; min-height: 44px; }
+.gitem.grep.ok { border-left: 3px solid var(--ok); padding-left: 10px; }
+.gitem.grep.ng { border-left: 3px solid var(--ng); padding-left: 10px; }
+.gplant { display: flex; gap: 10px; align-items: center; }
+.gplant .gord { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: none; }
+.gplant .gord .btn { margin: 0; min-width: 44px; min-height: 44px; padding: 0; }
+.tabs.gtabs button { min-height: 44px; font-size: 0.9rem; }
+.gsheet .btn.small, .gitem .btn.small, .gsum .btn.small { min-height: 44px; }
+.gplant .gpl { display: flex; flex-direction: column; min-width: 0; }
+.gplant small, .grow2 small { color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+button.gitem.grow2 { width: 100%; background: none; border: 0; border-top: 1px solid var(--line); text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 52px; }
+.grow2 span:first-child { display: flex; flex-direction: column; }
+.grow2 .go { color: var(--primary); }
+.gtags { margin: 4px 0; line-height: 2; }
+.gincident { border-color: var(--ng); }
+.gincident p { margin: 0 0 4px; }
+.geffect p { margin: 0 0 4px; }
+input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(--primary); }
+.goverlay { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .55); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.goverlay .gov { width: 100%; max-width: 420px; background: var(--card); border-radius: 16px; padding: 16px; text-align: center; }
+.goverlay h2 { font-size: 1.15rem; margin: 6px 0; }
+.goverlay p { margin: 0 0 14px; font-size: 0.92rem; line-height: 1.7; }
+[data-theme=fx] .goverlay .gov { animation: gpop .5s ease-out; box-shadow: 0 0 40px 6px var(--spark-glow); }
+[data-theme=fx] .goverlay h2 { color: var(--primary); }
+[data-theme=fx] .gmap .gnode circle:nth-of-type(2) { transition: fill .8s; }
+@keyframes gpop { from { transform: scale(.85); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .goverlay .gov { animation: none !important; } }
