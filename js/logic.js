@@ -56,8 +56,31 @@ export function isDue(state, today) {
 
 // ---- 出題対象・段階解放（設計図 1.5） ----
 
+// ゲームの中だけで出す科目（1.5.0 の「系統の事故」）。おまかせ・さっと出題・復習優先・科目指定・この単元を3問・
+// 読み流しのどの候補にも入れず、知識マップ・実績・称号・カードでも扱わない（回答記録・通貨・定着の計算には入る）
+export const GRID_SUBJECT = 'grid-incident';
+export function gameOnlySubjectIds(data) {
+  const ids = new Set([GRID_SUBJECT]);
+  for (const s of data?.subjects || []) if (s.gameOnly) ids.add(s.subjectId);
+  return ids;
+}
+
+// 出題中の問題（ゲームの中だけで出す科目は除く）
 export function activeQuestions(data) {
-  return (data?.questions || []).filter((q) => q.status === '出題中');
+  const game = gameOnlySubjectIds(data);
+  return (data?.questions || []).filter((q) => q.status === '出題中' && !game.has(q.subjectId));
+}
+
+// ゲームの中だけで出す問題（出題中）
+export function gameQuestions(data) {
+  const game = gameOnlySubjectIds(data);
+  return (data?.questions || []).filter((q) => q.status === '出題中' && game.has(q.subjectId));
+}
+
+// 画面の一覧（出題対象の設定・科目指定）に出す科目
+export function listedSubjects(data) {
+  const game = gameOnlySubjectIds(data);
+  return (data?.subjects || []).filter((s) => !game.has(s.subjectId));
 }
 
 export function isTargeted(q, settings) {
@@ -811,6 +834,7 @@ export function levelInfo(xp) {
 
 // 財布：残高＝もらった合計 − 使った合計。ガチャ券はレベルが上がるたびに1枚（Lv L までに L−1 枚）
 // gachaLog = [{ gachaId, at, cardId, paid: 'coin' | 'ticket', coins }]
+// 1.5.0 から、系統の建設・試作の支出も同じ台帳に入れる：{ gachaId, at, kind: 'grid', cardId: null, paid: 'coin', coins, what }
 export function wallet(logs, data, gachaLog = [], events = coinEvents(logs, data)) {
   const earned = coinTotals(events).total;
   const spent = gachaLog.reduce((a, g) => a + (g.coins || 0), 0);
@@ -902,6 +926,7 @@ export function titleDates(titles, { logs, data, gachaLog = [], cards = null }) 
     const owned = new Set();
     const done = new Map();
     for (const g of [...gachaLog].sort((a, b) => a.at.localeCompare(b.at))) {
+      if (!g.cardId) continue; // 系統の支出
       owned.add(g.cardId);
       for (const t of of('seriesComplete')) {
         if (done.has(t.titleId)) continue;
@@ -919,7 +944,7 @@ export function titleDates(titles, { logs, data, gachaLog = [], cards = null }) 
 // 持っているカード：cardId → 手に入れた日
 export function ownedCards(gachaLog = []) {
   const m = new Map();
-  for (const g of gachaLog) if (!m.has(g.cardId)) m.set(g.cardId, localDate(new Date(g.at)));
+  for (const g of gachaLog) if (g.cardId && !m.has(g.cardId)) m.set(g.cardId, localDate(new Date(g.at)));
   return m;
 }
 

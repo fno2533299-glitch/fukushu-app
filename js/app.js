@@ -339,7 +339,7 @@ function home() {
 // ---- 科目・単元・レベルの選択 ----
 
 function selectScreen() {
-  const subjects = S.data.subjects;
+  const subjects = L.listedSubjects(S.data); // ゲームの中だけで出す科目（系統の事故）は出さない
   const pre = S.lastScope;
   let subjectId = pre?.subjectId || subjects[0].subjectId;
   const levelsOn = L.LEVELS.filter((lv) => S.settings.levelEnabled[lv]);
@@ -438,7 +438,7 @@ function targetScreen() {
           `<label class="row switch"><span>${lv}</span><input type="checkbox" data-level="${lv}" ${st.levelEnabled[lv] ? 'checked' : ''}></label>`,
       ).join('')}
     </section>
-    ${S.data.subjects
+    ${L.listedSubjects(S.data)
       .map(
         (s) => `<section class="card">
         <label class="row switch"><h2>${esc(s.name)}</h2><input type="checkbox" data-subject="${esc(s.subjectId)}" ${st.subjectTarget[s.subjectId] !== false ? 'checked' : ''}></label>
