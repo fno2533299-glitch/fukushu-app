@@ -940,7 +940,7 @@ function daily(G, lc) {
   if (acOn.length >= 2 && roll(0.03)) {
     const biggest = Math.max(...acOn.map((p) => p.kw));
     const peak = Math.max(...Array.from({ length: 24 }, (_, h) => [...townForecast(G, t + h).values()].reduce((a, b) => a + b, 0)));
-    if (G.reserve * peak < biggest) raise(G, lc, 'reserve', { what: `予備力の目標（${fmtKw(G.reserve * peak)}）が、最大の発電機1台分（${fmtKw(biggest)}）より小さい。`, cool: month });
+    if (G.reserve * peak < Math.min(biggest, peak)) raise(G, lc, 'reserve', { what: `予備力の目標（${fmtKw(G.reserve * peak)}）が、最大の発電機1台分（${fmtKw(biggest)}）より小さい。`, cool: month });
   }
   for (const sub of G.subs) {
     if (sub.readyAt > t) continue;

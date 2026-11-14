@@ -35,6 +35,7 @@ export async function sync(now = Date.now()) {
   let fresh = false;
   if (!S.grid) {
     S.grid = Gm.newGrid((now % 2147483647) | 0, now);
+    S.grid.era = learningNow().era; // 最初から、いまのレベルの時代で始まる（「時代が進んだ」は出さない）
     fresh = true;
   }
   const era = S.grid.era;
@@ -83,7 +84,7 @@ const PH = {
 const PH_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'coal', ror: 'hydro', pond: 'hydro', sub: 'sub', line: 'line', era1: 'town', era2: 'town', era3: 'town', era4: 'town', heat: 'light', cold: 'storm', typhoon: 'storm', snowstorm: 'storm', coalSpike: 'coal', priceWar: 'town', drought: 'hydro', blackout: 'dark', recover: 'light', rebuild: 'town', island: 'hydro' };
 function pic(key, cls = '') {
   const src = GRID_IMAGES[PIC[key]];
-  if (src) return `<span class="gpic ${cls}"><img src="${src}" alt="" loading="lazy"></span>`;
+  if (src) return `<span class="gpic ${cls}"><img src="${src}" alt=""></span>`;
   return `<span class="gpic ph ${cls}"><svg viewBox="0 0 48 36" aria-hidden="true">${PH[PH_OF[key]] || ''}</svg></span>`;
 }
 
@@ -574,6 +575,7 @@ function supplyView(g, lc) {
     } else chart += '<p class="note">直流のあいだは周波数がありません。足りないときは電圧が下がり、電灯が暗くなります。</p>';
   }
   const K = g.last?.K || 0;
+  const topOut = Math.max(0, ...g.plants.filter((p) => Gm.PLANTS[p.type].ac).map((p) => g.last?.plants[p.id] || 0));
   return {
     html: `<section class="card">
       <h2>需要と電源（直近 ${hs.length}時間）</h2>
@@ -588,7 +590,7 @@ function supplyView(g, lc) {
       <p class="spread grow"><span>使える発電機の合計</span><b class="${o.cap < o.peak ? 'gneg' : ''}">${kw(o.cap)}</b></p>
       <p class="spread grow"><span>予備力の目標（${pct(g.reserve)}）</span><b>${kw(o.reserveKw)}</b></p>
       ${lc.gate.rel ? `<p class="small">最大の発電機1台分は ${kw(o.biggest)}。${o.reserveKw >= o.biggest ? '1台止まっても埋められる（N-1）' : '<b class="gneg">1台止まると埋めきれない</b>'}</p>` : `<p class="small">電力系統工学「信頼度指標」を1問正解すると、予備力の目安（最大の発電機1台分との比較）が出ます</p>`}
-      ${g.hz && K ? `<p class="spread grow"><span>系統定数 K</span><b>${kw(K)}/Hz</b></p><p class="small">Δf＝−ΔP/K。発電機1台（${kw(o.biggest)}）が止まると、余裕が足りていれば ${(o.biggest / K).toFixed(2)} Hz 下がる</p>` : ''}
+      ${g.hz && K ? `<p class="spread grow"><span>系統定数 K</span><b>${kw(K)}/Hz</b></p><p class="small">Δf＝−ΔP/K。いまいちばん出力の大きい発電機（${kw(topOut)}）が止まると、余裕が足りていれば ${(topOut / K).toFixed(2)} Hz 下がる</p>` : ''}
     </section>`,
   };
 }
@@ -808,6 +810,7 @@ function islandDialog() {
         const now = Date.now();
         A.S.grid = Gm.newIsland(G(), e.currentTarget.dataset.terrain, now, (now % 2147483647) | 0);
         lcCache = null;
+        A.S.grid.era = learningNow().era;
         summary = null;
         await refresh();
         A.toast('新しい島で、明治から始めます');
