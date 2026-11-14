@@ -406,6 +406,14 @@ function selectScreen() {
 
 // ---- 出題対象の設定 ----
 
+// 直近の正解率と、次のおまかせの組み方（1.4.1）
+function planLine() {
+  const { accuracy: a, tier } = L.omakaseTier(S.logs);
+  const pct = a.count ? `${Math.round(a.rate * 100)}%` : '—';
+  const rate = a.count >= L.RECENT_MIN ? `直近の正解率 ${pct}（${a.count}回）` : `直近の正解率 ${pct}（${a.count}回。${L.RECENT_MIN}回までは標準の組み方）`;
+  return `${rate} ・ 次のおまかせ：${L.planLabel(L.slotCounts(S.settings.questionsPerSet, tier))}`;
+}
+
 function targetScreen() {
   const st = S.settings;
   const all = L.activeQuestions(S.data);
@@ -457,6 +465,7 @@ function targetScreen() {
       <h2>セット</h2>
       <label class="row"><span>さっと出題・マップの単元から解くときの問題数</span><input type="number" min="1" max="20" inputmode="numeric" data-num="quickSize" value="${st.quickSize}"></label>
       <label class="row"><span>1セットの問題数（おまかせ・復習優先・指定）</span><input type="number" min="1" max="50" inputmode="numeric" data-num="questionsPerSet" value="${st.questionsPerSet}"></label>
+      <p class="note" data-plan>${planLine()}</p>
       <label class="row"><span>時間の目安（分）</span><input type="number" min="1" max="60" inputmode="numeric" data-num="sessionMinutes" value="${st.sessionMinutes}"></label>
       <label class="row"><span>再出題の間隔（日）</span><input type="text" inputmode="numeric" data-intervals value="${st.intervals.join(',')}"></label>
     </section>
@@ -498,6 +507,7 @@ function targetScreen() {
         const v = Math.round(Number(e.target.value));
         if (v >= 1) st[e.target.dataset.num] = v;
         else e.target.value = st[e.target.dataset.num];
+        document.querySelector('[data-plan]').textContent = planLine();
         save();
       });
       on('[data-intervals]', 'change', (e) => {
@@ -976,6 +986,8 @@ async function startSession(mode, scope, first = null) {
   const rec = { sessionId: uid(), mode, scope: scope || null, startedAt: now.toISOString(), endedAt: null };
   const size = isShort(mode) ? S.settings.quickSize : S.settings.questionsPerSet;
   S.session = { ...rec, rec, size, startMs: now.getTime(), asked: [], results: [], timeNotified: false };
+  // おまかせは「新しい問題・復習・挑戦」の枠で組む（1.4.1）。枠は直近の正解率で、セットの始めに決める
+  if (mode === 'おまかせ') S.session.plan = L.omakasePlan(size, S.logs).slots;
   banner.hidden = true;
   S.sessions.push(rec);
   await db.put('sessions', rec);
@@ -990,7 +1002,8 @@ async function startSession(mode, scope, first = null) {
 }
 
 function sessionCtx() {
-  return ctx({ asked: new Set(S.session.asked), scope: S.session.scope });
+  const ss = S.session;
+  return ctx({ asked: new Set(ss.asked), scope: ss.scope, slot: ss.plan?.[ss.asked.length] || null });
 }
 
 function nextQuestion() {

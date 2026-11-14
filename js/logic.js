@@ -173,9 +173,11 @@ function pickOmakase(list, ctx, rng) {
 
 const pickAny = (list, rng) => (list.length ? list[Math.floor(rng() * list.length)] : null);
 
+// ctx.slot（おまかせの枠。omakasePlan）があれば枠から選ぶ。なければ今までのおまかせ（読み流しなど）
 export function pickNext(mode, ctx) {
-  // さっと出題：期限の来た問題を先に、なければおまかせ
-  if (mode === 'さっと') return pickNext('復習優先', ctx) || pickNext('おまかせ', ctx);
+  // さっと出題：基礎だけ（1.4.1）。基礎がなければ今までどおり（期限の来た問題 → おまかせ）
+  if (mode === 'さっと') return pickQuick(ctx, false);
+  if (mode === 'おまかせ' && ctx.slot) return pickSlot(ctx.slot, ctx);
   const rng = ctx.rng || Math.random;
   const list = candidates(mode, ctx);
   if (list.length === 0) return null;
@@ -204,7 +206,17 @@ export function pickNext(mode, ctx) {
 //  1. 期限が来た問題のうち、最後の回答が正解のもの（stage 1 以上）。今日解くと定着しそうなものを先に
 //  2. なければ基礎（おまかせと同じ対象・重み。基礎が OFF なら飛ばす）。最後が不正解・わからない（stage 0）の問題は除く
 //  3. どちらもなければ、今までどおり pickNext('さっと')
+// 1.4.1 から：基礎だけで選ぶ（pickQuick）。基礎が1問もなければ、1.3.0 のウォームアップ（legacyWarmup）
 export function pickWarmup(ctx) {
+  return pickQuick(ctx, true);
+}
+
+// 1.3.0〜1.4.0 のさっと出題（基礎がないときに使う）
+function legacyQuick(ctx) {
+  const c = { ...ctx, slot: null };
+  return pickNext('復習優先', c) || pickNext('おまかせ', c);
+}
+function legacyWarmup(ctx) {
   const rng = ctx.rng || Math.random;
   const due = candidates('復習優先', ctx).filter((q) => ctx.states[q.questionId].stage >= 1);
   if (due.length) {
@@ -212,7 +224,167 @@ export function pickWarmup(ctx) {
     return pickAny(due.filter((q) => ready.has(q.questionId)), rng) || pickAny(due, rng);
   }
   const basic = candidates('おまかせ', ctx).filter((q) => q.level === '基礎' && ctx.states[q.questionId]?.stage !== 0);
-  return pickOmakase(basic, ctx, rng) || pickNext('さっと', ctx);
+  return pickOmakase(basic, ctx, rng) || legacyQuick(ctx);
+}
+
+// さっと出題（ホームの3問・もう3問）は基礎だけ（1.4.1）
+//  ① 期限が来て前回正解した基礎（今日解くと定着しそうなものを先に）
+//  ② 未回答の基礎 ③ 期限が来た基礎（前回間違えた・わからない） ④ それ以外の基礎（間隔待ち。重み 0.3）
+//  1問目（first）は ①→②→④→③（前回間違えた問題は、ほかに基礎がないときだけ）
+//  ②〜④はおまかせと同じ選び方（科目を等確率→重み）。基礎が1問もなければ今までの選び方
+function pickQuick(ctx, first) {
+  const rng = ctx.rng || Math.random;
+  const { states, today } = ctx;
+  const basic = candidates('おまかせ', ctx).filter((q) => q.level === '基礎');
+  if (basic.length === 0) return first ? legacyWarmup(ctx) : legacyQuick(ctx);
+  const st = (q) => states[q.questionId];
+  const due = basic.filter((q) => isDue(st(q), today));
+  const g1 = due.filter((q) => st(q).stage >= 1);
+  if (g1.length) {
+    const ready = masteryReadyIds(ctx.logs, today);
+    return pickAny(g1.filter((q) => ready.has(q.questionId)), rng) || pickAny(g1, rng);
+  }
+  const g2 = basic.filter((q) => !st(q));
+  const g3 = due.filter((q) => st(q).stage === 0);
+  const g4 = basic.filter((q) => st(q) && !isDue(st(q), today));
+  for (const g of first ? [g2, g4, g3] : [g2, g3, g4]) if (g.length) return pickOmakase(g, ctx, rng);
+  return null;
+}
+
+// ---- おまかせを「枠」で組む（1.4.1。要件定義書 4.2、設計図 1.7） ----
+// 新しい問題（未回答の基礎。正解率が高いときは応用も）・復習・挑戦（応用・試験、改題の科目）の3つの枠。
+// 直近の正解率で枠の数を変え、1セットの正解率が目標の7割前後になるようにする
+
+export const TARGET_ACCURACY = 0.7; // 目標の正解率（段の境目はこれを挟む）
+export const RECENT_ANSWERS = 30; // 直近の正解率に使う回答数
+export const RECENT_MIN = 10; // これ未満なら真ん中の段
+// 10問のときの枠の数。below 未満の正解率でその段（上から順に見る）。applied：新しい問題のうち応用にしてよい数
+export const OMAKASE_TIERS = [
+  { below: 0.6, new: 5, review: 5, challenge: 0, applied: 0 },
+  { below: 0.8, new: 6, review: 3, challenge: 1, applied: 0 },
+  { below: Infinity, new: 6, review: 2, challenge: 2, applied: 2 },
+];
+const MIDDLE_TIER = 1;
+// 直近の正解率に入れない問題（1.5.0 の系統の事故）
+const NOT_IN_ACCURACY = (questionId) => questionId.startsWith('grid-incident-');
+
+// 改題の科目（外部試験の問題だけの科目）。挑戦の枠からしか出さない
+export function examSubjectIds(data) {
+  const qs = new Map();
+  for (const q of data?.questions || []) {
+    if (!qs.has(q.subjectId)) qs.set(q.subjectId, []);
+    qs.get(q.subjectId).push(q);
+  }
+  const ids = new Set();
+  for (const s of data?.subjects || []) {
+    const list = qs.get(s.subjectId) || [];
+    if (s.category === '外部試験' || (list.length && list.every((q) => q.examItem))) ids.add(s.subjectId);
+  }
+  return ids;
+}
+
+// 直近 RECENT_ANSWERS 回答の正解の割合（「わからない」は不正解と同じ）。読み流しは記録がないので入らない
+export function recentAccuracy(logs) {
+  const recent = [...logs]
+    .filter((l) => !NOT_IN_ACCURACY(l.questionId))
+    .sort((a, b) => (a.answeredAt || '').localeCompare(b.answeredAt || ''))
+    .slice(-RECENT_ANSWERS);
+  const correct = recent.filter((l) => l.result === '正解').length;
+  return { count: recent.length, correct, rate: recent.length ? correct / recent.length : null };
+}
+
+export function omakaseTier(logs) {
+  const acc = recentAccuracy(logs);
+  const index = acc.count < RECENT_MIN ? MIDDLE_TIER : OMAKASE_TIERS.findIndex((t) => acc.rate < t.below);
+  return { index, tier: OMAKASE_TIERS[index], accuracy: acc };
+}
+
+// 問題数 size のときの枠の数。比率で割り振り、端数は新しい問題へ。挑戦は（その段にあれば）最低1。
+// 最初の1問を挑戦にしないため、挑戦は size−1 まで
+export function slotCounts(size, tier) {
+  let challenge = tier.challenge ? Math.max(1, Math.floor((size * tier.challenge) / 10)) : 0;
+  challenge = Math.min(challenge, Math.max(0, size - 1));
+  const review = Math.min(Math.floor((size * tier.review) / 10), size - challenge);
+  const n = size - review - challenge;
+  const applied = Math.min(Math.floor((size * tier.applied) / 10), Math.max(0, n - 1));
+  return { new: n, review, challenge, applied };
+}
+
+// 次のおまかせの組み方。slots は1問ずつの枠（'new'・'newApplied'・'review'・'challenge'）。
+// 順番は混ぜるが、最初の1問は新しい基礎か復習
+export function omakasePlan(size, logs, rng = Math.random) {
+  const t = omakaseTier(logs);
+  const counts = slotCounts(size, t.tier);
+  const slots = shuffle(
+    [
+      ...Array(counts.new - counts.applied).fill('new'),
+      ...Array(counts.applied).fill('newApplied'),
+      ...Array(counts.review).fill('review'),
+      ...Array(counts.challenge).fill('challenge'),
+    ],
+    rng,
+  );
+  const i = slots.findIndex((s) => s === 'new' || s === 'review');
+  if (i > 0) [slots[0], slots[i]] = [slots[i], slots[0]];
+  return { ...t, counts, slots };
+}
+
+// 授業の科目は科目ごと、改題の科目はまとめて1つの「外部試験」として等確率で選び、その中で重み付き抽選
+function pickGrouped(list, ctx, rng, examIds) {
+  if (list.length === 0) return null;
+  const key = (q) => (examIds.has(q.subjectId) ? '外部試験' : q.subjectId);
+  const groups = [...new Set(list.map(key))];
+  const g = groups[Math.floor(rng() * groups.length)];
+  return weightedPick(list.filter((q) => key(q) === g), (q) => omakaseWeight(q, ctx.states, ctx.today), rng);
+}
+
+// 枠ごとの候補（おまかせの候補＝出題対象・ONのレベル・段階解放済み・このセットでまだ出していない）
+export function omakasePools(ctx) {
+  const { states, today } = ctx;
+  const examIds = examSubjectIds(ctx.data);
+  const list = candidates('おまかせ', ctx);
+  const lecture = list.filter((q) => !examIds.has(q.subjectId));
+  const st = (q) => states[q.questionId];
+  return {
+    examIds,
+    new: lecture.filter((q) => !st(q) && q.level === '基礎'),
+    newApplied: lecture.filter((q) => !st(q) && q.level === '応用'),
+    // 復習：期限の来た問題（前回間違えた・わからない を先に）→ なければ間隔待ちの正解済みの問題
+    review: [
+      lecture.filter((q) => isDue(st(q), today) && st(q).stage === 0),
+      lecture.filter((q) => isDue(st(q), today) && st(q).stage >= 1),
+      lecture.filter((q) => st(q) && !isDue(st(q), today)),
+    ],
+    challenge: list.filter((q) => examIds.has(q.subjectId) || q.level !== '基礎'),
+  };
+}
+
+// 枠が空なら、ほかの枠から埋める（並びは枠ごと）
+const SLOT_FALLBACK = {
+  new: ['new', 'review', 'challenge'],
+  newApplied: ['newApplied', 'new', 'review', 'challenge'],
+  review: ['review', 'new', 'challenge'],
+  challenge: ['challenge', 'new', 'review'],
+};
+
+export function pickSlot(slot, ctx) {
+  const rng = ctx.rng || Math.random;
+  const pools = omakasePools(ctx);
+  for (const s of SLOT_FALLBACK[slot] || SLOT_FALLBACK.new) {
+    if (s === 'review') {
+      for (const g of pools.review) if (g.length) return pickOmakase(g, ctx, rng);
+      continue;
+    }
+    const q = s === 'challenge' ? pickGrouped(pools.challenge, ctx, rng, pools.examIds) : pickOmakase(pools[s], ctx, rng);
+    if (q) return q;
+  }
+  return null;
+}
+
+// 出題対象の設定に出す1行の文（例：「新しい6・復習3・挑戦1」）
+export function planLabel(counts) {
+  const nw = counts.applied ? `新しい${counts.new}（応用${counts.applied}まで）` : `新しい${counts.new}`;
+  return [nw, `復習${counts.review}`, counts.challenge ? `挑戦${counts.challenge}` : null].filter(Boolean).join('・');
 }
 
 export function countDue(ctx) {
