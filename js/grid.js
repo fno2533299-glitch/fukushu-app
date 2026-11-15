@@ -885,7 +885,7 @@ export const EVENTS = {
   priceWar: { name: '電力戦', days: 60, text: '競争で料金が 20% 下がる' },
   drought: { name: '渇水', days: 30, text: '水力の出力が 4 割に落ちる' },
 };
-function startEvent(G, lc, key) {
+export function startEvent(G, lc, key) {
   if (evOn(G, key)) return;
   const E = EVENTS[key];
   G.events.push({ key, at: G.t, until: G.t + 24 * E.days });
@@ -1108,7 +1108,8 @@ export function step(G, lc) {
     for (const e of net.edges) {
       const f = r.flows.get(e.id);
       if (!f) continue;
-      last.lines[e.id] = { util: f.util, loss: f.loss, p: Math.abs(f.p) };
+      // 向き（1.5.1）：treeFlows の流れは親 → 子。f.p が正なら子の側へ、負なら子の側から流れ出す。to＝電気が流れ込む側の地点
+      last.lines[e.id] = { util: f.util, loss: f.loss, p: Math.abs(f.p), to: f.p >= 0 ? f.child : f.child === e.a ? e.b : e.a };
       // 送れる量の 120% を超えると温度が上がる。2時間続くと保護で切れる
       if (f.util > 1.2) {
         if (!e.overH && e.graceUntil <= t) raise(G, lc, 'lineOver', { line: e.id, what: `${lineName(G, e)}の使用率が ${Math.round(f.util * 100)}% になった。`, cool: 48 });
@@ -1182,7 +1183,8 @@ export function step(G, lc) {
 }
 
 // 現実の時刻まで進める（閉じていた分は開いたときに計算。上限は現実の14日）。戻り値：進めた刻みの数
-export function catchUp(G, lc, nowMs) {
+// 学習の状況を系統に映す：性能の上乗せの最大値と、時代が進んだこと
+export function applyLearning(G, lc) {
   // 性能の上乗せは、これまでの最大値を残す（下がらない）
   for (const k of Object.keys(lc.perf)) G.perfMax[k] = Math.max(G.perfMax[k] || 0, lc.perf[k]);
   if (lc.era > G.era) {
@@ -1192,6 +1194,17 @@ export function catchUp(G, lc, nowMs) {
     note(G, `時代が ${E.name} に進んだ`);
     addReport(G, { title: `時代が進んだ：${E.name}（${E.year}）`, what: '新しい設備と需要が登場する。', units: [] });
   }
+}
+// 開いている間に期限（ゲームの1日）が来た事故を、標準の被害で片づける
+export function expireIncidents(G) {
+  for (const inc of [...G.incidents]) {
+    if (inc.deadline > G.t) continue;
+    G.incidents.splice(G.incidents.indexOf(inc), 1);
+    addReport(G, { title: INCIDENTS[inc.key].title, what: `${inc.what || ''}ゲームの1日のあいだ対処せず、標準の被害で片づいた。`, units: INCIDENTS[inc.key].units });
+  }
+}
+export function catchUp(G, lc, nowMs) {
+  applyLearning(G, lc);
   let steps = Math.floor((nowMs - G.realAt) / HOUR_MS);
   if (steps <= 0) return 0;
   if (steps > MAX_CATCHUP) {
@@ -1203,13 +1216,7 @@ export function catchUp(G, lc, nowMs) {
   if (steps > 1) {
     // 閉じている間に溜まった事故は、開いてからゲームの1日のあいだ待つ
     for (const inc of G.incidents) inc.deadline = Math.max(inc.deadline, G.t + 24);
-  } else {
-    for (const inc of [...G.incidents]) {
-      if (inc.deadline > G.t) continue;
-      G.incidents.splice(G.incidents.indexOf(inc), 1);
-      addReport(G, { title: INCIDENTS[inc.key].title, what: `${inc.what || ''}ゲームの1日のあいだ対処せず、標準の被害で片づいた。`, units: INCIDENTS[inc.key].units });
-    }
-  }
+  } else expireIncidents(G);
   return steps;
 }
 // 開いたときのまとめを取り出して、積み上げを空にする

@@ -1565,7 +1565,7 @@ async function restoreFlow() {
     () => {
       on('[data-cancel]', 'click', dataScreen);
       on('[data-ok]', 'click', async () => {
-        await db.replaceAll(b, S.cards); // 古いバックアップ（カードのデータなし）なら、今のカードのデータを残す
+        await db.replaceAll(b, S.cards, await db.getKV('gridDev')); // 古いバックアップ（カードのデータなし）なら、今のカードのデータを残す。開発者モードの系統も残す
         await load();
         await syncCollection();
         await GU.sync();

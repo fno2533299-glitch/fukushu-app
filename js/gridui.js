@@ -2,6 +2,7 @@
 // 計算は grid.js。ここは表示と操作、保存（kv「grid」）、学習通貨の支出（ガチャと同じ台帳）
 import * as Gm from './grid.js';
 import * as L from './logic.js';
+import * as Dv from './griddev.js';
 import { GRID_IMAGES } from './gridimg.js';
 
 let A = null; // app.js から渡される部品（S・db・show・on・esc・toast など）
@@ -9,23 +10,32 @@ let lcCache = null;
 let summary = null; // 開いたときのまとめ（閉じるまで地図の上に出す）
 let gridSession = null; // 事故の問題の回答をまとめるセッション（mode「系統」）
 let view = 'map';
+// 開発者モード（1.5.1）：本番とは別の系統（kv「gridDev」）。入っているかどうかは保存しない（開き直すと本番に戻る）
+const DEV = { on: false, state: null, taps: 0, tapAt: 0, savedAt: 0, running: false };
+let store = null;
 
 export function init(api) {
   A = api;
+  store = Dv.makeStore(A.db, A.S, DEV);
   setInterval(tick, 15000);
+  setInterval(devTick, 1000);
 }
 
-const G = () => A.S.grid;
+const G = () => store.grid();
 const yen = (v) => `${Math.round(v).toLocaleString('ja-JP')} 円`;
 const pct = (v) => `${Math.round(v * 100)}%`;
 const kw = Gm.fmtKw;
 
-// 学習の状況（記録が変わったときだけ計算し直す）
-export function learningNow() {
+// 学習の状況（記録が変わったときだけ計算し直す）。本番の系統の分
+function learningReal() {
   const { S } = A;
   const key = `${S.logs.length}|${S.data?.importedAt}|${S.data?.questions.length}`;
   if (!lcCache || lcCache.key !== key) lcCache = { key, lc: Gm.learning(S.logs, S.data, S.grid?.perfMax || {}) };
   return lcCache.lc;
+}
+// いま出している系統の学習の状況（開発者モードでは差し替える）
+export function learningNow() {
+  return DEV.on ? Dv.devLearning(learningReal(), DEV.state.opts) : learningReal();
 }
 
 // 現実の時刻まで系統を進めて保存する。戻り値：進めた刻みの数
@@ -35,33 +45,34 @@ export async function sync(now = Date.now()) {
   let fresh = false;
   if (!S.grid) {
     S.grid = Gm.newGrid((now % 2147483647) | 0, now);
-    S.grid.era = learningNow().era; // 最初から、いまのレベルの時代で始まる（「時代が進んだ」は出さない）
+    S.grid.era = learningReal().era; // 最初から、いまのレベルの時代で始まる（「時代が進んだ」は出さない）
     fresh = true;
   }
   const era = S.grid.era;
-  const steps = Gm.catchUp(S.grid, learningNow(), now);
-  if (steps > 0 || fresh || S.grid.era !== era) await save();
+  const steps = Gm.catchUp(S.grid, learningReal(), now);
+  if (steps > 0 || fresh || S.grid.era !== era) await A.db.putKV('grid', S.grid); // 本番の系統（開発者モードの間も現実の時刻で回る）
   return steps;
 }
-const save = () => A.db.putKV('grid', A.S.grid);
+// いま出している系統を保存する（開発者モードでは kv「gridDev」）
+const save = () => store.save();
+const idle = () => A.S.view === 'grid' && !document.querySelector('.modal, .goverlay');
 
 async function tick() {
   if (!A?.S.grid || document.hidden) return;
   const steps = await sync();
-  if (steps > 0 && A.S.view === 'grid' && !document.querySelector('.modal, .goverlay')) screen(view);
+  if (steps > 0 && !DEV.on && idle()) screen(view);
 }
 export async function onVisible() {
   if (!A?.S.grid) return;
   await sync();
-  if (A.S.view === 'grid' && !document.querySelector('.modal, .goverlay')) screen(view, true);
+  if (DEV.on) DEV.state.grid.realAt = Date.now(); // 開発者の系統は、開いている間だけ進む
+  if (idle()) screen(view, !DEV.on);
 }
 
-// 学習通貨の支出は、ガチャと同じ台帳に記録する
-async function spend(coins, what) {
-  A.S.gacha.push({ gachaId: A.uid(), at: new Date().toISOString(), kind: 'grid', cardId: null, paid: 'coin', coins, what });
-  await A.db.putKV('gachaLog', A.S.gacha);
-}
-const balance = () => A.walletNow().balance;
+// 学習通貨の支出は、ガチャと同じ台帳に記録する（開発者モードでは書かない）
+const spend = (coins, what) => store.spend(coins, what, { gachaId: A.uid(), at: new Date().toISOString() });
+const balance = () => store.balance(A.walletNow().balance);
+const coinText = (v) => (v === Infinity ? '∞' : A.num(v));
 
 export function timeLabel(g = G()) {
   const day = Math.floor(g.t / 24);
@@ -90,9 +101,9 @@ function pic(key, cls = '') {
 
 // ---- ホームのカード ----
 export function homeCard() {
-  const g = G();
+  const g = A.S.grid; // ホームはいつも本番の系統
   if (!g) return '';
-  const o = Gm.overview(g, learningNow());
+  const o = Gm.overview(g, learningReal());
   const chips = [g.rebuild ? '<span class="tag gng">経営再建</span>' : '', g.incidents.length ? `<span class="tag gng">事故の対処待ち ${g.incidents.length}件</span>` : '', g.apps.length ? `<span class="tag">申し込み ${g.apps.length}件</span>` : ''].join('');
   return `<button class="mapcard gridcard" data-go="grid">
       <span class="spread"><b>動く系統</b><span class="go">開く ›</span></span>
@@ -119,13 +130,13 @@ export async function screen(v = 'map', entering = false) {
   }
   const body = { map: mapView, supply: supplyView, list: listView, set: settingView }[v](g, lc);
   const tabs = [['map', '地図'], ['supply', '需給'], ['list', `一覧${g.incidents.length + g.apps.length ? `（${g.incidents.length + g.apps.length}）` : ''}`], ['set', '設定']];
-  const w = A.walletNow();
   A.show(
     `<header class="top"><button class="back" data-back>‹ ホーム</button><h1>動く系統</h1><span class="streak">${eraName(g.era)}</span></header>
+    ${devBand()}
     <section class="ghead">
       ${pic(`era${g.era}`, 'band')}
       <p class="spread small"><span>${timeLabel(g)}${g.hz ? ` ・ ${g.hz} Hz` : ''}</span><span>島 ${g.islandNo}（${Gm.TERRAINS[g.terrain].name}）</span></p>
-      <p class="spread"><span>収益 <b class="${g.yen < 0 ? 'gneg' : ''}">${yen(g.yen)}</b></span><span>コイン <b>${A.num(w.balance)}</b></span></p>
+      <p class="spread"><span>収益 <b class="${g.yen < 0 ? 'gneg' : ''}">${yen(g.yen)}</b></span><span>コイン <b>${coinText(balance())}</b></span></p>
     </section>
     ${g.rebuild ? '<button class="btn primary gwide gwarn" data-rebuild>経営再建：手放すか、借入れを選ぶ</button>' : ''}
     <nav class="tabs gtabs">${tabs.map(([k, n]) => `<button data-gtab="${k}" class="${k === v ? 'on' : ''}">${n}</button>`).join('')}</nav>
@@ -139,6 +150,7 @@ export async function screen(v = 'map', entering = false) {
       A.on('[data-gtab]', 'click', (e) => screen(e.currentTarget.dataset.gtab));
       A.on('[data-rebuild]', 'click', rebuildDialog);
       A.on('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo));
+      bindDevBand();
       body.bind?.();
       effects(g);
     },
@@ -360,13 +372,13 @@ async function pay(q, what, doBuild, after) {
   const r = doBuild();
   if (!r.ok) return A.toast(r.why);
   await spend(r.cost, what);
-  A.toast(`${what}の工事を始めた（${A.num(r.cost)} コイン）`);
+  A.toast(`${what}の工事を始めた（${DEV.on && balance() === Infinity ? '開発者モード：コインは減らない' : `${A.num(r.cost)} コイン`}）`);
   if (A.fx()) A.playNotes([[440, 0], [554.4, 0.08], [659.3, 0.16]]);
   await refresh(after);
 }
 const quoteHtml = (q) =>
   q.ok
-    ? `<p class="gquote"><b>${A.num(q.cost)} コイン</b>（残高 ${A.num(balance())}）・ 工期 ${q.hours != null ? `ゲームの ${q.hours}時間` : 'すぐ'}${q.proto ? '<br><span class="warn">試作：次の時代の設備を先取り。建設費3倍・故障率3倍・効率は下限から</span>' : ''}</p>`
+    ? `<p class="gquote"><b>${A.num(q.cost)} コイン</b>（残高 ${coinText(balance())}）・ 工期 ${q.hours != null ? `ゲームの ${q.hours}時間` : 'すぐ'}${q.proto ? '<br><span class="warn">試作：次の時代の設備を先取り。建設費3倍・故障率3倍・効率は下限から</span>' : ''}</p>`
     : whyHtml(q);
 
 function plantDialog(site) {
@@ -489,7 +501,7 @@ function capDialog(loadId, back) {
   sheet(
     `<h2>進相コンデンサ</h2>
     <p class="small">工場の力率を 0.75 から 0.95 に直す。同じ電力でも線を流れる電流が減り、損失と使用率が下がる。</p>
-    ${q.ok ? `<p class="gquote"><b>${A.num(q.cost)} コイン</b>（残高 ${A.num(balance())}）</p><button class="btn primary gwide" data-build>付ける</button>` : whyHtml(q)}`,
+    ${q.ok ? `<p class="gquote"><b>${A.num(q.cost)} コイン</b>（残高 ${coinText(balance())}）</p><button class="btn primary gwide" data-build>付ける</button>` : whyHtml(q)}`,
     ({ onAll }) => {
       onAll('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo));
       onAll('[data-build]', 'click', () => pay(q, '進相コンデンサ', () => Gm.addCap(g, lc, loadId), () => nodeSheet(back)));
@@ -696,23 +708,26 @@ async function answerIncident(inc, q, order, choiceId) {
   const { S } = A;
   const g = G();
   const now = new Date();
-  if (!gridSession) {
-    gridSession = { sessionId: A.uid(), mode: '系統', scope: null, startedAt: now.toISOString(), endedAt: null };
-    S.sessions.push(gridSession);
-  }
-  gridSession.endedAt = now.toISOString();
   const correct = choiceId === q.correctChoiceId;
   const result = correct ? '正解' : '不正解';
-  const log = { logId: A.uid(), questionId: q.questionId, sessionId: gridSession.sessionId, questionRevision: q.revision, answeredAt: now.toISOString(), result, selectedChoiceId: choiceId };
-  const state = L.nextReviewState(S.states[q.questionId], q.questionId, result, now, S.settings.intervals);
-  S.logs.push(log);
-  S.states[q.questionId] = state;
+  // 開発者モードでは回答記録・復習状態・セッションに残さない（正誤だけをゲームに反映する）
+  let rec = null;
+  if (!DEV.on) {
+    if (!gridSession) {
+      gridSession = { sessionId: A.uid(), mode: '系統', scope: null, startedAt: now.toISOString(), endedAt: null };
+      S.sessions.push(gridSession);
+    }
+    gridSession.endedAt = now.toISOString();
+    const log = { logId: A.uid(), questionId: q.questionId, sessionId: gridSession.sessionId, questionRevision: q.revision, answeredAt: now.toISOString(), result, selectedChoiceId: choiceId };
+    rec = { log, state: L.nextReviewState(S.states[q.questionId], q.questionId, result, now, S.settings.intervals), session: gridSession };
+  }
+  const saved = rec ? store.answer(rec) : null;
   const text = Gm.resolveIncident(g, inc.id, correct);
   if (correct && A.fx()) A.playNotes([[880, 0], [1318.5, 0.08]]);
   A.show(
     `<header class="top"><h1>事故の対処</h1></header>
     <div class="verdict ${correct ? 'ok' : 'ng'}">${correct ? '正しく対処した' : '対処を誤った'}</div>
-    <section class="card geffect"><p>${A.esc(text || '')}</p>${correct ? '<p class="small">コイン +100（同じ問題は1日1回まで）</p>' : ''}</section>
+    <section class="card geffect"><p>${A.esc(text || '')}</p>${DEV.on ? '<p class="small">開発者モード：回答記録には残りません</p>' : correct ? '<p class="small">コイン +100（同じ問題は1日1回まで）</p>' : ''}</section>
     <div class="choices done">
       ${order.map((c, i) => `<div class="choice ${c.choiceId === q.correctChoiceId ? `correct${correct ? ' flash' : ''}` : c.choiceId === choiceId ? 'wrong' : ''}"><span class="mark">${'ABCD'[i]}</span><span>${A.rich(c.text)}</span></div>`).join('')}
     </div>
@@ -727,10 +742,9 @@ async function answerIncident(inc, q, order, choiceId) {
       A.on('[data-next]', 'click', () => screen('list'));
     },
   );
-  await A.db.saveAnswer(log, state);
-  await A.db.put('sessions', gridSession);
+  await saved;
   await save();
-  await A.syncCollection();
+  if (rec) await A.syncCollection();
 }
 
 // ---- 設定：予備力の目標・燃料の買い方・点検の方針・学習と設備・記録・新しい島 ----
@@ -783,7 +797,8 @@ function settingView(g, lc) {
       <h2>新しい島</h2>
       <p class="small">いつでも、明治の小さな島からやり直せます。時代（レベル）・設計図・性能の上乗せは引き継ぎ、この島の記録は残ります。この島の設備と収益はなくなり、使ったコインは戻りません。</p>
       <button class="btn" data-newisland>新しい島を選ぶ</button>
-    </section>`,
+    </section>
+    ${versionHtml()}`,
     bind: () => {
       const rv = document.querySelector('[data-rv]');
       A.on('[data-reserve]', 'input', (e) => (rv.textContent = `${e.target.value}%`));
@@ -795,6 +810,7 @@ function settingView(g, lc) {
       A.on('input[name=fuel]', 'change', async (e) => ((g.fuelPlan = e.target.value), await save()));
       A.on('input[name=maint]', 'change', async (e) => ((g.maint = e.target.value), await save()));
       A.on('[data-newisland]', 'click', islandDialog);
+      bindVersion();
     },
   };
 }
@@ -808,9 +824,9 @@ function islandDialog() {
     ({ onAll }) =>
       onAll('[data-terrain]', 'click', async (e) => {
         const now = Date.now();
-        A.S.grid = Gm.newIsland(G(), e.currentTarget.dataset.terrain, now, (now % 2147483647) | 0);
+        store.setGrid(Gm.newIsland(G(), e.currentTarget.dataset.terrain, now, (now % 2147483647) | 0));
         lcCache = null;
-        A.S.grid.era = learningNow().era;
+        G().era = learningNow().era;
         summary = null;
         await refresh();
         A.toast('新しい島で、明治から始めます');
@@ -850,4 +866,190 @@ function rebuildDialog() {
       });
     },
   );
+}
+
+// ---- 開発者モード（1.5.1）：バージョン番号を5回押すと入る。本番とは別の系統（kv「gridDev」）で動かす ----
+function versionHtml() {
+  return `<p class="note center"><button class="link gver" data-ver>版 ${A.esc(window.APP_VERSION || '')}</button></p>`;
+}
+function bindVersion() {
+  A.on('[data-ver]', 'click', () => {
+    if (DEV.on) return devSheet();
+    const now = Date.now();
+    DEV.taps = now - DEV.tapAt < 1500 ? DEV.taps + 1 : 1;
+    DEV.tapAt = now;
+    if (DEV.taps >= 5) {
+      DEV.taps = 0;
+      enterDevDialog();
+    } else if (DEV.taps >= 3) A.toast(`あと ${5 - DEV.taps} 回で開発者モード`);
+  });
+}
+function enterDevDialog() {
+  sheet(
+    `<h2>開発者モードに入る</h2>
+    <p>本番とは別の系統で、コイン無制限・学習の条件を無視・早送り・時代やレベルの選択・事故と出来事をすぐ起こす、などを試せます。</p>
+    <p class="small">本番の系統・回答記録・コイン・称号・カレンダー・継続日数には一切書きません。バックアップにも入りません。抜けると本番の系統に戻り、開発者の系統は次に入ったときの続きになります。</p>
+    <button class="btn primary gwide" data-devin>入る</button>`,
+    ({ onAll, close }) => onAll('[data-devin]', 'click', async () => (close(), enterDev())),
+  );
+}
+async function enterDev() {
+  const now = Date.now();
+  DEV.state = Dv.normalize(DEV.state || (await A.db.getKV(Dv.DEV_KEY)), now);
+  DEV.state.grid.realAt = now; // 開発者の系統は、入っている間だけ進む
+  DEV.on = true;
+  summary = null;
+  Gm.applyLearning(G(), learningNow());
+  delete G().eraUp;
+  await save();
+  A.toast('開発者モードに入った');
+  screen(view);
+}
+async function exitDev() {
+  if (DEV.running) return A.toast('早送りの途中です');
+  await save();
+  DEV.on = false;
+  summary = null;
+  document.querySelector('.modal.gsheet')?.remove();
+  await sync();
+  A.toast('本番の系統に戻った');
+  screen(view);
+}
+function devBand() {
+  if (!DEV.on) return '';
+  const o = DEV.state.opts;
+  return `<div class="gdevband"><span><b>開発者モード</b><small>（本番の記録には影響しません）</small></span>
+    <span class="gdevbtns"><button class="btn small" data-devops>${o.speed ? `×${o.speed}` : '停止中'} ・ 操作</button><button class="btn small" data-devout>抜ける</button></span></div>`;
+}
+function bindDevBand() {
+  A.on('[data-devops]', 'click', devSheet);
+  A.on('[data-devout]', 'click', exitDev);
+}
+// 現実の時刻に合わせて開発者の系統を進める（×10・×100 は1秒ごとに見る）
+async function devTick() {
+  if (!DEV.on || DEV.running || document.hidden || !A?.S.data) return;
+  const g = G();
+  const n = Dv.dueSteps(g, Date.now(), DEV.state.opts.speed);
+  if (!n) return;
+  Dv.advance(g, learningNow(), n, DEV.state.money);
+  if (Date.now() - DEV.savedAt > 5000) {
+    DEV.savedAt = Date.now();
+    save();
+  }
+  if (idle()) screen(view);
+  else devSheetLive();
+}
+const devSheetLive = () => {
+  const el = document.querySelector('.modal.gsheet [data-devclock]');
+  if (el) el.textContent = `${timeLabel(G())} ・ 島 ${G().islandNo}（${Gm.TERRAINS[G().terrain].name}）`;
+};
+function devSheet() {
+  const g = G(), o = DEV.state.opts, real = learningReal(), lc = learningNow();
+  const perfNow = Math.round((o.perf ?? 0) * 100);
+  const incs = Object.entries(Gm.INCIDENTS).map(([k, D]) => `<option value="${k}">${A.esc(D.title)}</option>`).join('');
+  const evs = Object.entries(Gm.EVENTS).map(([k, E]) => `<option value="${k}">${A.esc(E.name)}（${A.esc(E.text)}）</option>`).join('');
+  sheet(
+    `<h2>開発者モードの操作</h2>
+    <p class="small" data-devclock>${timeLabel(g)} ・ 島 ${g.islandNo}（${Gm.TERRAINS[g.terrain].name}）</p>
+    <h3>時間</h3>
+    <div class="gseg">${Dv.SPEEDS.map((v) => `<button class="btn small ${o.speed === v ? 'on' : ''}" data-speed="${v}">${v ? `×${v}` : '一時停止'}</button>`).join('')}</div>
+    <div class="gseg"><button class="btn small" data-jump="day">1日進める</button><button class="btn small" data-jump="week">1週間進める</button><button class="btn small" data-jump="year">1年進める</button></div>
+    <div class="gprog" data-prog hidden><i></i><span></span></div>
+    <h3>コイン</h3>
+    <label class="row"><input type="checkbox" data-coins ${o.coins === 'unlimited' ? 'checked' : ''}><span>コイン無制限<small>建てても残高が減らない。外すと、開発者モードだけの残高から引く（本番のコインは使わない）</small></span></label>
+    ${o.coins === 'unlimited' ? '' : `<label class="row"><span>開発者モードの残高</span><input type="number" min="0" step="1000" value="${Math.round(o.devCoins)}" data-devcoins class="gnum"></label>`}
+    <h3>学習</h3>
+    <label class="row"><input type="checkbox" data-gates ${o.ignoreGates ? 'checked' : ''}><span>学習の条件を無視<small>すべての種類が建てられる（建設の条件・設計図をすべて開く）</small></span></label>
+    <label class="row"><input type="checkbox" data-perfon ${o.perf != null ? 'checked' : ''}><span>性能の単元の定着の割合を選ぶ<small>外すと本番の記録の値（熱効率・故障・工期などに効く）</small></span></label>
+    ${o.perf != null ? `<label class="row"><input type="range" min="0" max="100" step="5" value="${perfNow}" data-perf><b data-perfv>${perfNow}%</b></label>` : ''}
+    <h3>時代とレベル</h3>
+    <label class="row"><span>レベル</span><input type="number" min="1" max="60" value="${o.level ?? real.level}" data-level class="gnum"></label>
+    <label class="row"><span>時代</span><select data-era><option value="">レベルから決める</option>${Gm.ERAS.filter((e) => e.n <= Gm.MAX_ERA).map((e) => `<option value="${e.n}" ${o.era === e.n ? 'selected' : ''}>${e.id} ${e.name}</option>`).join('')}</select></label>
+    <label class="row"><span>定着の問題数</span><input type="number" min="0" max="5000" value="${o.mastered ?? real.mastered}" data-mastered class="gnum"></label>
+    <p class="small">いま：Lv ${lc.level} ・ ${eraName(lc.era)} ・ 定着 ${lc.mastered}問 ・ 需要の上限 ${kw(lc.dmax)}（本番の記録は Lv ${real.level}・定着 ${real.mastered}問）</p>
+    <button class="btn small" data-devreal>本番の記録の値に戻す</button>
+    <h3>事故・出来事をすぐ起こす</h3>
+    <div class="grow gpick"><select data-inckey>${incs}</select><button class="btn small" data-incgo>起こす</button></div>
+    <div class="grow gpick"><select data-evkey>${evs}</select><button class="btn small" data-evgo>起こす</button></div>
+    <p class="small">事故の問題も解けます（回答記録には残りません。正誤だけをゲームに反映します）。対象の設備がなければ、対象なしで起きます。</p>
+    <h3>系統のリセット</h3>
+    <div class="gseg">${Object.entries(Gm.TERRAINS).map(([k, T]) => `<button class="btn small" data-devreset="${k}">${T.name}</button>`).join('')}</div>
+    <p class="small">選んだ地形で、開発者の系統を最初からやり直します（本番の系統は変わりません）。</p>`,
+    ({ q: $, onAll, close }) => {
+      const set = async (patch) => {
+        Object.assign(o, patch);
+        const l2 = learningNow();
+        if (l2.era < G().era) G().era = l2.era;
+        else Gm.applyLearning(G(), l2);
+        await save();
+        close();
+        await screen(view);
+        devSheet();
+      };
+      onAll('[data-speed]', 'click', (e) => {
+        G().realAt = Date.now();
+        set({ speed: Number(e.currentTarget.dataset.speed) });
+      });
+      onAll('[data-jump]', 'click', (e) => devJump(e.currentTarget.dataset.jump, $));
+      $('[data-coins]').onchange = (e) => set(e.target.checked ? { coins: 'unlimited' } : { coins: 'limited', devCoins: o.devCoins || A.walletNow().balance });
+      onAll('[data-devcoins]', 'change', (e) => set({ devCoins: Math.max(0, Number(e.target.value) || 0) }));
+      $('[data-gates]').onchange = (e) => set({ ignoreGates: e.target.checked });
+      $('[data-perfon]').onchange = (e) => set({ perf: e.target.checked ? o.perf ?? 0.5 : null });
+      onAll('[data-perf]', 'input', (e) => ($('[data-perfv]').textContent = `${e.target.value}%`));
+      onAll('[data-perf]', 'change', (e) => set({ perf: Number(e.target.value) / 100 }));
+      $('[data-level]').onchange = (e) => set({ level: Math.max(1, Math.round(Number(e.target.value) || 1)) });
+      $('[data-era]').onchange = (e) => set({ era: e.target.value ? Number(e.target.value) : null });
+      $('[data-mastered]').onchange = (e) => set({ mastered: Math.max(0, Math.round(Number(e.target.value) || 0)) });
+      onAll('[data-devreal]', 'click', () => set({ level: null, era: null, mastered: null, perf: null }));
+      onAll('[data-incgo]', 'click', async () => {
+        const r = Dv.triggerIncident(G(), learningNow(), $('[data-inckey]').value);
+        await save();
+        if (!r.ok) return A.toast(r.why);
+        close();
+        if (r.inc) return incidentScreen(r.inc.id);
+        screen(view);
+      });
+      onAll('[data-evgo]', 'click', async () => {
+        const r = Dv.triggerEvent(G(), learningNow(), $('[data-evkey]').value);
+        await save();
+        A.toast(r.ok ? '出来事を起こした' : r.why);
+        if (r.ok) (close(), screen(view));
+      });
+      onAll('[data-devreset]', 'click', async (e) => {
+        const g2 = Dv.freshGrid(Date.now(), e.currentTarget.dataset.devreset);
+        g2.era = learningNow().era;
+        store.setGrid(g2);
+        DEV.state.money = [];
+        summary = null;
+        await save();
+        close();
+        A.toast(`開発者の系統を最初から（${Gm.TERRAINS[g2.terrain].name}）`);
+        screen('map');
+      });
+    },
+  );
+}
+// 1日・1週間・1年進める（1年は約1.6万刻みなので、進み具合を出す）
+async function devJump(kind, $) {
+  if (DEV.running) return;
+  DEV.running = true;
+  const n = Dv.JUMPS[kind];
+  const bar = $('[data-prog]');
+  bar.hidden = false;
+  const prog = (d) => {
+    bar.querySelector('i').style.width = `${(d / n) * 100}%`;
+    bar.querySelector('span').textContent = `${d.toLocaleString('ja-JP')} ／ ${n.toLocaleString('ja-JP')} 刻み`;
+    devSheetLive();
+  };
+  prog(0);
+  try {
+    await Dv.run(G(), learningNow(), n, { money: DEV.state.money, onProgress: prog, chunk: 300 });
+    G().realAt = Date.now();
+    await save();
+  } finally {
+    DEV.running = false;
+  }
+  document.querySelector('.modal.gsheet')?.remove();
+  await screen(view);
+  devSheet();
 }

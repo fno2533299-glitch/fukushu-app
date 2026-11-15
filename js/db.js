@@ -1,7 +1,7 @@
 // 端末内の保存（IndexedDB）。起動時に全部を読み込み、変更は1件ずつ書く
 // kv: questionData（問題データ）・settings（本人の設定）・lastBackup（最終書き出し日時）
 //     cardData（カードと称号のデータ）・gachaLog（ガチャの記録と系統の支出）・collection（覚醒した日・称号を手に入れた日）
-//     grid（動く系統の状態。1.5.0）
+//     grid（動く系統の状態。1.5.0）・gridDev（開発者モードの系統。1.5.1。バックアップには入れない）
 // reviewStates / answerLogs / sessions / issueReports: 学習データ（設計図 1.1）
 
 const DB_NAME = 'fukushu-app';
@@ -76,6 +76,11 @@ export async function loadAll() {
   };
 }
 
+export async function getKV(key) {
+  const db = await open();
+  return request(db.transaction('kv', 'readonly').objectStore('kv').get(key));
+}
+
 export async function putKV(key, value) {
   const db = await open();
   const tx = db.transaction('kv', 'readwrite');
@@ -101,7 +106,8 @@ export async function saveAnswer(log, state) {
 
 // バックアップからの復元：すべて消して入れ直す。
 // カードと称号のデータ（cardData）は、バックアップになければ（1.3.0 以前のバックアップ）今のものを残す
-export async function replaceAll(backup, keepCardData = null) {
+// 開発者モードの系統（gridDev。1.5.1）はバックアップに入れないので、今のものを残す（keepDev）
+export async function replaceAll(backup, keepCardData = null, keepDev = null) {
   const db = await open();
   const tx = db.transaction(Object.keys(STORES), 'readwrite');
   for (const name of Object.keys(STORES)) tx.objectStore(name).clear();
@@ -114,6 +120,7 @@ export async function replaceAll(backup, keepCardData = null) {
   if (backup.collection) kv.put(backup.collection, 'collection');
   // 系統の状態（1.5.0）。古いバックアップにはないので、そのときは最初の島から始まる（支出の台帳も一緒に戻るため）
   if (backup.grid) kv.put(backup.grid, 'grid');
+  if (keepDev) kv.put(keepDev, 'gridDev');
   for (const s of backup.reviewStates) tx.objectStore('reviewStates').put(s);
   for (const l of backup.answerLogs) tx.objectStore('answerLogs').put(l);
   for (const s of backup.sessions) tx.objectStore('sessions').put(s);
