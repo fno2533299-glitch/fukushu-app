@@ -1,12 +1,17 @@
 // 動く系統の画面（1.5.0。1.5.1 で配置を変えた）：上の帯・地図・下のボタン5つ（建設・運転・需給・一覧・経営）とせり上がるパネル、
 // 地図の上で建てる建設モード、電気の流れ（黄色い点線）、事故の問題、経営再建、新しい島、開発者モード
+// 1.5.2：地図は動かさない（パネル・カードは地図に重ねる）、地点のメニュー（SAO 風）、したことの表示、チュートリアル
 // 計算は grid.js。ここは表示と操作、保存（kv「grid」。開発者モードでは kv「gridDev」）、学習通貨の支出（ガチャと同じ台帳）
 import * as Gm from './grid.js';
 import * as L from './logic.js';
 import * as Dv from './griddev.js';
+import * as Mn from './gridmenu.js';
 import { GRID_IMAGES } from './gridimg.js';
 
 let A = null; // app.js から渡される部品（S・db・show・on・esc・toast など）
+// チュートリアル（区切り3で中身を入れる）
+const tutOn = () => false;
+function tutEv() {}
 let lcCache = null;
 let summary = null; // 開いたときのまとめ（閉じるまでパネルに出す）
 let gridSession = null; // 事故の問題の回答をまとめるセッション（mode「系統」）
@@ -14,6 +19,8 @@ let panel = null; // 開いているパネル：build・run・supply・list・ma
 let buildFor = null; // 建設のパネルを地点から開いたとき：{ site } または { from }
 let B = null; // 建設モード：{ kind: 'plant'|'line'|'sub', ... }
 let whyOpen = null; // 建設のパネルで、理由を開いている種類
+// 1.5.2 地点のメニュー：{ kind: 'node'|'line', id, branch: null|'build'|'line'|'rm', detail: false, anim: 'menu'|'branch'|null }
+let sel = null;
 // 開発者モード（1.5.1）：本番とは別の系統（kv「gridDev」）。入っているかどうかは保存しない（開き直すと本番に戻る）
 const DEV = { on: false, state: null, taps: 0, tapAt: 0, savedAt: 0, running: false };
 let store = null;
@@ -23,6 +30,13 @@ export function init(api) {
   store = Dv.makeStore(A.db, A.S, DEV);
   setInterval(tick, 15000);
   setInterval(devTick, 1000);
+  // 画面の大きさが変わったら、メニューとカードの位置だけ直す（地図は動かさない）
+  window.addEventListener('resize', () => {
+    if (!onGrid()) return;
+    drawMenu();
+    drawDetail(true);
+    if (B) drawBuildCard();
+  });
 }
 
 const G = () => store.grid();
@@ -152,6 +166,8 @@ export async function screen(p, entering = false) {
       ${g.rebuild ? '<button class="btn primary gwide gwarn grebuild" data-rebuild>経営再建：手放すか、借入れを選ぶ</button>' : ''}
       <div class="gmid" data-mid>
         <div class="gmapbox" data-mapbox>${mapSvg(g)}</div>
+        <div class="gmenu" data-menu></div>
+        <div class="gdetail" data-detail></div>
         <div class="gbuildbar" data-bbar>${buildBarHtml(g)}</div>
         <div class="gbcard" data-bcard></div>
         <section class="gpanel${panel ? ' open' : ''}" data-panel aria-hidden="${panel ? 'false' : 'true'}"><div class="gpin" data-pin></div></section>
@@ -164,6 +180,7 @@ export async function screen(p, entering = false) {
         summary = null;
         B = null;
         panel = null;
+        sel = null;
         A.home();
       });
       A.on('[data-hud]', 'click', () => togglePanel('supply'));
@@ -175,16 +192,15 @@ export async function screen(p, entering = false) {
       bindBuildBar();
       drawPanel();
       drawBuildCard();
+      if (sel && !selOk()) sel = null;
+      drawMenu();
+      drawDetail();
       effects(g);
     },
   );
 }
-const panelOk = (p) => {
-  const [k, id] = p.split(':');
-  if (k === 'node') return !!Gm.nodeOf(G(), id);
-  if (k === 'line') return G().lines.some((l) => l.id === id);
-  return ['build', 'run', 'supply', 'list', 'manage'].includes(k);
-};
+const panelOk = (p) => ['build', 'run', 'supply', 'list', 'manage'].includes(p);
+const selOk = () => (sel.kind === 'node' ? !!Gm.nodeOf(G(), sel.id) : G().lines.some((l) => l.id === sel.id));
 
 // 時間が進んだときの描き直し：帯・地図・下のボタンの数・パネル（入力中でなければ）。パネルの位置（スクロール）は残す
 function live() {
@@ -201,6 +217,11 @@ function live() {
   const busy = pin?.contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
   // パネルは入力中でなければ描き直す。早送り（1秒ごと）のときは4秒に1回まで（押した瞬間にボタンが入れ替わらないように）
   if (panel && panel !== 'summary' && panel !== 'build' && !busy && Date.now() - drawnAt > 4000) drawPanel(true);
+  // 地点のメニューと詳細のカード（地図は動かないので、位置はそのまま。中身だけ新しくする）
+  if (sel && !selOk()) sel = null;
+  drawMenu();
+  const dbusy = q('[data-detail]')?.contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+  if (sel?.detail && !dbusy && Date.now() - detailAt > 4000) drawDetail(true);
   if (!!g.rebuild !== !!q('[data-rebuild]')) screen();
 }
 
@@ -243,13 +264,15 @@ function bindDock() {
 }
 // 同じボタンを押すと閉じる。建設モードの途中で別のパネルを開くと、建設モードはやめる
 function togglePanel(p) {
-  if (panel === p || (p !== 'build' && panel?.split(':')[0] === p)) return setPanel(null);
+  if (panel === p) return setPanel(null);
   if (p !== 'build') buildFor = null;
   setPanel(p);
 }
+// 下のボタンのパネル。1.5.2 から地図は縮めない（パネルは地図の上に重ねる）。パネルを開くと地点のメニューは閉じる
 function setPanel(p) {
   if (p && B) {
     B = null;
+    sel = null;
     return screen(p);
   }
   if (p !== 'summary' && panel === 'summary') summary = null;
@@ -261,20 +284,11 @@ function setPanel(p) {
   el.setAttribute('aria-hidden', p ? 'false' : 'true');
   document.querySelector('[data-dock]').innerHTML = dockHtml(G());
   bindDock();
-  if (p) drawPanel();
-  else fitMap();
-  if (p === null || p.startsWith('node') || p.startsWith('line')) drawMap(); // 選んでいる地点の印
-}
-// パネル（建設モードではカード）が開いているときは、地図をその上の空いたところに縮めて、島の全体が見えるようにする
-function fitMap() {
-  const box = document.querySelector('[data-mapbox]');
-  const el = document.querySelector('[data-panel]');
-  if (!box || !el) return;
-  const card = document.querySelector('[data-bcard].open');
-  const h = panel ? el.getBoundingClientRect().height : card ? card.getBoundingClientRect().height + 12 : 0;
-  box.style.bottom = `${Math.round(h)}px`;
-  const bar = B && document.querySelector('[data-bbar]');
-  box.style.top = bar ? `${Math.round(bar.getBoundingClientRect().height + 8)}px` : '0px'; // 建設モードの帯の下から
+  if (p) {
+    if (sel) closeSel();
+    drawPanel();
+    tutEv(`panel:${p}`);
+  }
 }
 // パネルの中身を描く（keep：スクロールの位置を残す）
 let drawnAt = 0;
@@ -297,7 +311,6 @@ function drawPanel(keep = false) {
   onAll('[data-pclose]', 'click', () => setPanel(null));
   onAll('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo));
   body.bind?.({ $, onAll, g, lc });
-  fitMap();
 }
 
 // 時代が進んだとき・全域停電からの復旧（演出ありでは少し派手に）
@@ -361,8 +374,8 @@ function mapSvg(g) {
   const N = (id) => at(nodes.find((n) => n.id === id));
   const t = g.t;
   const cand = B ? candidates(g, learningNow()) : null;
-  const selId = panel?.startsWith('node:') ? panel.slice(5) : null;
-  const selLine = panel?.startsWith('line:') ? panel.slice(5) : null;
+  const selId = sel?.kind === 'node' ? sel.id : null;
+  const selLine = sel?.kind === 'line' ? sel.id : null;
   let s = `<path d="${ISLAND}" fill="var(--land)" stroke="var(--coast)" stroke-width="1.5"/>`;
   // 地形：雪の地域（北西）・山・川・海岸
   s += '<path d="M40,84 C60,46 110,26 150,22 C150,60 120,110 70,140 C40,140 26,116 40,84Z" fill="var(--gsnow)" opacity=".7"/>';
@@ -474,27 +487,204 @@ function bindMap() {
   box.addEventListener('pointercancel', () => (press = null));
   mid.addEventListener('contextmenu', (e) => e.target.closest('[data-mapbox]') && e.preventDefault());
 }
+// 地点・線を押すとメニュー。同じものをもう一度押す・空いたところを押すと閉じる。パネルが開いていれば、まず閉じる
 function mapTap(node, line) {
-  // パネルが開いているときは、地図を押すと閉じる（地点・線は動かさない）
-  if (panel) return setPanel(null);
   if (B) return node ? buildTap(node) : null;
-  if (node) return setPanel(`node:${node}`);
-  if (line) return setPanel(`line:${line}`);
+  if (panel) {
+    setPanel(null);
+    if (!node && !line) return;
+  }
+  if (node) return sel?.kind === 'node' && sel.id === node ? closeSel() : openSel('node', node);
+  if (line) return sel?.kind === 'line' && sel.id === line ? closeSel() : openSel('line', line);
+  if (sel) closeSel();
+}
+
+// ---- 1.5.2 地点のメニュー（SAO 風）：地点の横に丸いボタンを縦に並べ、「建設」「線を引く」「撤去」はさらに横へ枝分かれ ----
+// 位置の計算は gridmenu.js（画面からはみ出さない）。地図は動かないので、地点の位置は地図の座標から1回で求まる
+const SVGI = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+const MI_ICON = {
+  build: '<path d="M4 20h16M6 20V9l6-4 6 4v11M10 20v-5h4v5"/>',
+  line: '<circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="5.5" r="2.5"/><path d="M7.5 16.5l9-9" stroke-dasharray="2.6 2.4"/>',
+  detail: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v6M12 7.2v.6"/>',
+  rm: '<path d="M5 7h14M9.5 7V5h5v2M7 7l1 13h8l1-13M10.5 10.5v6M13.5 10.5v6"/>',
+  inc: '<path d="M12 3.5l9 16H3z"/><path d="M12 10v4.5M12 17v.6"/>',
+  circ: '<path d="M3 8h12M3 13h12M3 18h7"/><path d="M18 13v8M14 17h8"/>',
+};
+const TYPE_ICON = {
+  coal: '<path d="M4 20V11l5 3v-3l5 3V7h3v13z"/><path d="M15 5c0-2 2-2 2-3.5"/>',
+  hydro: '<path d="M3 17c2 0 2-1.5 4.5-1.5S10 17 12 17s2-1.5 4.5-1.5S19 17 21 17M3 21c2 0 2-1.5 4.5-1.5S10 21 12 21s2-1.5 4.5-1.5S19 21 21 21"/><path d="M12 3c-2.5 4-4 5.8-4 7.8a4 4 0 0 0 8 0C16 8.8 14.5 7 12 3z"/>',
+  sub: '<rect x="3" y="7" width="18" height="11" rx="2"/><circle cx="9.5" cy="12.5" r="3"/><circle cx="14.5" cy="12.5" r="3"/>',
+  line: '<path d="M8 21l3-17h2l3 17M9.6 10h4.8M8.8 15h6.4M4 6.5c4 1.8 12 1.8 16 0"/>',
+};
+const typeIcon = (c) => (c.b.startsWith('rm:') ? MI_ICON.rm : c.kind === 'line' ? TYPE_ICON.line : c.kind === 'sub' ? TYPE_ICON.sub : Gm.PLANTS[c.key].coal ? TYPE_ICON.coal : TYPE_ICON.hydro);
+// 地図の座標 → メニューの層（.gmid）の中の座標。地図は動かないので getScreenCTM を1回見るだけ
+function toBox(x, y) {
+  const svg = document.querySelector('[data-mapbox] .gmap');
+  const mid = document.querySelector('[data-mid]');
+  const m = svg?.getScreenCTM();
+  if (!m || !mid) return { x, y };
+  const r = mid.getBoundingClientRect();
+  return { x: m.a * x + m.c * y + m.e - r.left, y: m.b * x + m.d * y + m.f - r.top };
+}
+const nodeBox = (n) => {
+  const p = at(n);
+  return toBox(p.x, p.y);
+};
+// メニューの起点：地点の中心、線なら線の中ほど（線の名前のあたり）
+function selAnchor() {
+  const g = G();
+  if (sel.kind === 'node') return nodeBox(Gm.nodeOf(g, sel.id));
+  const l = g.lines.find((x) => x.id === sel.id);
+  const P = linePath(at(Gm.nodeOf(g, l.a)), at(Gm.nodeOf(g, l.b)), l.route, Gm.LINES[l.kind].dc);
+  return toBox(P.lx, P.ly);
+}
+function openSel(kind, id, detail = false) {
+  if (B) return;
+  sel = { kind, id, branch: null, detail, anim: 'menu' };
+  drawMap();
+  drawMenu();
+  drawDetail();
+  if (A.fx()) A.playNotes([[987.8, 0]]);
+  tutEv(`menu:${id}`);
+}
+function closeSel() {
+  sel = null;
+  drawMap();
+  drawMenu();
+  drawDetail();
+}
+const boxSize = () => {
+  const mid = document.querySelector('[data-mid]');
+  return { w: mid?.clientWidth || 360, h: mid?.clientHeight || 400 };
+};
+function miBtn(col, i, attr, icon, label, o = {}) {
+  const it = col.items[i];
+  const cls = ['gmi', col.side, o.sub && 'sub', o.on && 'on', o.locked && 'locked', o.alert && 'alert'].filter(Boolean).join(' ');
+  return `<button class="${cls}" ${attr} style="left:${Math.round(it.x)}px;top:${Math.round(it.y)}px;width:${it.w}px;--i:${i}"><span class="gmc">${SVGI(icon)}</span><span class="gml">${A.esc(label)}${o.tag ? `<small>${A.esc(o.tag)}</small>` : ''}</span></button>`;
+}
+function drawMenu() {
+  const el = document.querySelector('[data-menu]');
+  if (!el) return;
+  if (!sel || B) {
+    el.className = 'gmenu';
+    el.innerHTML = '';
+    return;
+  }
+  const g = G(), lc = learningNow();
+  const box = boxSize();
+  const items = sel.kind === 'node' ? Mn.nodeMenu(g, lc, sel.id) : Mn.lineMenu();
+  const a = selAnchor();
+  const M = Mn.placeMenu(a, items.length, box);
+  let lines = M.items.map((it) => `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${it.cx.toFixed(1)}" y2="${it.cy.toFixed(1)}"/>`).join('');
+  let html = items.map((it, i) => miBtn(M, i, `data-mi="${it.k}"`, MI_ICON[it.k], it.label, { on: sel.branch === it.k || (it.k === 'detail' && sel.detail), alert: it.alert })).join('');
+  const bi = sel.branch ? items.findIndex((it) => it.k === sel.branch) : -1;
+  if (bi < 0) sel.branch = null;
+  else {
+    const sub = Mn.branchItems(g, lc, sel, sel.branch);
+    const Bp = Mn.placeBranch(M, bi, sub.length, box);
+    lines += Bp.items.map((it) => `<line class="b" x1="${Bp.from.cx.toFixed(1)}" y1="${Bp.from.cy.toFixed(1)}" x2="${it.cx.toFixed(1)}" y2="${it.cy.toFixed(1)}"/>`).join('');
+    html += sub.map((c, i) => miBtn(Bp, i, `data-mb="${c.b}"`, typeIcon(c), c.name, { sub: true, locked: !c.ok, tag: c.ok && c.st?.proto ? '試作' : '' })).join('');
+  }
+  // 詳細のカードがメニューに重ならないように、メニューの上端・下端を覚えておく
+  menuSpan = { top: Math.min(a.y, ...M.items.map((it) => it.y)), bottom: Math.max(a.y, ...M.items.map((it) => it.y + it.h)) };
+  el.className = `gmenu${sel.anim === 'menu' ? ' enter' : sel.anim === 'branch' ? ' benter' : ''}`;
+  el.innerHTML = `<svg class="gmlines" width="${box.w}" height="${box.h}" aria-hidden="true">${lines}<circle cx="${a.x.toFixed(1)}" cy="${a.y.toFixed(1)}" r="3.5"/></svg>${html}`;
+  sel.anim = null;
+  el.querySelectorAll('[data-mi]').forEach((b) => (b.onclick = () => menuAct(b.dataset.mi)));
+  el.querySelectorAll('[data-mb]').forEach((b) => (b.onclick = () => branchAct(b.dataset.mb)));
+}
+function menuAct(k) {
+  const g = G(), lc = learningNow();
+  if (k === 'detail') {
+    sel.detail = !sel.detail;
+    sel.branch = null;
+    drawMenu();
+    return drawDetail();
+  }
+  if (sel.kind === 'node') {
+    if (k === 'build' || k === 'line' || k === 'rm') {
+      if (k === 'rm') {
+        const r = Mn.removables(g, sel.id);
+        if (r.length === 1) return removeDialog(r[0].kind, r[0].id);
+      }
+      sel.branch = sel.branch === k ? null : k;
+      sel.anim = 'branch';
+      if (sel.branch) sel.detail = false;
+      drawMenu();
+      drawDetail();
+      if (sel.branch) tutEv(`branch:${k}`);
+      return;
+    }
+    if (k === 'inc') {
+      const i = Mn.incidentsAt(g, sel.id)[0];
+      if (!i) return;
+      sel = null;
+      return incidentScreen(i.id);
+    }
+  } else {
+    if (k === 'circ') return circuitDialog(sel.id);
+    if (k === 'rm') return removeDialog('line', sel.id);
+  }
+}
+function branchAct(b) {
+  const [kind, key, id] = b.split(':');
+  if (kind === 'rm') return removeDialog(key, id);
+  const st = typeStatus(learningNow(), kind, key);
+  if (!st.ok) return whySheet(kind, key, st);
+  enterBuild(kind, key, sel.id);
+}
+// まだ建てられない種類：理由と「この単元を解く」
+function whySheet(kind, key, st) {
+  const name = kind === 'plant' ? Gm.PLANTS[key].name : kind === 'line' ? Gm.LINES[key].name : '変圧器（変電所）';
+  sheet(`<h2>${A.esc(name)}は、まだ建てられません</h2>${whyHtml(st)}`, ({ onAll }) => onAll('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo)));
+}
+// 回線の増設：費用を見せてから（押してすぐコインを使わない）
+function circuitDialog(id) {
+  const g = G(), lc = learningNow();
+  const l = g.lines.find((x) => x.id === id);
+  if (!l) return;
+  const qc = Gm.quoteCircuit(g, lc, id);
+  sheet(
+    `<h2>回線を増やす</h2>
+    <p class="small">${A.esc(Gm.lineName(g, l))}（いま ${l.n}回線）に、同じルートでもう1回線。送れる量が増え、1回線が止まっても残りで送れる。</p>
+    ${qc.ok ? `<p class="gquote"><b>${A.num(qc.cost)} コイン</b>（残高 ${coinText(balance())}）</p><button class="btn primary gwide" data-ok>増設する</button>` : `<p class="warn small">${A.esc(qc.why)}</p>`}`,
+    ({ onAll }) => onAll('[data-ok]', 'click', () => pay(qc, `${Gm.LINES[l.kind].short}の回線の増設`, () => Gm.addCircuit(G(), learningNow(), id))),
+  );
+}
+// 詳細：今の地点・線のパネルの中身を、地図に重ねる半透明のカードで（地点と反対の側に）
+let detailAt = 0;
+let menuSpan = null;
+function drawDetail(keep = false) {
+  const el = document.querySelector('[data-detail]');
+  if (!el) return;
+  detailAt = Date.now();
+  if (!sel?.detail || B) {
+    el.classList.remove('open');
+    el.innerHTML = '';
+    return;
+  }
+  const g = G(), lc = learningNow();
+  const body = (sel.kind === 'node' ? nodePanel : linePanel)(g, lc, sel.id);
+  const top = keep ? el.scrollTop : 0;
+  el.innerHTML = `<div class="gphead"><h2>${body.title}</h2><button class="btn small" data-dclose>閉じる</button></div>${body.html}`;
+  el.classList.add('open');
+  const $ = (q) => el.querySelector(q);
+  const onAll = (q, ev, fn) => el.querySelectorAll(q).forEach((x) => x.addEventListener(ev, fn));
+  onAll('[data-dclose]', 'click', () => {
+    sel.detail = false;
+    drawMenu();
+    drawDetail();
+  });
+  onAll('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo));
+  body.bind?.({ $, onAll, g, lc });
+  const a = selAnchor();
+  placeCardAt(el, menuSpan ? [a, { y: menuSpan.top }, { y: menuSpan.bottom }] : [a]);
+  el.scrollTop = top;
 }
 
 // ---- 建設のパネル：発電所の種類・線の種類（電圧の階級ごと）・変圧器。まだ建てられない種類は灰色 ----
-const gateText = (keys) => `「${keys.map((k) => Gm.GATE_NAMES[k]).join('」「')}」の単元で、まだ1問も正解していない`;
-const eraFrom = (era, level) => `まだ先の時代の設備（${eraName(Math.min(era, Gm.ERAS.length))}${level ? `・Lv${level}` : ''}から）`;
-// 種類ごとの「建てられるか」（場所によらない条件：時代・学習の単元・設計図）
-function typeStatus(lc, kind, key) {
-  const D = kind === 'plant' ? Gm.PLANTS[key] : kind === 'line' ? Gm.LINES[key] : Gm.TR;
-  const st = Gm.eraStatus(lc, D.era, kind === 'line' ? D.level : 0);
-  if (st === 'no') return { ok: false, why: eraFrom(D.era, kind === 'line' ? D.level : 0) };
-  const miss = (D.gates || []).filter((k) => !lc.gate[k]);
-  if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
-  if (D.blueprint && !lc.blueprint[D.blueprint]) return { ok: false, why: `設計図「${Gm.BLUEPRINTS[D.blueprint].name}」がない（試験レベルに正解するか、関係する外部試験で満点の3割以上）`, blueprint: D.blueprint };
-  return { ok: true, proto: st === 'proto' };
-}
+// 種類ごとの「建てられるか」（場所によらない条件：時代・学習の単元・設計図）。1.5.2 から gridmenu.js
+const typeStatus = Mn.typeStatus;
 function buildPanel(g, lc) {
   const from = buildFor?.site || buildFor?.from;
   const item = (kind, key, name, sub, picKey) => {
@@ -559,10 +749,13 @@ function enterBuild(kind, key, preset = null) {
   else B = { kind: 'sub', town: null, mva: Gm.SUB_SIZES[0] };
   buildFor = null;
   panel = null;
+  sel = null;
   const c = candidates(g, lc);
   if (preset && c.get(preset)) pick(preset);
-  else if (preset) A.toast(kind === 'line' ? 'この地点から引ける相手がありません' : 'この地点には建てられません');
+  else if (preset) A.toast(whyNot(g, lc, preset));
+  if (tutOn() && B.kind === 'plant' && B.type === 'dcCoal' && B.site) B.size = 50; // チュートリアル：港町にも送れる大きさ
   screen();
+  tutEv(`bmode:${kind}`);
 }
 function exitBuild() {
   B = null;
@@ -622,6 +815,7 @@ function buildTap(id) {
   else if (c === 'sel') return;
   else return A.toast(whyNot(g, lc, id));
   refreshBuild();
+  if (B.kind === 'line' && B.to) tutEv('line:to');
 }
 // 光っていない地点を押したときの理由
 function whyNot(g, lc, id) {
@@ -669,7 +863,7 @@ function drawBuildCard() {
   el.classList.toggle('open', !!ready);
   if (!ready) {
     el.innerHTML = '';
-    return fitMap();
+    return;
   }
   let h = '';
   let q = null, what = '', doBuild = null;
@@ -719,12 +913,36 @@ function drawBuildCard() {
   });
   on('[data-hz]', 'click', () => hzDialog(drawBuildCard));
   on('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo));
-  on('[data-bgo]', 'click', () => pay(q, what, doBuild, () => (B = null)));
-  fitMap();
+  on('[data-bgo]', 'click', () => pay(q, what, doBuild, () => (B = null), B.kind));
+  placeCard(el, B.kind === 'line' ? [B.from, B.to] : [B.site || B.town]);
+}
+// カードを、選んだ地点と反対の側（上か下）に出す。地点が隠れないように高さも抑える
+function placeCard(el, ids) {
+  placeCardAt(el, ids.filter(Boolean).map((id) => nodeBox(Gm.nodeOf(G(), id))));
+}
+function placeCardAt(el, pts) {
+  const mid = document.querySelector('[data-mid]');
+  if (!el || !mid || !pts.length) return;
+  const H = mid.clientHeight;
+  const side = Mn.cardSide(pts.map((p) => p.y), H);
+  const bar = B ? document.querySelector('[data-bbar]') : null;
+  const top = bar ? bar.offsetTop + bar.offsetHeight + 8 : 8;
+  el.classList.toggle('top', side === 'top');
+  if (side === 'top') {
+    const room = Math.min(...pts.map((p) => p.y)) - 30 - top;
+    el.style.top = `${top}px`;
+    el.style.bottom = 'auto';
+    el.style.maxHeight = `${Math.round(Math.max(150, Math.min(H * 0.64, room)))}px`;
+  } else {
+    const room = H - Math.max(...pts.map((p) => p.y)) - 34 - 8;
+    el.style.top = 'auto';
+    el.style.bottom = '8px';
+    el.style.maxHeight = `${Math.round(Math.max(150, Math.min(H * 0.64, room)))}px`;
+  }
 }
 
 // 建設の確認：コインが足りるかを見て、建て、台帳に書く
-async function pay(q, what, doBuild, after) {
+async function pay(q, what, doBuild, after, kind = null) {
   if (balance() < q.cost) return A.toast(`コインが足りません（あと ${A.num(q.cost - balance())}）`);
   const r = doBuild();
   if (!r.ok) return A.toast(r.why);
@@ -735,6 +953,7 @@ async function pay(q, what, doBuild, after) {
   await save();
   document.querySelector('.modal.gsheet')?.remove();
   await screen();
+  if (kind) tutEv(`built:${kind}`);
 }
 
 // ---- モーダルのシート（確認・選択が要るもの：周波数・撤去・進相コンデンサ・新しい島・経営再建・開発者モード） ----
@@ -777,23 +996,12 @@ function nodePanel(g, lc, id) {
       <h3>変電所</h3>${subs.length ? subs.map((x) => `<p class="spread grow"><span>変圧器 ${x.mva} MVA ・ ${stateOf(x, t) || `使用率 ${pct(g.last?.subs[id] || 0)}`}</span><button class="btn small" data-rm="sub:${x.id}">撤去</button></p>`).join('') : '<p class="small">なし（11 kV 以上の送電線をつなぐには変電所が要る）</p>'}`;
   }
   h += `<h3>発電所</h3>${plants.length ? plants.map((p) => `<p class="spread grow"><span>${Gm.PLANTS[p.type].short} ${kw(p.kw)}${p.proto ? '（試作）' : ''} ・ ${plantState(g, p)}</span><button class="btn small" data-rm="plant:${p.id}">撤去</button></p>`).join('') : '<p class="small">なし</p>'}
-    <div class="gbtns2">
-      <button class="btn" data-bplant>発電所を建てる</button>
-      <button class="btn" data-bline>ここから線を引く</button>
-      ${n.town ? '<button class="btn" data-bsub>変圧器を置く</button>' : ''}
-    </div>`;
+`;
   return {
     title: `${A.esc(n.name)}${n.town && n.era > g.era ? ' <span class="tag">まだ先の時代の町</span>' : ''}`,
     html: h,
     bind: ({ onAll }) => {
       onAll('[data-golist]', 'click', () => setPanel('list'));
-      onAll('[data-bplant]', 'click', () => ((buildFor = { site: id }), setPanel('build')));
-      onAll('[data-bline]', 'click', () => ((buildFor = { from: id }), setPanel('build')));
-      onAll('[data-bsub]', 'click', () => {
-        const s = typeStatus(learningNow(), 'sub', 'tr');
-        if (!s.ok) return sheet(`<h2>変圧器はまだ置けません</h2>${whyHtml(s)}`, ({ onAll: on2 }) => on2('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo)));
-        enterBuild('sub', 'tr', id);
-      });
       onAll('[data-cap]', 'click', (e) => capDialog(e.currentTarget.dataset.cap));
       onAll('[data-rm]', 'click', (e) => removeDialog(...e.currentTarget.dataset.rm.split(':')));
     },
@@ -849,7 +1057,7 @@ function removeDialog(kind, id) {
         Gm.removeAsset(g, kind, id);
         await save();
         close();
-        if (kind === 'line' && panel === `line:${id}`) panel = null;
+        if (sel?.id === id) sel = null;
         screen();
       }),
   );
@@ -872,11 +1080,11 @@ function linePanel(g, lc, id) {
     <p class="small">危険：${hazardText(l.hazards)} ・ 対策：${optNames.length ? optNames.join('・') : 'なし'} ・ 故障の目安 1日あたり ${(hz.perDay * 100).toFixed(2)}%</p>
     <p class="small">送れる量を超えて 120% までは温度が上がるだけ（故障しやすくなる）。120% を2時間超えると保護装置で切れる。</p>
     <div class="gbtns2">
-      <button class="btn" data-circ ${qc.ok ? '' : 'disabled'}>回線を増やす<small>${qc.ok ? `${A.num(qc.cost)} コイン` : A.esc(qc.why)}</small></button>
+      <button class="btn" data-circ>回線を増やす<small>${qc.ok ? `${A.num(qc.cost)} コイン` : A.esc(qc.why)}</small></button>
       <button class="btn" data-rm>撤去</button>
     </div>`,
     bind: ({ onAll }) => {
-      onAll('[data-circ]', 'click', () => pay(qc, `${K.short}の回線の増設`, () => Gm.addCircuit(G(), learningNow(), id)));
+      onAll('[data-circ]', 'click', () => circuitDialog(id));
       onAll('[data-rm]', 'click', () => removeDialog('line', id));
     },
   };
@@ -1051,8 +1259,8 @@ function listPanel(g, lc) {
         drawPanel(true);
         live();
       });
-      onAll('[data-gonode]', 'click', (e) => setPanel(`node:${e.currentTarget.dataset.gonode}`));
-      onAll('[data-goline]', 'click', (e) => setPanel(`line:${e.currentTarget.dataset.goline}`));
+      onAll('[data-gonode]', 'click', (e) => (setPanel(null), openSel('node', e.currentTarget.dataset.gonode, true)));
+      onAll('[data-goline]', 'click', (e) => (setPanel(null), openSel('line', e.currentTarget.dataset.goline, true)));
     },
   };
 }

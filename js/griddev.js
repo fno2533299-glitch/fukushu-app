@@ -183,18 +183,20 @@ export function triggerEvent(G, lc, key) {
 }
 
 // ---- 書き込み先（本番／開発者モード）。画面からの書き込みはすべてここを通す ----
-// db：putKV・saveAnswer・put を持つもの。S：アプリの状態（S.grid・S.gacha・S.logs など）。dev：{ on, state }
+// db：putKV・saveAnswer・put を持つもの。S：アプリの状態（S.grid・S.gacha・S.logs など）。dev：{ on, state, key }
+// key：別の系統を保存する kv の名前（開発者モード「gridDev」、1.5.2 のチュートリアルの練習の島「gridTutorial」）
 export function makeStore(db, S, dev) {
+  const key = () => dev.key || DEV_KEY;
   return {
     grid: () => (dev.on ? dev.state.grid : S.grid),
     setGrid: (g) => (dev.on ? (dev.state.grid = g) : (S.grid = g)),
-    save: () => (dev.on ? db.putKV(DEV_KEY, dev.state) : db.putKV('grid', S.grid)),
+    save: () => (dev.on ? db.putKV(key(), dev.state) : db.putKV('grid', S.grid)),
     // コインの残高。開発者モードでは本番のコインを使わない
     balance: (real) => (!dev.on ? real : dev.state.opts.coins === 'unlimited' ? Infinity : dev.state.opts.devCoins),
     async spend(coins, what, entry) {
       if (dev.on) {
         if (dev.state.opts.coins !== 'unlimited') dev.state.opts.devCoins = Math.max(0, dev.state.opts.devCoins - coins);
-        return db.putKV(DEV_KEY, dev.state);
+        return db.putKV(key(), dev.state);
       }
       S.gacha.push({ ...entry, kind: 'grid', cardId: null, paid: 'coin', coins, what });
       return db.putKV('gachaLog', S.gacha);

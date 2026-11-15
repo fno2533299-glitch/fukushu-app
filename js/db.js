@@ -88,6 +88,14 @@ export async function putKV(key, value) {
   return done(tx);
 }
 
+// 1.5.2：チュートリアルの練習の島（kv「gridTutorial」）を、終わったら消す
+export async function delKV(key) {
+  const db = await open();
+  const tx = db.transaction('kv', 'readwrite');
+  tx.objectStore('kv').delete(key);
+  return done(tx);
+}
+
 export async function put(store, value) {
   const db = await open();
   const tx = db.transaction(store, 'readwrite');
