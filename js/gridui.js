@@ -217,8 +217,11 @@ function gridState(g) {
 function hudHtml(g) {
   const l = g.last;
   const st = gridState(g);
-  return `<span class="hr"><span class="hcell grow1">${eraName(g.era)} ${timeShort(g)}</span><span class="hcell">コイン <b>${coinText(balance())}</b></span></span>
-    <span class="hr"><span class="hcell">収益 <b class="${g.yen < 0 ? 'gneg' : ''}">${yenShort(g.yen)}</b></span><span class="hcell grow1">需要 <b>${kw(l?.demand || 0)}</b> 届 <b>${kw(l?.served || 0)}</b></span>${g.hz ? `<span class="hcell">${(g.hz + (l?.x || 0)).toFixed(2)}Hz</span>` : ''}<span class="hstate ${st.cls}">${st.text}</span></span>`;
+  // 需要と届いた量：単位がそろうときは1つにまとめる（例：需要 18.0／届 15.2 MW）
+  const [dv, du] = kw(l?.demand || 0).split(' '), [sv, su] = kw(l?.served || 0).split(' ');
+  const ds = du === su ? `需要 <b>${dv}</b>／届 <b>${sv}</b> ${du}` : `需要 <b>${dv}</b> ${du}／届 <b>${sv}</b> ${su}`;
+  return `<span class="hr"><span class="hcell grow1">${eraName(g.era)} ${timeShort(g)}</span><span class="hstate ${st.cls}">${st.text}</span></span>
+    <span class="hr"><span class="hcell"><i class="hcoin" aria-label="コイン"></i><b>${coinText(balance())}</b></span><span class="hcell">収益 <b class="${g.yen < 0 ? 'gneg' : ''}">${yenShort(g.yen)}</b></span><span class="hcell grow1">${ds}</span>${g.hz ? `<span class="hcell">${(g.hz + (l?.x || 0)).toFixed(2)}Hz</span>` : ''}</span>`;
 }
 
 // ---- 下のボタン5つ ----
