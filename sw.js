@@ -1,6 +1,6 @@
 // オフライン用：アプリ本体をすべて端末に保存し、以後は保存したものから表示する
 // アプリを更新したら CACHE の番号を上げる（index.html の APP_VERSION も合わせる）
-const CACHE = 'fukushu-1.5.1';
+const CACHE = 'fukushu-1.5.2';
 const FILES = [
   './',
   './index.html',
@@ -12,8 +12,31 @@ const FILES = [
   './js/grid.js',
   './js/gridui.js',
   './js/griddev.js',
+  './js/gridmenu.js',
   './js/gridimg.js',
   // GRID_IMAGES_BEGIN（ツール/系統画像/make_grid_images.py が書き換える）
+  './img/grid/G01.webp',
+  './img/grid/G02.webp',
+  './img/grid/G03.webp',
+  './img/grid/G04.webp',
+  './img/grid/G05.webp',
+  './img/grid/G06.webp',
+  './img/grid/G07.webp',
+  './img/grid/G08.webp',
+  './img/grid/G09.webp',
+  './img/grid/G10.webp',
+  './img/grid/G11.webp',
+  './img/grid/G12.webp',
+  './img/grid/G13.webp',
+  './img/grid/G14.webp',
+  './img/grid/G15.webp',
+  './img/grid/G16.webp',
+  './img/grid/G17.webp',
+  './img/grid/G18.webp',
+  './img/grid/G19.webp',
+  './img/grid/G20.webp',
+  './img/grid/G21.webp',
+  './img/grid/G22.webp',
   // GRID_IMAGES_END
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -44,7 +67,8 @@ const FILES = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  // 1.5.2：ブラウザの HTTP キャッシュに残った古いファイルを入れないよう、ネットワークから取り直す
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

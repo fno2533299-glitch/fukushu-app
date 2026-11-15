@@ -774,3 +774,8 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gact { z-index: 75; }
 .gcoinfx { z-index: 76; }
 @media (prefers-reduced-motion: reduce) { .gtring { animation: none; } }
+
+/* ---- 1.5.2 絵：上の帯の背景に時代の絵を薄く ---- */
+.gbar.hasimg { position: relative; isolation: isolate; }
+.gbar.hasimg::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--eraimg) center 40% / cover no-repeat; opacity: .16; pointer-events: none; }
+@media (prefers-color-scheme: dark) { .gbar.hasimg::before { opacity: .28; } }

@@ -124,6 +124,11 @@ const PH = {
   light: '<circle cx="24" cy="18" r="8" fill="currentColor" opacity=".7"/><path d="M24 4v4M24 28v4M10 18h4M34 18h4M14 8l3 3M34 8l-3 3" stroke="currentColor" stroke-width="2"/>',
 };
 const PH_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'coal', ror: 'hydro', pond: 'hydro', sub: 'sub', line: 'line', era1: 'town', era2: 'town', era3: 'town', era4: 'town', heat: 'light', cold: 'storm', typhoon: 'storm', snowstorm: 'storm', coalSpike: 'coal', priceWar: 'town', drought: 'hydro', blackout: 'dark', recover: 'light', rebuild: 'town', island: 'hydro' };
+// 上の帯の背景に、時代の絵を薄く（絵がないときは出さない）
+const eraImg = (g) => {
+  const src = GRID_IMAGES[PIC[`era${g.era}`]];
+  return src ? `--eraimg:url('${src}')` : '';
+};
 function pic(key, cls = '') {
   const src = GRID_IMAGES[PIC[key]];
   if (src) return `<span class="gpic ${cls}"><img src="${src}" alt=""></span>`;
@@ -165,7 +170,7 @@ export async function screen(p, entering = false) {
   const g = G();
   A.show(
     `<div class="gscreen${B ? ' building' : ''}">
-      <header class="gbar"><button class="back" data-back>‹ ホーム</button><button class="ghud" data-hud aria-label="需給を開く">${hudHtml(g)}</button></header>
+      <header class="gbar${eraImg(g) ? ' hasimg' : ''}" style="${eraImg(g)}"><button class="back" data-back>‹ ホーム</button><button class="ghud" data-hud aria-label="需給を開く">${hudHtml(g)}</button></header>
       ${devBand()}
       ${g.rebuild ? '<button class="btn primary gwide gwarn grebuild" data-rebuild>経営再建：手放すか、借入れを選ぶ</button>' : ''}
       <div class="gmid" data-mid>
