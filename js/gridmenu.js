@@ -265,8 +265,8 @@ export const TUTORIAL = [
   { id: 'flow', target: '[data-line]', before: 'toEvening', text: '港町にも電気が届きました。黄色い点線は電気の流れる向きで、線が混むほど速く流れます。', next: true },
   { id: 'inc1', target: '[data-dockp="list"]', before: 'raiseInc', need: 'incident', text: '事故が起きました（赤い印）。「一覧」を押します。', on: 'panel:list' },
   { id: 'inc2', target: '[data-inc]', need: 'incident', text: '「対処を選ぶ」を押します。', on: 'inc:open' },
-  { id: 'inc3', target: '.choices', need: 'incidentScreen', text: '4つから対処を選びます。正しいと被害が小さく、誤ると大きくなります（練習なので回答記録には残りません）。', on: 'inc:answer' },
-  { id: 'inc4', target: '[data-next]', need: 'incidentScreen', text: '解説を読んだら、系統に戻ります。', on: 'inc:back' },
+  { id: 'inc3', target: '.choices', need: 'incident', text: '4つから対処を選びます。正しいと被害が小さく、誤ると大きくなります（練習なので回答記録には残りません）。', on: 'inc:answer' },
+  { id: 'inc4', target: '[data-next]', need: 'incident', text: '解説を読んだら、系統に戻ります。', on: 'inc:back' },
   { id: 'run', target: '[data-dockp="run"]', text: '運転：給電の優先順位・予備力の目標・点検・燃料の買い方を決めます。毎時の出力の配分は自動です。', next: true },
   { id: 'supply', target: '[data-dockp="supply"]', text: '需給：需要と発電のグラフ、周波数、需要の上限（レベルと定着で広がる）。', next: true },
   { id: 'manage', target: '[data-dockp="manage"]', text: '経営：収益の推移、時代と学習、新しい島。このチュートリアルも、ここからもう一度見られます。', next: true },
@@ -274,3 +274,33 @@ export const TUTORIAL = [
   { id: 'gate2', target: '.gbitem.locked', text: '灰色の種類は、関係する単元で1問正解すると建てられます。押すと理由と「この単元を解く」が出ます（練習の島では、直流のほかは解いていない扱い）。', next: true },
   { id: 'end', text: '練習はここまでです。本番の系統に戻ります。電気が届くと収益が入り、解くほど建てられる設備と需要が広がります。', next: '本番の系統へ', after: 'finish' },
 ];
+
+// 手順の前後にすること（練習の島の系統だけを動かす。規則は変えず、時間をとばすだけ）。
+// 戻り値：{ ok, inc }。advance(n)：n 刻み進める関数（画面側で Dv.advance を渡す）
+export function tutorialAction(g, lc, name, advance) {
+  if (name === 'skipWork') {
+    // 工事が終わるまで進める（最大 14 日）
+    let k = 0;
+    while (underWork(g).size && k < 24 * 14) advance(1), k++;
+    return { ok: true, steps: k };
+  }
+  if (name === 'toEvening') {
+    // 次の 19 時（電灯の多い時間）まで進める
+    let k = 0;
+    do advance(1), k++;
+    while (g.t % 24 !== 19 && k < 48);
+    return { ok: true, steps: k };
+  }
+  if (name === 'spawnApp') {
+    // 港町から電灯の申し込み（10 kW）
+    const app = { id: `A${g.nextId++}`, town: 'T2', type: 'lamp', kw: 10, at: g.t };
+    g.apps.push(app);
+    return { ok: true, app };
+  }
+  if (name === 'raiseInc') {
+    g.cool.dcDrop = 0;
+    const inc = Gm.raise(g, lc, 'dcDrop', { town: 'T2', what: '港町から「電灯が暗い」という苦情が来た。', cool: 1 });
+    return { ok: !!inc, inc };
+  }
+  return { ok: true };
+}

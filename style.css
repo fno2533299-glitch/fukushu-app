@@ -756,3 +756,21 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
   .gmap .gwait { animation: none; opacity: var(--o, 1); }
 }
 @keyframes gcoinfade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ---- 1.5.2 チュートリアル：押す場所だけを明るくし（ほかは暗くして押せなくする）、近くに吹き出し ---- */
+.gtut { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
+.gtsh { position: fixed; background: rgba(0, 0, 0, .58); pointer-events: auto; }
+.gtring { position: fixed; border-radius: 12px; border: 2.5px solid #ffd21f; box-shadow: 0 0 0 4px rgba(255, 210, 31, .3); pointer-events: none; animation: gtring 1.4s ease-in-out infinite; }
+@keyframes gtring { 50% { box-shadow: 0 0 0 9px rgba(255, 210, 31, .12); } }
+.gtbub { position: fixed; width: min(330px, calc(100vw - 24px)); pointer-events: auto; background: var(--card); color: var(--text); border-radius: 14px; padding: 12px 14px 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .35); font-size: 0.92rem; line-height: 1.65; }
+.gtbub p { margin: 0 0 6px; }
+.gtbtns { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gtbtns .btn { margin: 0; min-height: 44px; }
+.gtbtns .btn[hidden] { display: none; }
+.gtno { flex: 1; text-align: center; font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.gtq { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; }
+.gtq p { margin: 0 0 6px; }
+.gdevband.gtutband { background: #1f6f4a; }
+.gact { z-index: 75; }
+.gcoinfx { z-index: 76; }
+@media (prefers-reduced-motion: reduce) { .gtring { animation: none; } }

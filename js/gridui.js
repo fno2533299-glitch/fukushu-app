@@ -9,9 +9,9 @@ import * as Mn from './gridmenu.js';
 import { GRID_IMAGES } from './gridimg.js';
 
 let A = null; // app.js から渡される部品（S・db・show・on・esc・toast など）
-// チュートリアル（区切り3で中身を入れる）
-const tutOn = () => false;
-function tutEv() {}
+// チュートリアル（1.5.2）：練習の島（kv「gridTutorial」）で動かす。DEV と同じ仕組み（tut: true）
+const tutOn = () => DEV.on && DEV.tut;
+const devMode = () => DEV.on && !DEV.tut;
 let lcCache = null;
 let summary = null; // 開いたときのまとめ（閉じるまでパネルに出す）
 let gridSession = null; // 事故の問題の回答をまとめるセッション（mode「系統」）
@@ -22,7 +22,8 @@ let whyOpen = null; // 建設のパネルで、理由を開いている種類
 // 1.5.2 地点のメニュー：{ kind: 'node'|'line', id, branch: null|'build'|'line'|'rm', detail: false, anim: 'menu'|'branch'|null }
 let sel = null;
 // 開発者モード（1.5.1）：本番とは別の系統（kv「gridDev」）。入っているかどうかは保存しない（開き直すと本番に戻る）
-const DEV = { on: false, state: null, taps: 0, tapAt: 0, savedAt: 0, running: false };
+// 1.5.2：チュートリアルの練習の島も同じ仕組みで動かす（tut: true、key: 'gridTutorial'）
+const DEV = { on: false, tut: false, key: Dv.DEV_KEY, state: null, taps: 0, tapAt: 0, savedAt: 0, running: false };
 let store = null;
 
 export function init(api) {
@@ -60,7 +61,8 @@ function learningReal() {
 }
 // いま出している系統の学習の状況（開発者モードでは差し替える）
 export function learningNow() {
-  return DEV.on ? Dv.devLearning(learningReal(), DEV.state.opts) : learningReal();
+  if (!DEV.on) return learningReal();
+  return DEV.tut ? Mn.tutorialLearning(learningReal()) : Dv.devLearning(learningReal(), DEV.state.opts);
 }
 
 // 現実の時刻まで本番の系統を進めて保存する（開発者モードの間も、本番の系統は現実の時刻で回る）。戻り値：進めた刻みの数
@@ -198,6 +200,8 @@ export async function screen(p, entering = false) {
       drawMenu();
       drawDetail();
       effects(g);
+      tutPlace();
+      if (entering) offerTutorial();
     },
   );
 }
@@ -1285,7 +1289,7 @@ function supplyPanel(g, lc) {
       ${l ? `<p class="small">いま：需要 ${kw(l.demand)} ・ 届いた ${kw(l.served)} ・ 損失 ${kw(l.loss)}${g.hz ? ` ・ 周波数 ${(g.hz + l.x).toFixed(2)} Hz` : ''} ・ ${gridState(g).text}</p>` : ''}
       <h3>需要と電源（直近 ${hs.length}時間）</h3>
       ${chart}
-      ${DEV.on ? devSupplyHtml(g, lc) : ''}
+      ${devMode() ? devSupplyHtml(g, lc) : ''}
       <h3>いまの系統</h3>
       <p class="spread grow"><span>需要の上限（学習で決まる）</span><b>${kw(o.dmax)}</b></p>
       <p class="small">Lv ${lc.level} ・ 定着 ${lc.mastered}問。お金では増えない。レベルと定着で広がる</p>
@@ -1407,11 +1411,13 @@ function managePanel(g, lc) {
       <p class="small">いつでも、明治の小さな島からやり直せます。時代（レベル）・設計図・性能の上乗せは引き継ぎ、この島の記録は残ります。この島の設備と収益はなくなり、使ったコインは戻りません。</p>
       <button class="btn" data-newisland>新しい島を選ぶ</button>
       <h3>そのほか</h3>
+      ${DEV.tut ? '' : '<button class="btn gwide" data-tutagain>チュートリアルをもう一度</button>'}
       <p class="small">テーマ（シンプル／演出あり）は、ホームの「出題対象の設定」で変えられます。演出ありでは、建設・時代が進んだとき・全域停電からの復旧に音と光が付きます。</p>
       ${versionHtml()}`,
     bind: ({ onAll }) => {
       onAll('[data-rebuild2]', 'click', rebuildDialog);
       onAll('[data-newisland]', 'click', islandDialog);
+      onAll('[data-tutagain]', 'click', startTutorial);
       bindVersion(onAll);
     },
   };
@@ -1445,6 +1451,7 @@ function incidentScreen(id) {
       });
     },
   );
+  tutEv('inc:open');
 }
 
 async function answerIncident(inc, q, order, choiceId) {
@@ -1471,7 +1478,7 @@ async function answerIncident(inc, q, order, choiceId) {
     `<header class="top"><h1>事故の対処</h1></header>
     ${devBand()}
     <div class="verdict ${correct ? 'ok' : 'ng'}">${correct ? '正しく対処した' : '対処を誤った'}</div>
-    <section class="card geffect"><p>${A.esc(text || '')}</p>${DEV.on ? '<p class="small">開発者モード：回答記録には残りません</p>' : correct ? '<p class="small">コイン +100（同じ問題は1日1回まで）</p>' : ''}</section>
+    <section class="card geffect"><p>${A.esc(text || '')}</p>${DEV.on ? `<p class="small">${DEV.tut ? '練習の島' : '開発者モード'}：回答記録には残りません</p>` : correct ? '<p class="small">コイン +100（同じ問題は1日1回まで）</p>' : ''}</section>
     <div class="choices done">
       ${order.map((c, i) => `<div class="choice ${c.choiceId === q.correctChoiceId ? `correct${correct ? ' flash' : ''}` : c.choiceId === choiceId ? 'wrong' : ''}"><span class="mark">${'ABCD'[i]}</span><span>${A.rich(c.text)}</span></div>`).join('')}
     </div>
@@ -1558,12 +1565,214 @@ function rebuildDialog() {
   );
 }
 
+// ---- 1.5.2 チュートリアル：案内の文字だけ。押す場所だけを明るくし（スポットライト）、近くに吹き出し ----
+// 手順は gridmenu.js の TUTORIAL（対象・文・進む条件の配列）。練習の島は本番とは別の系統（kv「gridTutorial」）で、
+// 本番の kv「grid」・回答記録・コイン（gachaLog）・称号などには書かない（書き込みはすべて makeStore を通る）。終わったら消す
+const T = { i: 0, hasInc: false, offered: false, until: 0, raf: 0, scrolled: -1 };
+async function offerTutorial() {
+  if (DEV.on || T.offered) return;
+  T.offered = true;
+  A.db.delKV(Mn.TUT_KEY); // 途中で閉じたときの練習の島が残っていれば消す
+  if (await A.db.getKV(Mn.TUT_SEEN)) return;
+  await A.db.putKV(Mn.TUT_SEEN, new Date().toISOString());
+  if (Mn.isFreshGrid(A.S.grid)) return startTutorial(); // 動く系統を初めて開いたとき
+  // すでに本番の系統がある人には1回だけ聞く
+  sheet(
+    `<h2>チュートリアル</h2>
+    <p>動く系統の動かし方を、練習の島でひととおり試せます（5分ほど）。本番の系統・コイン・記録は変わりません。</p>
+    <div class="gbtns2"><button class="btn" data-later>あとで</button><button class="btn primary" data-tutgo>チュートリアルを見る</button></div>
+    <p class="small">あとからでも、経営のパネルの「チュートリアルをもう一度」で見られます。</p>`,
+    ({ onAll, close }) => {
+      onAll('[data-later]', 'click', close);
+      onAll('[data-tutgo]', 'click', () => (close(), startTutorial()));
+    },
+  );
+}
+async function startTutorial() {
+  if (DEV.running) return;
+  if (DEV.on && !DEV.tut) {
+    await save(); // 開発者モードからは、開発者の系統を保存してから
+    DEV.on = false;
+  }
+  document.querySelector('.modal.gsheet')?.remove();
+  DEV.state = Mn.tutorialState(Date.now());
+  DEV.key = Mn.TUT_KEY;
+  DEV.tut = true;
+  DEV.on = true;
+  summary = null;
+  B = null;
+  sel = null;
+  panel = null;
+  Gm.applyLearning(G(), learningNow());
+  delete G().eraUp;
+  T.hasInc = false;
+  await save();
+  await A.db.putKV(Mn.TUT_SEEN, new Date().toISOString());
+  await screen(null);
+  tutGo(0);
+}
+async function endTutorial() {
+  if (!DEV.tut) return;
+  DEV.on = false;
+  DEV.tut = false;
+  DEV.key = Dv.DEV_KEY;
+  DEV.state = DEV.devState || null;
+  document.querySelector('.gtut')?.remove();
+  document.querySelector('.modal.gsheet')?.remove();
+  await A.db.delKV(Mn.TUT_KEY);
+  summary = null;
+  B = null;
+  sel = null;
+  panel = null;
+  await sync();
+  await screen(null);
+  band('チュートリアルを終えて、本番の系統に戻った');
+}
+// 手順の前後にすること（練習の島の時間をとばす・申し込み・事故）
+async function tutAction(name) {
+  if (name === 'finish') return endTutorial();
+  const g = G(), lc = learningNow();
+  if (name === 'toEvening' && panel) setPanel(null);
+  const before = Mn.underWork(g);
+  const r = Mn.tutorialAction(g, lc, name, (n) => Dv.advance(g, lc, n, DEV.state.money));
+  if (name === 'raiseInc') T.hasInc = r.ok;
+  await save();
+  if (onGrid()) {
+    if (name === 'spawnApp' || name === 'raiseInc') live();
+    else await screen();
+    announceDone(g, before);
+  }
+}
+async function tutGo(i) {
+  if (!tutOn()) return;
+  T.i = i;
+  T.scrolled = -1;
+  const st = Mn.TUTORIAL[i];
+  if (!st) return endTutorial();
+  if (st.need === 'incident' && st.before !== 'raiseInc' && !T.hasInc) return tutGo(i + 1);
+  if (st.before) await tutAction(st.before);
+  if (st.need === 'incident' && !T.hasInc) return tutGo(i + 1);
+  DEV.state.step = i;
+  tutDraw();
+}
+// 画面から知らせる出来事（menu:T1・branch:build・bmode:plant・built:plant・line:to・panel:list・app:accept・inc:open など）
+function tutEv(name) {
+  if (!tutOn()) return;
+  const st = Mn.TUTORIAL[T.i];
+  if (st?.on === name) setTimeout(() => tutGo(T.i + 1), 60);
+}
+function tutDraw() {
+  const st = Mn.TUTORIAL[T.i];
+  let el = document.querySelector('.gtut');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'gtut';
+    document.body.append(el);
+  }
+  const nextLabel = st.next ? (typeof st.next === 'string' ? st.next : '次へ') : '';
+  el.innerHTML = `<div class="gtsh" data-sh="t"></div><div class="gtsh" data-sh="b"></div><div class="gtsh" data-sh="l"></div><div class="gtsh" data-sh="r"></div><div class="gtring" hidden></div>
+    <div class="gtbub" role="dialog" aria-live="polite"><p>${A.esc(st.text)}</p>
+      <div class="gtbtns"><button class="btn small" data-tskip>${st.after === 'finish' ? '' : 'とばす'}</button><span class="gtno">${T.i + 1} / ${Mn.TUTORIAL.length}</span>${nextLabel ? `<button class="btn primary small" data-tnext>${A.esc(nextLabel)}</button>` : '<span class="gtwait" data-twait hidden></span>'}</div></div>`;
+  el.querySelector('[data-tskip]').onclick = () => (st.after === 'finish' ? null : tutSkipDialog());
+  if (st.after === 'finish') el.querySelector('[data-tskip]').hidden = true;
+  const nx = el.querySelector('[data-tnext]');
+  if (nx)
+    nx.onclick = async () => {
+      nx.disabled = true;
+      if (st.after) await tutAction(st.after);
+      if (st.after !== 'finish') tutGo(T.i + 1);
+    };
+  T.until = Date.now() + 1200;
+  tutPlace();
+}
+function tutSkipDialog() {
+  const el = document.querySelector('.gtbub');
+  if (!el || el.querySelector('[data-tquit]')) return;
+  const box = document.createElement('div');
+  box.className = 'gtq';
+  box.innerHTML = '<p class="small">チュートリアルをやめて、本番の系統に戻りますか。</p><div class="gtbtns"><button class="btn small" data-tstay>続ける</button><button class="btn small primary" data-tquit>やめる</button></div>';
+  el.append(box);
+  box.querySelector('[data-tstay]').onclick = () => box.remove();
+  box.querySelector('[data-tquit]').onclick = endTutorial;
+}
+// スポットライトの位置：対象のまわりだけ穴をあけ、ほかは暗くして押せなくする。吹き出しは対象の上か下
+function tutPlace() {
+  const el = document.querySelector('.gtut');
+  if (!el || !tutOn()) return;
+  const st = Mn.TUTORIAL[T.i];
+  if (!st) return;
+  const W = window.innerWidth, H = window.innerHeight;
+  let tgt = st.target ? document.querySelector(st.target) : null;
+  if (tgt && T.scrolled !== T.i) {
+    T.scrolled = T.i;
+    if (tgt.closest('.gpin, .gdetail, .gbcard') || !tgt.closest('.gscreen')) tgt.scrollIntoView?.({ block: 'nearest' });
+  }
+  let r = tgt?.getBoundingClientRect();
+  if (r && (r.width < 1 || r.height < 1 || r.bottom < 0 || r.top > H)) r = null;
+  const R = Math.round;
+  const sh = (k, x, y, w, h) => Object.assign(el.querySelector(`[data-sh="${k}"]`).style, { left: `${R(x)}px`, top: `${R(y)}px`, width: `${Math.max(0, R(x + w) - R(x))}px`, height: `${Math.max(0, R(y + h) - R(y))}px` });
+  const ring = el.querySelector('.gtring');
+  const bub = el.querySelector('.gtbub');
+  const wait = el.querySelector('[data-twait]');
+  if (!r) {
+    // 対象がない（説明だけ・まだ出ていない）：全体を暗くして、吹き出しを真ん中に
+    sh('t', 0, 0, W, H);
+    sh('b', 0, 0, 0, 0);
+    sh('l', 0, 0, 0, 0);
+    sh('r', 0, 0, 0, 0);
+    ring.hidden = true;
+    bub.style.left = `${Math.round((W - bub.offsetWidth) / 2)}px`;
+    bub.style.top = `${Math.round((H - bub.offsetHeight) / 2)}px`;
+    bub.style.bottom = 'auto';
+    // 押す場所が見つからないまま 1.5 秒たったら、「次へ」で進めるようにする（止まらないように）
+    if (st.target && wait && !el.querySelector('[data-tnext]')) {
+      clearTimeout(T.lost);
+      T.lost = setTimeout(() => {
+        if (Mn.TUTORIAL[T.i] !== st || document.querySelector(st.target)) return;
+        wait.outerHTML = '<button class="btn primary small" data-tnext>次へ</button>';
+        el.querySelector('[data-tnext]').onclick = () => tutGo(T.i + 1);
+      }, 1500);
+    }
+  } else {
+    const pad = 6;
+    const x0 = Math.max(0, r.left - pad), y0 = Math.max(0, r.top - pad), x1 = Math.min(W, r.right + pad), y1 = Math.min(H, r.bottom + pad);
+    sh('t', 0, 0, W, y0);
+    sh('b', 0, y1, W, H - y1);
+    sh('l', 0, y0, x0, y1 - y0);
+    sh('r', x1, y0, W - x1, y1 - y0);
+    ring.hidden = false;
+    Object.assign(ring.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${y1 - y0}px` });
+    const bw = bub.offsetWidth, bh = bub.offsetHeight;
+    const cx = (x0 + x1) / 2;
+    bub.style.left = `${Math.round(Math.min(Math.max(12, cx - bw / 2), W - 12 - bw))}px`;
+    const below = y1 + 12 + bh <= H - 8;
+    const above = y0 - 12 - bh >= 8;
+    const top = (y0 + y1) / 2 > H / 2 ? (above ? y0 - 12 - bh : y1 + 12) : below ? y1 + 12 : above ? y0 - 12 - bh : H - bh - 8;
+    bub.style.top = `${Math.round(Math.min(Math.max(8, top), H - bh - 8))}px`;
+    bub.style.bottom = 'auto';
+  }
+}
+// 画面が変わったら（描き直し・パネルのせり上がり）、しばらく位置を追いかける
+function tutFollow() {
+  if (!tutOn()) return;
+  T.until = Math.max(T.until, Date.now() + 500);
+  if (T.raf) return;
+  const loop = () => {
+    tutPlace();
+    T.raf = Date.now() < T.until && tutOn() ? requestAnimationFrame(loop) : 0;
+  };
+  T.raf = requestAnimationFrame(loop);
+}
+new MutationObserver(() => tutOn() && tutFollow()).observe(document.body, { childList: true, subtree: true });
+window.addEventListener('resize', () => tutOn() && tutFollow());
+
 // ---- 開発者モード（1.5.1）：経営のパネルのバージョン番号を5回押すと入る。本番とは別の系統（kv「gridDev」）で動かす ----
 function versionHtml() {
   return `<p class="note center"><button class="link gver" data-ver>版 ${A.esc(window.APP_VERSION || '')}</button></p>`;
 }
 function bindVersion(onAll) {
   onAll('[data-ver]', 'click', () => {
+    if (DEV.tut) return;
     if (DEV.on) return devSheet();
     const now = Date.now();
     DEV.taps = now - DEV.tapAt < 1500 ? DEV.taps + 1 : 1;
@@ -1585,7 +1794,8 @@ function enterDevDialog() {
 }
 async function enterDev() {
   const now = Date.now();
-  DEV.state = Dv.normalize(DEV.state || (await A.db.getKV(Dv.DEV_KEY)), now);
+  DEV.state = Dv.normalize(DEV.devState || (await A.db.getKV(Dv.DEV_KEY)), now);
+  DEV.devState = DEV.state;
   DEV.state.grid.realAt = now; // 開発者の系統は、入っている間だけ進む
   DEV.on = true;
   summary = null;
@@ -1609,6 +1819,7 @@ async function exitDev() {
 }
 const devSpeedText = () => `${DEV.state.opts.speed ? `×${DEV.state.opts.speed}` : '停止中'} ・ 操作`;
 function devBand() {
+  if (DEV.tut) return '<div class="gdevband gtutband"><span><b>チュートリアル（練習の島）</b><small>本番の系統・コイン・記録は変わりません</small></span></div>';
   if (!DEV.on) return '';
   return `<div class="gdevband"><span><b>開発者モード</b><small>本番の記録には影響しません</small></span>
     <span class="gdevbtns"><button class="btn small" data-devops>${devSpeedText()}</button><button class="btn small" data-devout>抜ける</button></span></div>`;
@@ -1619,7 +1830,7 @@ function bindDevBand() {
 }
 // 現実の時刻に合わせて開発者の系統を進める（×10・×100 は1秒ごとに見る）
 async function devTick() {
-  if (!DEV.on || DEV.running || document.hidden || !A?.S.data) return;
+  if (!DEV.on || DEV.tut || DEV.running || document.hidden || !A?.S.data) return;
   const g = G();
   const n = Dv.dueSteps(g, Date.now(), DEV.state.opts.speed);
   if (!n) return;
