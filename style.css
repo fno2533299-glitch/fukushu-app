@@ -730,3 +730,29 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 @media (prefers-reduced-motion: reduce) {
   .gmenu.enter .gmi, .gmenu.benter .gmi.sub, .gmenu.enter .gmlines, .gmenu.benter .gmlines line.b, .gdetail.open { animation: none; }
 }
+
+/* ---- 1.5.2 したことの表示：上の帯のすぐ下（中央）の短い帯・コインの減り・地図の上の印 ---- */
+.gact { position: fixed; left: 50%; z-index: 45; width: max-content; max-width: min(92vw, 560px); transform: translate(-50%, -6px); opacity: 0; pointer-events: none; padding: 8px 14px; border-radius: 12px; background: var(--text); color: var(--bg); font-size: 0.86rem; font-weight: 600; line-height: 1.5; text-align: center; box-shadow: 0 4px 16px rgba(0, 0, 0, .25); transition: opacity .2s, transform .2s; }
+.gact.show { opacity: .96; transform: translate(-50%, 0); }
+[data-theme=fx] .gact.fx { box-shadow: 0 0 0 2px var(--spark), 0 0 22px 4px var(--spark-glow); }
+.gcoinfx { position: fixed; z-index: 46; pointer-events: none; font-size: 0.8rem; font-weight: 800; color: var(--ng); font-variant-numeric: tabular-nums; animation: gcoinup 1.4s ease-out forwards; }
+@keyframes gcoinup { 0% { opacity: 0; transform: translateY(4px); } 15% { opacity: 1; transform: none; } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-14px); } }
+.gmap .gcone { pointer-events: none; }
+.gmap .gcone.gpop > * { transform-box: fill-box; transform-origin: 50% 100%; animation: gconepop .45s cubic-bezier(.3, 1.6, .5, 1) both; }
+@keyframes gconepop { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+.gmap .gbounce { transform-box: fill-box; transform-origin: 50% 80%; animation: gbounce .7s cubic-bezier(.3, 1.5, .5, 1) both; }
+@keyframes gbounce { 0% { transform: scale(.3); opacity: .3; } 60% { transform: scale(1.18); opacity: 1; } 100% { transform: scale(1); } }
+.gmap .gglow { stroke: #ffd21f; opacity: 0; animation: gglow 1.6s ease-out; filter: drop-shadow(0 0 4px #ffd21f); }
+@keyframes gglow { 0% { opacity: 0; } 25% { opacity: .95; } 100% { opacity: 0; } }
+.gmap .gwait { opacity: 0; animation-name: gflow, gappear; animation-duration: var(--d, 1.4s), .4s; animation-delay: 0s, 1.1s; animation-iteration-count: infinite, 1; animation-fill-mode: none, forwards; }
+.gmap .gwait.s1 { --d: 2.4s; } .gmap .gwait.s2 { --d: 1.4s; } .gmap .gwait.s3 { --d: .8s; }
+.gmap .gflowe.gwait { --o: .55; }
+@keyframes gappear { to { opacity: var(--o, 1); } }
+@media (prefers-reduced-motion: reduce) {
+  .gact { transition: none; transform: translate(-50%, 0); }
+  .gcoinfx { animation: gcoinfade 1.4s linear forwards; }
+  .gmap .gcone.gpop > *, .gmap .gbounce, .gmap .gglow { animation: none; }
+  .gmap .gglow { opacity: 0; }
+  .gmap .gwait { animation: none; opacity: var(--o, 1); }
+}
+@keyframes gcoinfade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }

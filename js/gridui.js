@@ -85,7 +85,9 @@ const idle = () => onGrid() && !document.querySelector('.modal, .goverlay');
 
 async function tick() {
   if (!A?.S.grid || document.hidden) return;
+  const before = Mn.underWork(A.S.grid);
   const steps = await sync();
+  if (steps > 0 && !DEV.on && onGrid()) announceDone(A.S.grid, before);
   if (steps > 0 && !DEV.on && idle()) live();
 }
 export async function onVisible() {
@@ -335,6 +337,82 @@ function overlay(picKey, title, text, notes) {
   ov.querySelector('[data-close]').onclick = () => ov.remove();
 }
 
+// ---- 1.5.2 したことの表示：上の帯のすぐ下（中央）に短い帯を2〜3秒。続けて起きたら順に出す ----
+// テーマがシンプルでも出す（何をしたかの情報なので）。演出ありでは光と短い音を足す
+const ACTQ = [];
+let actBusy = false;
+function act(kind, x) {
+  const text = Mn.actText(G(), kind, x);
+  if (text) band(text);
+}
+function band(text) {
+  ACTQ.push(text);
+  if (ACTQ.length > 6) ACTQ.splice(0, ACTQ.length - 6);
+  if (!actBusy) nextBand();
+}
+function bandTop() {
+  const els = ['.gscreen .gbar', '.gscreen .gdevband', '.gscreen .grebuild', 'header.top', '.gdevband'].map((q) => document.querySelector(q)).filter(Boolean);
+  return els.length ? Math.max(...els.map((e) => e.getBoundingClientRect().bottom)) + 6 : 8;
+}
+function nextBand() {
+  const text = ACTQ.shift();
+  if (!text) return (actBusy = false);
+  actBusy = true;
+  let el = document.querySelector('.gact');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'gact';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.body.append(el);
+  }
+  el.style.top = `${Math.round(bandTop())}px`;
+  el.textContent = text;
+  el.classList.toggle('fx', !!A.fx());
+  void el.offsetWidth; // 出すたびに動きをやり直す
+  el.classList.add('show');
+  if (A.fx()) A.playNotes([[784, 0], [1046.5, 0.07]]);
+  const ms = Math.min(3200, 2000 + text.length * 25);
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(nextBand, 240);
+  }, ms);
+}
+// コインを使ったら、上の帯のコインの横に「−12,000」を浮かせて消す
+function coinFloat(coins) {
+  const c = document.querySelector('.ghud .hcoin');
+  if (!c || !(coins > 0) || balance() === Infinity) return;
+  const r = (c.parentElement || c).getBoundingClientRect(); // 残高の数字の右に出す
+  const el = document.createElement('span');
+  el.className = 'gcoinfx';
+  el.textContent = `−${A.num(Math.round(coins))}`;
+  el.style.left = `${Math.round(r.right + 2)}px`;
+  el.style.top = `${Math.round(r.top - 2)}px`;
+  document.body.append(el);
+  setTimeout(() => el.remove(), 1500);
+}
+// 地図の上の印（工事の印がぽんと出る・完成した施設が弾む・開通した線が一度光る）。id → { kind, until }
+const marks = new Map();
+const MARK_MS = { work: 1400, done: 1600, glow: 1800 };
+function mark(id, kind) {
+  marks.set(id, { kind, until: Date.now() + MARK_MS[kind] });
+}
+const markOf = (id) => {
+  const m = marks.get(id);
+  return m && m.until > Date.now() ? m.kind : null;
+};
+// 開いている間に完成したものを、帯と地図の印で知らせる（閉じている間の分は、開いたときのまとめに出る）
+function announceDone(g, before) {
+  const done = Mn.finished(g, before);
+  for (const f of done) {
+    band(Mn.doneText(g, f));
+    if (f.kind === 'line') mark(f.x.id, 'glow');
+    else mark(f.kind === 'plant' ? f.x.site : f.x.town, 'done');
+  }
+  if (done.length && onGrid()) drawMap();
+  return done.length;
+}
+
 // ---- 前回からの結果（開いたとき） ----
 function summaryPanel() {
   const s = summary;
@@ -394,9 +472,10 @@ function mapSvg(g) {
     const col = building ? 'var(--muted)' : down ? 'var(--ng)' : K.dc ? 'var(--gdc)' : utilColor(u);
     const wdt = K.dc ? 2 : K.kv >= 66 ? 3.6 : K.kv >= 11 ? 2.8 : 2;
     const label = building ? `${K.short} 工事 あと${hoursText(l.readyAt - t)}` : `${K.short}${l.n > 1 ? `×${l.n}` : ''}`;
-    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${P.d}" fill="none" stroke="transparent" stroke-width="22"/>${selLine === l.id ? `<path d="${P.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}<path d="${P.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : down ? 'stroke-dasharray="7 5"' : ''}/>
-      <text x="${P.lx}" y="${P.ly - 4}" class="glabel${building ? ' gwork' : ''}">${label}</text></g>`;
-    flows += flowPath(g, l, a, b, P);
+    const mk = markOf(l.id);
+    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${P.d}" fill="none" stroke="transparent" stroke-width="22"/>${selLine === l.id ? `<path d="${P.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${mk === 'glow' ? `<path d="${P.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : ''}<path d="${P.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : down ? 'stroke-dasharray="7 5"' : ''}/>
+      <text x="${P.lx}" y="${P.ly - 4}" class="glabel${building ? ' gwork' : ''}">${label}</text>${building ? cone(P.lx, P.ly + 8, mk === 'work') : ''}</g>`;
+    flows += flowPath(g, l, a, b, P, mk === 'glow');
   }
   s += `<g class="gflows${B ? ' gdim' : ''}" aria-hidden="true">${flows}</g>`;
   // 建設モードの仮の線（点線）
@@ -431,7 +510,8 @@ function mapSvg(g) {
     });
     // 工事中の発電所・変圧器：残りの時間を小さく添える
     const work = [...plants, ...subs].filter((v) => v.readyAt > t).map((v) => v.readyAt - t);
-    if (work.length) body += `<text x="${x}" y="${y - 25}" class="glabel gwork">工事 あと${hoursText(Math.min(...work))}</text>`;
+    if (work.length) body += `<text x="${x}" y="${y - 25}" class="glabel gwork">工事 あと${hoursText(Math.min(...work))}</text>${cone(x + 14, y + 13, markOf(n.id) === 'work')}`;
+    if (markOf(n.id) === 'done') body = `<g class="gbounce">${body}</g>`;
     const name = n.name.length > 6 ? [n.name.slice(0, Math.ceil(n.name.length / 2)), n.name.slice(Math.ceil(n.name.length / 2))] : [n.name];
     const c = cand?.get(n.id);
     const mode = !B ? (selId === n.id ? ' sel' : '') : c === 'sel' ? ' sel' : c ? ' gcan' : ' gdim';
@@ -445,7 +525,9 @@ function mapSvg(g) {
 // 電気の流れ（黄色い点線）：流れている線にだけ重ね、流れる向き（last.lines の to）に動かす。速さは使用率で3段階
 // 描き直しても動きが途切れないよう、描いたあとに syncFlows で動きの起点を文書の時計の0にそろえる（同じ段なら位相が同じになる）
 const FLOW_SEC = [0, 2.4, 1.4, 0.8];
-function flowPath(g, l, a, b, P) {
+// 工事の印（三角コーン）。pop：建設を始めた直後（ぽんと出る）
+const cone = (x, y, pop) => `<g class="gcone${pop ? ' gpop' : ''}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><path d="M-5.5,5 L0,-7 L5.5,5Z" fill="#e8812c" stroke="#7a3d0b" stroke-width=".8"/><path d="M-3.2,0 h6.4" stroke="#fff" stroke-width="1.6"/><rect x="-7" y="4.2" width="14" height="2.6" rx="1" fill="#7a3d0b"/></g>`;
+function flowPath(g, l, a, b, P, wait = false) {
   const f = g.last?.lines[l.id];
   if (!f || !(f.p > 1e-3) || l.readyAt > g.t || Gm.lineCircuits(l, g.t) <= 0) return '';
   const tier = f.util < 0.3 ? 1 : f.util < 0.8 ? 2 : 3;
@@ -453,7 +535,8 @@ function flowPath(g, l, a, b, P) {
   const K = Gm.LINES[l.kind];
   const w = (K.dc ? 2 : K.kv >= 66 ? 3.6 : K.kv >= 11 ? 2.8 : 2) + 0.8; // 下の線より少し太く。暗い縁（gflowe）を下に敷いて、明るい地図でも見えるように
   const d = f.to === l.a ? P.back : P.d;
-  return `<path d="${d}" class="gflowe s${tier}" stroke-width="${w + 1.6}" data-sec="${sec}"/><path d="${d}" class="gflow s${tier}" stroke-width="${w}" data-sec="${sec}"/>`;
+  const wt = wait ? ' gwait' : ''; // 開通した線：一度光ってから流れ始める
+  return `<path d="${d}" class="gflowe s${tier}${wt}" stroke-width="${w + 1.6}" data-sec="${sec}"/><path d="${d}" class="gflow s${tier}${wt}" stroke-width="${w}" data-sec="${sec}"/>`;
 }
 function syncFlows() {
   for (const el of document.querySelectorAll('.gmap [data-sec]')) {
@@ -648,7 +731,7 @@ function circuitDialog(id) {
     `<h2>回線を増やす</h2>
     <p class="small">${A.esc(Gm.lineName(g, l))}（いま ${l.n}回線）に、同じルートでもう1回線。送れる量が増え、1回線が止まっても残りで送れる。</p>
     ${qc.ok ? `<p class="gquote"><b>${A.num(qc.cost)} コイン</b>（残高 ${coinText(balance())}）</p><button class="btn primary gwide" data-ok>増設する</button>` : `<p class="warn small">${A.esc(qc.why)}</p>`}`,
-    ({ onAll }) => onAll('[data-ok]', 'click', () => pay(qc, `${Gm.LINES[l.kind].short}の回線の増設`, () => Gm.addCircuit(G(), learningNow(), id))),
+    ({ onAll }) => onAll('[data-ok]', 'click', () => pay(qc, `${Gm.LINES[l.kind].short}の回線の増設`, () => Gm.addCircuit(G(), learningNow(), id), null, 'circuit')),
   );
 }
 // 詳細：今の地点・線のパネルの中身を、地図に重ねる半透明のカードで（地点と反対の側に）
@@ -947,12 +1030,18 @@ async function pay(q, what, doBuild, after, kind = null) {
   const r = doBuild();
   if (!r.ok) return A.toast(r.why);
   await spend(r.cost, what);
-  A.toast(`${what}の工事を始めた（${DEV.on && balance() === Infinity ? '開発者モード：コインは減らない' : `${A.num(r.cost)} コイン`}）`);
+  if (kind === 'plant') act('buildPlant', r.plant), mark(r.plant.site, 'work');
+  else if (kind === 'line') act('buildLine', r.line), mark(r.line.id, 'work');
+  else if (kind === 'sub') act('buildSub', r.sub), mark(r.sub.town, 'work');
+  else if (kind === 'circuit') act('circuit', r.line);
+  else if (kind === 'cap') act('cap', r.load);
+  else band(`${what}（${A.num(r.cost)} コイン）`);
   if (A.fx()) A.playNotes([[440, 0], [554.4, 0.08], [659.3, 0.16]]);
   after?.();
   await save();
   document.querySelector('.modal.gsheet')?.remove();
   await screen();
+  coinFloat(r.cost);
   if (kind) tutEv(`built:${kind}`);
 }
 
@@ -1024,6 +1113,7 @@ function hzDialog(after) {
         Gm.addReport(G(), { title: `周波数を ${G().hz} Hz に決めた`, what: 'この島の交流の系統は、これからこの周波数で動く。', units: [] });
         await save();
         close();
+        act('hz', { value: G().hz });
         after();
       }),
   );
@@ -1038,7 +1128,7 @@ function capDialog(loadId) {
     ${q.ok ? `<p class="gquote"><b>${A.num(q.cost)} コイン</b>（残高 ${coinText(balance())}）</p><button class="btn primary gwide" data-build>付ける</button>` : whyHtml(q)}`,
     ({ onAll }) => {
       onAll('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo));
-      onAll('[data-build]', 'click', () => pay(q, '進相コンデンサ', () => Gm.addCap(g, lc, loadId)));
+      onAll('[data-build]', 'click', () => pay(q, '進相コンデンサ', () => Gm.addCap(g, lc, loadId), null, 'cap'));
     },
   );
 }
@@ -1054,11 +1144,12 @@ function removeDialog(kind, id) {
     <button class="btn gwide gwarn" data-ok>撤去する</button>`,
     ({ onAll, close }) =>
       onAll('[data-ok]', 'click', async () => {
-        Gm.removeAsset(g, kind, id);
+        const back = Gm.removeAsset(g, kind, id);
         await save();
         close();
-        if (sel?.id === id) sel = null;
+        if (sel?.id === id || (sel && kind !== 'line' && !Mn.removables(G(), sel.id).length)) sel = null;
         screen();
+        act('remove', { name, back });
       }),
   );
 }
@@ -1126,6 +1217,7 @@ function runPanel(g, lc) {
         [gg.priority[i], gg.priority[i + d]] = [gg.priority[i + d], gg.priority[i]];
         await save();
         drawPanel(true);
+        act('priority', { first: gg.plants.find((p) => p.id === gg.priority[0]) });
       };
       onAll('[data-up]', 'click', (e) => move(e.currentTarget.dataset.up, -1));
       onAll('[data-down]', 'click', (e) => move(e.currentTarget.dataset.down, 1));
@@ -1134,6 +1226,7 @@ function runPanel(g, lc) {
         p.idle = !p.idle;
         await save();
         drawPanel(true);
+        act('idle', p);
       });
       onAll('[data-rm]', 'click', (e) => removeDialog(...e.currentTarget.dataset.rm.split(':')));
       onAll('[data-reserve]', 'input', (e) => ($('[data-rv]').textContent = `${e.target.value}%`));
@@ -1141,9 +1234,10 @@ function runPanel(g, lc) {
         gg.reserve = Number(e.target.value) / 100;
         await save();
         drawPanel(true);
+        act('reserve', { value: gg.reserve });
       });
-      onAll('input[name=fuel]', 'change', async (e) => ((gg.fuelPlan = e.target.value), await save()));
-      onAll('input[name=maint]', 'change', async (e) => ((gg.maint = e.target.value), await save()));
+      onAll('input[name=fuel]', 'change', async (e) => ((gg.fuelPlan = e.target.value), await save(), act('fuel', { value: gg.fuelPlan })));
+      onAll('input[name=maint]', 'change', async (e) => ((gg.maint = e.target.value), await save(), act('maint', { value: gg.maint })));
     },
   };
 }
@@ -1232,7 +1326,7 @@ function listPanel(g, lc) {
       return `<div class="gitem"><p class="spread"><b>${A.esc(n.name)}：${Gm.LOADS[a.type].name} ${kw(a.kw)}</b><small>${Gm.LOADS[a.type].rate} 円/kWh</small></p>
         <p class="small">受けたときの見込み（${p.hour}時ごろのピーク）：供給の余裕 ${pct(p.margin)} ・ 線の使用率 最大 ${pct(p.line)}${p.sub ? ` ・ 変圧器 ${pct(p.sub)}` : ''}${Gm.LOADS[a.type].pf < 1 ? ' ・ 力率 0.75（進相コンデンサで直せる）' : ''}</p>
         ${warn.length ? `<p class="warn small">${warn.join(' ・ ')}</p>` : ''}
-        <button class="btn primary" data-accept="${a.id}">受ける</button><span class="small">保留のままでも罰はありません</span></div>`;
+        <button class="btn primary" data-accept="${a.id}">受ける</button>${a.held ? '<span class="tag">保留中</span>' : `<button class="btn" data-hold="${a.id}">保留する</button>`}<span class="small">保留に罰はありません</span></div>`;
     })
     .join('');
   const order = g.priority.map((id) => g.plants.find((p) => p.id === id)).filter(Boolean);
@@ -1254,10 +1348,22 @@ function listPanel(g, lc) {
     bind: ({ onAll, g: gg }) => {
       onAll('[data-inc]', 'click', (e) => incidentScreen(e.currentTarget.dataset.inc));
       onAll('[data-accept]', 'click', async (e) => {
-        Gm.acceptApp(gg, e.currentTarget.dataset.accept);
+        const a = gg.apps.find((x) => x.id === e.currentTarget.dataset.accept);
+        Gm.acceptApp(gg, a.id);
         await save();
         drawPanel(true);
         live();
+        act('accept', a);
+        tutEv('app:accept');
+      });
+      // 保留：申し込みは残す（いつでも受けられる）。印を付けて、下に回すだけ
+      onAll('[data-hold]', 'click', async (e) => {
+        const a = gg.apps.find((x) => x.id === e.currentTarget.dataset.hold);
+        a.held = true;
+        gg.apps = [...gg.apps.filter((x) => !x.held), ...gg.apps.filter((x) => x.held)];
+        await save();
+        drawPanel(true);
+        act('hold', a);
       });
       onAll('[data-gonode]', 'click', (e) => (setPanel(null), openSel('node', e.currentTarget.dataset.gonode, true)));
       onAll('[data-goline]', 'click', (e) => (setPanel(null), openSel('line', e.currentTarget.dataset.goline, true)));
@@ -1378,9 +1484,14 @@ async function answerIncident(inc, q, order, choiceId) {
       bindDevBand();
       A.on('[data-report]', 'click', () => A.reportDialog(q));
       A.on('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo));
-      A.on('[data-next]', 'click', () => screen('list'));
+      A.on('[data-next]', 'click', async () => {
+        await screen(g.incidents.length ? 'list' : null);
+        act('incident', { title: Gm.INCIDENTS[inc.key].title, correct });
+        tutEv('inc:back');
+      });
     },
   );
+  tutEv('inc:answer');
   await saved;
   await save();
   if (rec) await A.syncCollection();
@@ -1402,8 +1513,8 @@ function islandDialog() {
         B = null;
         await save();
         close();
-        A.toast('新しい島で、明治から始めます');
         screen(null);
+        act('island', { terrain: G().terrain });
       }),
   );
 }
@@ -1430,6 +1541,7 @@ function rebuildDialog() {
         await save();
         close();
         screen();
+        act('loan');
       });
       onAll('[data-sellgo]', 'click', async () => {
         const sel = [...dlg.querySelectorAll('[data-sell]:checked')].map((x) => x.dataset.sell.split(':'));
@@ -1439,6 +1551,7 @@ function rebuildDialog() {
         await save();
         close();
         screen();
+        act('sell', { count: sel.length, back });
         if (g.rebuild) A.toast('まだ残高がマイナスです');
       });
     },
@@ -1510,7 +1623,9 @@ async function devTick() {
   const g = G();
   const n = Dv.dueSteps(g, Date.now(), DEV.state.opts.speed);
   if (!n) return;
+  const before = Mn.underWork(g);
   Dv.advance(g, learningNow(), n, DEV.state.money);
+  if (onGrid()) announceDone(g, before);
   if (Date.now() - DEV.savedAt > 5000) {
     DEV.savedAt = Date.now();
     save();
@@ -1622,6 +1737,7 @@ async function devJump(kind, $) {
     devSheetLive();
   };
   prog(0);
+  const before = Mn.underWork(G());
   try {
     await Dv.run(G(), learningNow(), n, { money: DEV.state.money, onProgress: prog, chunk: 300 });
     G().realAt = Date.now();
@@ -1631,5 +1747,6 @@ async function devJump(kind, $) {
   }
   document.querySelector('.modal.gsheet')?.remove();
   await screen();
+  announceDone(G(), before);
   devSheet();
 }
