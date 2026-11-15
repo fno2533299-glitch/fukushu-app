@@ -507,15 +507,9 @@ button.tile:active { border-color: var(--primary); }
 }
 .gridcard .gchips { display: block; margin-top: 6px; }
 .tag.gng { color: var(--ng); border-color: var(--ng); font-weight: 600; }
-.ghead { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px 14px 10px; margin-bottom: 8px; overflow: hidden; }
-.ghead p { position: relative; margin: 0; }
-.ghead p + p { margin-top: 2px; }
-.ghead b { font-variant-numeric: tabular-nums; }
 .gpic { display: block; overflow: hidden; border-radius: 10px; background: var(--sea); color: var(--muted); }
 .gpic img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .gpic.ph svg { display: block; width: 100%; height: 100%; }
-.gpic.band { position: absolute; inset: 0; border-radius: 0; opacity: .16; }
-.gpic.band.ph svg { width: auto; height: 100%; margin-left: auto; }
 .gpic.wide { width: 100%; aspect-ratio: 16 / 7; margin: 4px 0 8px; }
 .gpic.mini { width: 48px; height: 36px; flex: none; border-radius: 8px; }
 .gneg { color: var(--ng); }
@@ -532,7 +526,6 @@ button.tile:active { border-color: var(--primary); }
 .gmap .gland { font-size: 8px; letter-spacing: 2px; text-anchor: middle; fill: var(--muted); opacity: .7; }
 .gmap .gmark { font-size: 7px; text-anchor: middle; fill: var(--text); }
 .gmap .gbang { font-size: 9px; font-weight: 800; text-anchor: middle; fill: #fff; }
-.gstatus { padding: 8px 14px 0; margin: 0; line-height: 1.6; }
 .legend i.gl-lit { background: var(--glit); } .legend i.gl-dark { background: var(--gdark); }
 .legend i.gl-coal { background: var(--gcoal); } .legend i.gl-hydro { background: var(--ghydro); }
 .legend i.gl-dc { background: var(--gdc); } .legend i.gl-okband { background: var(--ok-bg); }
@@ -570,7 +563,6 @@ button.tile:active { border-color: var(--primary); }
 .gplant { display: flex; gap: 10px; align-items: center; }
 .gplant .gord { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: none; }
 .gplant .gord .btn { margin: 0; min-width: 44px; min-height: 44px; padding: 0; }
-.tabs.gtabs button { min-height: 44px; font-size: 0.9rem; }
 .gsheet .btn.small, .gitem .btn.small, .gsum .btn.small { min-height: 44px; }
 .gplant .gpl { display: flex; flex-direction: column; min-width: 0; }
 .gplant small, .grow2 small { color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
@@ -608,3 +600,86 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .grow.gpick { display: flex; gap: 8px; }
 .grow.gpick select { flex: 1; min-width: 0; max-width: none; margin: 0; }
 .gver { color: var(--muted); font-size: 0.85rem; min-height: 44px; padding: 0 12px; }
+
+/* ---- 1.5.1 系統の画面の配置：上の帯・地図・せり上がるパネル・下のボタン5つ ---- */
+.gscreen { position: fixed; top: 0; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; flex-direction: column; max-width: 640px; margin: 0 auto; background: var(--bg); padding-top: env(safe-area-inset-top); overflow-wrap: normal; }
+.gbar { display: flex; align-items: stretch; gap: 2px; padding: 2px 8px 2px 2px; background: var(--card); border-bottom: 1px solid var(--line); flex: none; }
+.gbar .back { flex: none; font-size: 0.88rem; padding: 0 6px; min-height: 44px; white-space: nowrap; }
+.ghud { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; background: none; border: 0; padding: 3px 0; text-align: left; font-size: 0.74rem; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.ghud .hr { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; overflow: hidden; }
+.ghud .hcell { flex: none; color: var(--muted); }
+.ghud .hcell.grow1 { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ghud .hr:first-child .hcell.grow1 { color: var(--text); font-weight: 600; flex-grow: 1; }
+.ghud .hcell b { color: var(--text); font-weight: 700; }
+.ghud .hcell b.gneg { color: var(--ng); }
+.ghud .hstate { flex: none; margin-left: auto; font-weight: 700; padding: 0 6px; border-radius: 6px; }
+.hstate.ok { color: var(--ok); } .hstate.warn { color: var(--idk); background: var(--idk-bg); } .hstate.bad { color: #fff; background: var(--ng); }
+.gscreen .gdevband { margin: 6px 8px 0; flex: none; }
+.btn.grebuild { flex: none; display: block; width: auto; margin: 6px 8px 0; min-height: 44px; }
+.gmid { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--sea); }
+.gmapbox { position: absolute; inset: 0; transition: bottom .22s ease-out; }
+.gmapbox .gmap { width: 100%; height: 100%; }
+.gdock { flex: none; display: flex; background: var(--card); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+.gdbtn { position: relative; flex: 1; min-width: 0; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; background: none; border: 0; color: var(--muted); font-size: 0.72rem; font-weight: 600; padding: 4px 0; line-height: 1.3; }
+.gdbtn svg { width: 24px; height: 24px; }
+.gdbtn.on { color: var(--primary); }
+.gdbtn.on::before { content: ""; position: absolute; top: 0; left: 22%; right: 22%; height: 3px; border-radius: 0 0 3px 3px; background: var(--primary); }
+.gbadge { position: absolute; top: 3px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--primary); color: #fff; font-size: 0.68rem; font-style: normal; font-weight: 700; line-height: 18px; text-align: center; }
+.gbadge.ng { background: var(--ng); }
+.gpanel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; max-height: 58%; display: flex; flex-direction: column; background: var(--card); border-radius: 16px 16px 0 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, .18); transform: translateY(105%); visibility: hidden; transition: transform .22s ease-out, visibility 0s linear .22s; }
+.gpanel.open { transform: none; visibility: visible; transition: transform .22s ease-out; }
+.gpin { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 0 16px 16px; font-size: 0.95rem; }
+.gphead { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--card); padding: 8px 0 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.gphead h2 { margin: 0; font-size: 1rem; min-width: 0; }
+.gphead .btn { margin: 0; min-height: 44px; flex: none; }
+.gpin h3 { font-size: 0.85rem; color: var(--muted); margin: 14px 0 2px; }
+.gpin .gitem .btn, .gpin .btn.small { min-height: 44px; }
+.gpin .gchart { margin-top: 2px; }
+.gpin .gev { padding: 0; }
+.gyears { display: flex; align-items: flex-end; gap: 6px; height: 78px; margin: 6px 0 2px; }
+.gyb { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 2px; }
+.gyb i { display: block; width: 70%; background: var(--ok); border-radius: 3px 3px 0 0; }
+.gyb.neg i { background: var(--ng); }
+.gyb.now i { opacity: .55; }
+.gyb small { font-size: 0.62rem; color: var(--muted); white-space: nowrap; }
+.gdevbox { border: 1px dashed #b3261e; border-radius: 10px; padding: 2px 10px 8px; margin-top: 12px; }
+/* 建設のパネル */
+.gbitem { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; background: none; border: 0; border-top: 1px solid var(--line); padding: 6px 0; text-align: left; }
+.gpin h3 + .gbitem { border-top: 0; }
+.gbitem .gbtx { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.4; }
+.gbitem small { color: var(--muted); font-size: 0.78rem; }
+.gbitem .go { color: var(--primary); flex: none; width: 1em; }
+.gbitem.locked > .gpic, .gbitem.locked b { opacity: .45; filter: grayscale(1); }
+.gbitem.locked small { color: var(--idk); }
+.gwhy { padding: 0 0 8px 58px; }
+.gline-ic svg { padding: 2px; }
+/* 建設モード：上の帯・光る地点・仮の線・下のカード */
+.gbuildbar { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 2; display: none; align-items: center; justify-content: space-between; gap: 8px; background: var(--text); color: var(--bg); border-radius: 12px; padding: 4px 6px 4px 12px; box-shadow: 0 2px 10px rgba(0, 0, 0, .2); }
+.building .gbuildbar { display: flex; }
+.gbuildbar p { margin: 0; display: flex; flex-direction: column; line-height: 1.35; font-size: 0.86rem; min-width: 0; }
+.gbuildbar small { font-size: 0.72rem; opacity: .8; }
+.gbuildbar .btn { margin: 0; min-height: 44px; flex: none; background: transparent; color: inherit; border-color: currentColor; }
+.gbcard { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 2; max-height: 64%; overflow-y: auto; overscroll-behavior: contain; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px 12px; box-shadow: 0 4px 18px rgba(0, 0, 0, .22); display: none; font-size: 0.92rem; }
+.gbcard.open { display: block; }
+.gbch { margin: 0 0 2px; }
+.gbcard .gquote { margin-top: 6px; }
+.gbcard .gquote b { font-size: 1rem; }
+.gsizes .btn { flex: 0 1 auto; padding: 4px 10px; }
+.groute .btn { flex: 1 1 0; flex-direction: column; gap: 0; line-height: 1.3; padding: 4px 6px; }
+.groute .btn small { font-size: 0.7rem; }
+.groute .btn.on small { color: inherit; opacity: .9; }
+.gopts summary { min-height: 40px; line-height: 40px; color: var(--primary); font-size: 0.88rem; cursor: pointer; }
+.gopts .row small { display: block; }
+.gmap .gnode.gdim, .gmap .gline.gdim { opacity: .28; }
+.gmap .gring { fill: none; stroke: var(--spark); stroke-width: 2.6; }
+.gmap .gpulse { fill: none; stroke: var(--spark); stroke-width: 2; transform-box: fill-box; transform-origin: center; animation: gpulse 1.4s ease-out infinite; }
+@keyframes gpulse { 0% { transform: scale(.85); opacity: .9; } 100% { transform: scale(1.7); opacity: 0; } }
+.gmap .gselring { fill: var(--primary); fill-opacity: .14; stroke: var(--primary); stroke-width: 2.4; }
+.gmap .gtemp { stroke: var(--primary); stroke-width: 3; stroke-dasharray: 6 5; stroke-linecap: round; }
+.gmap .glabel.gwork { fill: var(--idk); font-weight: 700; }
+.gpin select, .gbcard select { min-height: 40px; max-width: 64%; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 4px 8px; font-size: 16px; margin-left: auto; }
+.gpin .row input + span small { display: block; line-height: 1.5; }
+@media (prefers-reduced-motion: reduce) {
+  .gpanel, .gpanel.open, .gmapbox { transition: none; }
+  .gmap .gpulse { animation: none; opacity: .5; }
+}
