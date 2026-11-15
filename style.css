@@ -683,3 +683,15 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
   .gpanel, .gpanel.open, .gmapbox { transition: none; }
   .gmap .gpulse { animation: none; opacity: .5; }
 }
+
+/* ---- 1.5.1 電気の流れ（黄色い点線）。テーマに関係なく出す。動きを減らす設定では止める（点線は出す） ---- */
+.gmap .gflows { pointer-events: none; }
+.gmap .gflows.gdim { opacity: .28; }
+.gmap .gflow, .gmap .gflowe { fill: none; stroke-linecap: butt; stroke-dasharray: 5 7; animation: gflow linear infinite; }
+.gmap .gflow { stroke: #ffd21f; }
+.gmap .gflowe { stroke: #6b4e00; opacity: .55; }
+.gmap .s1 { animation-duration: 2.4s; }
+.gmap .s2 { animation-duration: 1.4s; }
+.gmap .s3 { animation-duration: .8s; }
+@keyframes gflow { to { stroke-dashoffset: -12; } }
+@media (prefers-reduced-motion: reduce) { .gmap .gflow, .gmap .gflowe { animation: none; } }

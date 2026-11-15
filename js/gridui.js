@@ -171,6 +171,7 @@ export async function screen(p, entering = false) {
       bindDock();
       bindDevBand();
       bindMap();
+      syncFlows();
       bindBuildBar();
       drawPanel();
       drawBuildCard();
@@ -191,7 +192,7 @@ function live() {
   const g = G();
   const q = (s) => document.querySelector(s);
   q('[data-hud]').innerHTML = hudHtml(g);
-  q('[data-mapbox]').innerHTML = mapSvg(g);
+  drawMap();
   q('[data-dock]').innerHTML = dockHtml(g);
   bindDock();
   const band = q('.gdevband [data-devops]');
@@ -259,7 +260,7 @@ function setPanel(p) {
   bindDock();
   if (p) drawPanel();
   else fitMap();
-  if (p === null || p.startsWith('node') || p.startsWith('line')) document.querySelector('[data-mapbox]').innerHTML = mapSvg(G()); // 選んでいる地点の印
+  if (p === null || p.startsWith('node') || p.startsWith('line')) drawMap(); // 選んでいる地点の印
 }
 // パネル（建設モードではカード）が開いているときは、地図をその上の空いたところに縮めて、島の全体が見えるようにする
 function fitMap() {
@@ -349,7 +350,7 @@ function linePath(a, b, route, dc) {
   const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
   const bend = route === 'detour' ? 26 : dc ? -8 : 0;
   const cx = mx + (dy / len) * bend, cy = my - (dx / len) * bend;
-  return { d: `M${a.x},${a.y} Q${cx},${cy} ${b.x},${b.y}`, lx: (mx + cx) / 2, ly: (my + cy) / 2 };
+  return { d: `M${a.x},${a.y} Q${cx},${cy} ${b.x},${b.y}`, back: `M${b.x},${b.y} Q${cx},${cy} ${a.x},${a.y}`, lx: (mx + cx) / 2, ly: (my + cy) / 2 };
 }
 const hoursText = (h) => (h >= 48 ? `${Math.ceil(h / 24)}日` : `${h}時間`);
 function mapSvg(g) {
@@ -381,7 +382,7 @@ function mapSvg(g) {
       <text x="${P.lx}" y="${P.ly - 4}" class="glabel${building ? ' gwork' : ''}">${label}</text></g>`;
     flows += flowPath(g, l, a, b, P);
   }
-  s += `<g class="gflows" aria-hidden="true">${flows}</g>`;
+  s += `<g class="gflows${B ? ' gdim' : ''}" aria-hidden="true">${flows}</g>`;
   // 建設モードの仮の線（点線）
   if (B?.kind === 'line' && B.from && B.to) {
     const P = linePath(N(B.from), N(B.to), B.route, Gm.LINES[B.lk].dc);
@@ -425,9 +426,31 @@ function mapSvg(g) {
   }
   return `<svg class="gmap" viewBox="${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="島の地図">${s}</svg>`;
 }
-// 電気の流れ（黄色い点線）：区切り4で描く
-function flowPath() {
-  return '';
+// 電気の流れ（黄色い点線）：流れている線にだけ重ね、流れる向き（last.lines の to）に動かす。速さは使用率で3段階
+// 描き直しても動きが途切れないよう、描いたあとに syncFlows で動きの起点を文書の時計の0にそろえる（同じ段なら位相が同じになる）
+const FLOW_SEC = [0, 2.4, 1.4, 0.8];
+function flowPath(g, l, a, b, P) {
+  const f = g.last?.lines[l.id];
+  if (!f || !(f.p > 1e-3) || l.readyAt > g.t || Gm.lineCircuits(l, g.t) <= 0) return '';
+  const tier = f.util < 0.3 ? 1 : f.util < 0.8 ? 2 : 3;
+  const sec = FLOW_SEC[tier];
+  const K = Gm.LINES[l.kind];
+  const w = (K.dc ? 2 : K.kv >= 66 ? 3.6 : K.kv >= 11 ? 2.8 : 2) + 0.8; // 下の線より少し太く。暗い縁（gflowe）を下に敷いて、明るい地図でも見えるように
+  const d = f.to === l.a ? P.back : P.d;
+  return `<path d="${d}" class="gflowe s${tier}" stroke-width="${w + 1.6}" data-sec="${sec}"/><path d="${d}" class="gflow s${tier}" stroke-width="${w}" data-sec="${sec}"/>`;
+}
+function syncFlows() {
+  for (const el of document.querySelectorAll('.gmap [data-sec]')) {
+    const a = el.getAnimations?.()[0];
+    if (a && 'startTime' in a) a.startTime = 0;
+    else el.style.animationDelay = `${(-((Date.now() / 1000) % Number(el.dataset.sec))).toFixed(3)}s`; // 古いブラウザ：現在時刻から決める
+  }
+}
+function drawMap() {
+  const box = document.querySelector('[data-mapbox]');
+  if (!box) return;
+  box.innerHTML = mapSvg(G());
+  syncFlows();
 }
 
 // 地図を押す：描き直しで要素が入れ替わっても取りこぼさないよう、押した場所（pointerdown）の地点・線を覚えて、離したときに動かす
@@ -614,7 +637,7 @@ function whyNot(g, lc, id) {
 // 建設モードの描き直し（地図・帯・カードだけ）
 function refreshBuild() {
   if (!onGrid()) return;
-  document.querySelector('[data-mapbox]').innerHTML = mapSvg(G());
+  drawMap();
   document.querySelector('[data-bbar]').innerHTML = buildBarHtml(G());
   bindBuildBar();
   drawBuildCard();
