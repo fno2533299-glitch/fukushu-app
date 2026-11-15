@@ -1749,10 +1749,18 @@ function tutPlace() {
     Object.assign(ring.style, { left: `${x0}px`, top: `${y0}px`, width: `${x1 - x0}px`, height: `${y1 - y0}px` });
     const bw = bub.offsetWidth, bh = bub.offsetHeight;
     const cx = (x0 + x1) / 2;
-    bub.style.left = `${Math.round(Math.min(Math.max(12, cx - bw / 2), W - 12 - bw))}px`;
-    const below = y1 + 12 + bh <= H - 8;
-    const above = y0 - 12 - bh >= 8;
-    const top = (y0 + y1) / 2 > H / 2 ? (above ? y0 - 12 - bh : y1 + 12) : below ? y1 + 12 : above ? y0 - 12 - bh : H - bh - 8;
+    const left = Math.min(Math.max(12, cx - bw / 2), W - 12 - bw);
+    bub.style.left = `${Math.round(left)}px`;
+    // 吹き出しの縦の位置：対象のすぐ上か下。地点のメニューに重なるなら、画面の上か下の端へ（ほかのボタンを隠さない）
+    const avoid = [[x0, y0, x1, y1], ...[...document.querySelectorAll('.gmenu .gmi')].map((b) => {
+      const q = b.getBoundingClientRect();
+      return [q.left, q.top, q.right, q.bottom];
+    })];
+    const hits = (t) => avoid.some(([a, b, c, d]) => left < c && left + bw > a && t < d && t + bh > b);
+    const ok = (t) => t >= 8 && t + bh <= H - 8;
+    const near = (y0 + y1) / 2 > H / 2 ? [y0 - 12 - bh, y1 + 12] : [y1 + 12, y0 - 12 - bh];
+    const far = (y0 + y1) / 2 > H / 2 ? [64, H - bh - 72] : [H - bh - 72, 64];
+    const top = [...near, ...far].find((t) => ok(t) && !hits(t)) ?? near.find(ok) ?? H - bh - 8;
     bub.style.top = `${Math.round(Math.min(Math.max(8, top), H - bh - 8))}px`;
     bub.style.bottom = 'auto';
   }
