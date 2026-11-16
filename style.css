@@ -872,3 +872,46 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .galert.still, .galert.still * { transition: none !important; animation: none !important; }
 @media (prefers-reduced-motion: reduce) { .galert, .galert * { transition: none !important; animation: none !important; } }
 .gnotes.gwait .gng { color: var(--ng); }
+
+/* ---- 1.5.3 状態の札（上の帯のすぐ下。多いときは横にスクロール） ---- */
+.gstat { flex: none; display: none; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 5px 8px 1px; }
+.gstat::-webkit-scrollbar { display: none; }
+.gstat.on { display: flex; }
+.gchip { flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 34px; padding: 0 10px 0 7px; border-radius: 17px; border: 1.5px solid; font-size: 0.78rem; line-height: 1.2; white-space: nowrap; }
+.gchip svg { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.gchip b { font-weight: 700; }
+.gchip small { font-size: 0.7rem; opacity: .85; font-variant-numeric: tabular-nums; }
+.gchip.c-ev { color: #7a5600; background: #fff4cf; border-color: #e5b52e; }
+.gchip.c-inc { color: var(--ng); background: var(--ng-bg); border-color: var(--ng); }
+.gchip.c-shed { color: #fff; background: var(--ng); border-color: var(--ng); }
+.gchip.c-black { color: #fff; background: #7a0f0a; border-color: #ff5a4f; box-shadow: 0 0 0 2px rgba(255, 70, 60, .35); }
+@media (prefers-color-scheme: dark) { .gchip.c-ev { color: #ffd768; background: #3d3212; border-color: #b18a24; } }
+[data-theme=fx] .gchip.c-black, [data-theme=fx] .gchip.c-inc { animation: gchipglow 1.6s ease-in-out infinite; }
+@keyframes gchipglow { 50% { box-shadow: 0 0 0 3px rgba(255, 70, 60, .35); } }
+@media (prefers-reduced-motion: reduce) { .gchip { animation: none !important; } }
+
+/* ---- 1.5.3 小さなグラフ（高さ 40px。押すと需給） ---- */
+.gmini { flex: none; display: flex; align-items: stretch; gap: 6px; width: auto; margin: 5px 8px 0; padding: 0 0 0 4px; height: 44px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; text-align: left; }
+.gmsvg { flex: 1; min-width: 0; height: 40px; align-self: center; }
+.gmempty { align-self: center; font-size: 0.72rem; color: var(--muted); padding-left: 6px; }
+.gmlab { flex: none; width: 64px; display: flex; flex-direction: column; justify-content: center; padding-right: 8px; border-left: 1px solid var(--line); padding-left: 6px; font-size: 0.72rem; line-height: 1.35; font-variant-numeric: tabular-nums; }
+.gmlab small { font-size: 0.68rem; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.gmlab small.ok { color: var(--ok); } .gmlab small.warn { color: var(--idk); } .gmlab small.bad { color: var(--ng); }
+.gmini .gmday { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.gmini .gmcap { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; opacity: .7; }
+.gmini .gmhy { fill: var(--ghydro); opacity: .8; }
+.gmini .gmco { fill: var(--gcoal); opacity: .75; }
+.gmini .gmdc { fill: var(--gdc); opacity: .8; }
+.gmini .gmsv { fill: none; stroke: var(--ok); stroke-width: 1.2; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; }
+.gmini .gmdem { fill: none; stroke: var(--text); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.gmini .gmnow { stroke: var(--primary); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+.gmini .gmdot { fill: var(--primary); }
+
+/* ---- 1.5.3 収益の演出：上の帯の「¥」・緑の「+◯円」・町から飛ぶ「¥」（コインの金色の丸と分ける） ---- */
+.ghud .hyen { display: inline-block; width: 11px; height: 11px; margin-right: 3px; vertical-align: -1px; border-radius: 3px; background: var(--ok); color: #fff; font-size: 8px; font-style: normal; font-weight: 800; line-height: 11px; text-align: center; }
+.gyenfx { position: fixed; z-index: 76; pointer-events: none; transform: translateX(-50%); font-size: 0.82rem; font-weight: 800; color: var(--ok); text-shadow: 0 0 3px var(--card), 0 0 3px var(--card); font-variant-numeric: tabular-nums; white-space: nowrap; animation: gyenup 1.4s ease-out forwards; }
+.gyenfx.fx { text-shadow: 0 0 3px var(--card), 0 0 10px rgba(40, 200, 110, .6); }
+@keyframes gyenup { 0% { opacity: 0; transform: translate(-50%, 6px); } 15% { opacity: 1; transform: translate(-50%, 0); } 70% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -14px); } }
+.gyencoin { position: fixed; z-index: 55; pointer-events: none; width: 18px; height: 18px; border-radius: 50%; background: var(--ok); color: #fff; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+.gyencoin.fx { box-shadow: 0 0 8px 2px rgba(40, 200, 110, .55); }
+@media (prefers-reduced-motion: reduce) { .gyenfx { animation: gcoinfade 1.4s linear forwards; transform: translateX(-50%); } }

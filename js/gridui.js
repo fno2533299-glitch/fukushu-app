@@ -182,6 +182,8 @@ export async function screen(p, entering = false) {
       <header class="gbar${eraImg(g) ? ' hasimg' : ''}" style="${eraImg(g)}"><button class="back" data-back>‹ ${DEV.demo ? '戻る' : 'ホーム'}</button><button class="ghud" data-hud aria-label="需給を開く">${hudHtml(g)}</button></header>
       ${devBand()}
       ${g.rebuild ? '<button class="btn primary gwide gwarn grebuild" data-rebuild>経営再建：手放すか、借入れを選ぶ</button>' : ''}
+      <div class="gstat" data-chips>${chipsHtml(g)}</div>
+      ${miniOn() ? `<button class="gmini" data-mini aria-label="需給を開く">${miniHtml(g)}</button>` : ''}
       <div class="gmid" data-mid>
         <div class="gmapbox" data-mapbox>${mapSvg(g)}</div>
         <div class="gmenu" data-menu></div>
@@ -205,6 +207,10 @@ export async function screen(p, entering = false) {
         A.home();
       });
       A.on('[data-hud]', 'click', () => togglePanel('supply'));
+      A.on('[data-mini]', 'click', () => togglePanel('supply'));
+      bindChips();
+      yenShown = g.yen;
+      yenSys = g;
       A.on('[data-rebuild]', 'click', rebuildDialog);
       bindDock();
       bindDevBand();
@@ -233,6 +239,11 @@ function live() {
   const g = G();
   const q = (s) => document.querySelector(s);
   q('[data-hud]').innerHTML = hudHtml(g);
+  q('[data-chips]').innerHTML = chipsHtml(g);
+  bindChips();
+  const mini = q('[data-mini]');
+  if (mini) mini.innerHTML = miniHtml(g);
+  revenueFx(g);
   drawMap();
   q('[data-dock]').innerHTML = dockHtml(g);
   bindDock();
@@ -267,7 +278,7 @@ function hudHtml(g) {
   const [dv, du] = kw(l?.demand || 0).split(' '), [sv, su] = kw(l?.served || 0).split(' ');
   const ds = du === su ? `需要 <b>${dv}</b>／届 <b>${sv}</b> ${du}` : `需要 <b>${dv}</b> ${du}／届 <b>${sv}</b> ${su}`;
   return `<span class="hr"><span class="hcell grow1">${eraName(g.era)} ${timeShort(g)}</span><span class="hstate ${st.cls}">${st.text}</span></span>
-    <span class="hr"><span class="hcell"><i class="hcoin" aria-label="コイン"></i><b>${coinText(balance())}</b></span><span class="hcell">収益 <b class="${g.yen < 0 ? 'gneg' : ''}">${yenShort(g.yen)}</b></span><span class="hcell grow1">${ds}</span>${g.hz ? `<span class="hcell">${(g.hz + (l?.x || 0)).toFixed(2)}Hz</span>` : ''}</span>`;
+    <span class="hr"><span class="hcell"><i class="hcoin" aria-label="コイン"></i><b>${coinText(balance())}</b></span><span class="hcell" data-yencell><i class="hyen" aria-hidden="true">¥</i>収益 <b class="${g.yen < 0 ? 'gneg' : ''}" data-yen>${yenShort(g.yen)}</b></span><span class="hcell grow1">${ds}</span>${g.hz ? `<span class="hcell">${(g.hz + (l?.x || 0)).toFixed(2)}Hz</span>` : ''}</span>`;
 }
 
 // ---- 下のボタン5つ ----
@@ -462,6 +473,172 @@ function showAlert(a) {
   });
 }
 
+// ---- 1.5.3 状態の札：続いている出来事・待っている事故・負荷遮断や全域停電を、上の帯のすぐ下に（ゲームの状態異常のように） ----
+// 小さなアイコン＋名前＋「あと2日」。事故は赤、出来事は黄、悪い状態ほど目立つ色（並べ方と色は gridmenu.js の statusChips）。多いときは横にスクロール
+const CHIP_ICON = {
+  I01: '<path d="M13 2L5 13h5l-2 9 9-12h-5z"/>',
+  I02: '<path d="M3 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2M3 20c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2"/><path d="M12 3l-1.5 3.5h3L12 10" />',
+  I03: '<path d="M12 2v20M3.3 7l17.4 10M3.3 17L20.7 7M9 4l3 2 3-2M9 20l3-2 3 2"/>',
+  I04: '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+  I05: '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="9.5" cy="12" r="3"/><circle cx="14.5" cy="12" r="3"/>',
+  I06: '<path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l5-6"/><path d="M4 21h16"/>',
+  I07: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+  G18: '<path d="M12 3c-3 5-5 7.2-5 9.8a5 5 0 0 0 10 0C17 10.2 15 8 12 3z"/><path d="M4 20L20 4"/>',
+  heat: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+  cold: '<path d="M12 2v20M3.3 7l17.4 10M3.3 17L20.7 7M9 4l3 2 3-2M9 20l3-2 3 2"/>',
+  typhoon: '<path d="M12 12m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M14.5 12c0-5-4-8-9-7M9.5 12c0 5 4 8 9 7"/>',
+  snowstorm: '<path d="M12 2v20M3.3 7l17.4 10M3.3 17L20.7 7"/>',
+  coalSpike: '<path d="M4 20l5-6 4 3 7-9"/><path d="M15 8h5v5"/>',
+  priceWar: '<path d="M6 4l6 8 6-8M12 12v8M7 13h10M7 17h10"/>',
+  black: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/><path d="M3 3l18 18"/>',
+  shed: '<circle cx="6" cy="7" r="3"/><circle cx="6" cy="17" r="3"/><path d="M8.6 8.5L20 18M8.6 15.5L20 6"/>',
+};
+function chipIcon(c) {
+  const k = c.kind === 'inc' ? Mn.INC_PIC[c.key] : c.kind === 'ev' ? c.key : c.kind;
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${CHIP_ICON[k] || CHIP_ICON.I06}</svg>`;
+}
+function chipsHtml(g) {
+  return Mn.statusChips(g)
+    .map((c, i) => `<button class="gchip ${c.cls}" data-chip="${i}">${chipIcon(c)}<b>${A.esc(c.name)}</b>${c.left ? `<small>${A.esc(c.left)}</small>` : ''}</button>`)
+    .join('');
+}
+function bindChips() {
+  const el = document.querySelector('[data-chips]');
+  if (!el) return;
+  el.classList.toggle('on', !!el.children.length);
+  el.querySelectorAll('[data-chip]').forEach((b) => (b.onclick = () => chipTap(Mn.statusChips(G())[Number(b.dataset.chip)])));
+}
+// 押すと：事故は「対処を選ぶ」、出来事は詳しく、停電・負荷遮断は需給
+function chipTap(c) {
+  if (!c) return;
+  if (c.kind === 'inc') return incidentScreen(c.id);
+  if (c.kind !== 'ev') return togglePanel('supply');
+  const e = Gm.evOn(G(), c.key);
+  if (!e) return;
+  const E = Gm.EVENTS[c.key];
+  sheet(`<h2>${A.esc(E.name)}（${A.esc(c.left)}）</h2>${pic(c.key, 'wide')}<p>${A.esc(E.text)}。${E.days}日続く。</p><p class="small">出来事は時間がたつと終わります。需給のパネルで、需要と電源の動きを見られます。</p>`);
+}
+
+// ---- 1.5.3 小さなグラフ：上の帯の下（札の下）に高さ 40px。直近24時間の需要（線）・届いた量（緑の点線）・電源ごとの出力（積み上げ）、
+// いまの時刻の印、予備力の残り。押すと需給。経営のパネルでオン・オフ（初期値はオン。開発者モード・デモではその系統の設定に）
+const miniOn = () => (DEV.on ? DEV.state.opts.mini !== false : A.S.settings.gridMini !== false);
+async function setMini(on) {
+  if (DEV.on) {
+    DEV.state.opts.mini = on;
+    return save();
+  }
+  A.S.settings.gridMini = on;
+  return A.db.putKV('settings', A.S.settings);
+}
+function miniHtml(g) {
+  const hs = g.hist.slice(-24);
+  const l = g.last;
+  const W = 230, H = 40;
+  if (hs.length < 2 || !l) return '<span class="gmempty">需要と電源の小さなグラフ（1時間ごとに記録がたまると出ます）</span>';
+  const o = Gm.overview(g, learningNow());
+  // 縦の目盛りは需要と出力に合わせる（使える発電機の合計の点線は、入るときだけ）
+  const top = Math.max(1e-9, ...hs.map((h) => Math.max(h[1], h[3] + h[4] + h[5])));
+  const max = (o.cap > top && o.cap < top * 1.6 ? o.cap : top) * 1.12;
+  const X = (i) => W - (hs.length - 1 - i) * (W / 23);
+  const Y = (v) => H - 1 - (v / max) * (H - 3);
+  const P = (v) => v.toFixed(1);
+  const area = (lo, hi) => `M${hs.map((h, i) => `${P(X(i))},${P(Y(hi(h)))}`).join(' L')} L${hs.map((h, i) => `${P(X(hs.length - 1 - i))},${P(Y(lo(hs[hs.length - 1 - i])))}`).join(' L')}Z`;
+  const line = (f) => `M${hs.map((h, i) => `${P(X(i))},${P(Y(f(h)))}`).join(' L')}`;
+  const days = hs.map((h, i) => (h[0] % 24 === 0 ? `<line x1="${P(X(i))}" x2="${P(X(i))}" y1="0" y2="${H}" class="gmday"/>` : '')).join('');
+  const last = hs[hs.length - 1];
+  const margin = l.demand > 1e-6 ? o.cap / l.demand - 1 : null;
+  const rcls = margin == null ? '' : margin < 0 ? 'bad' : margin < g.reserve ? 'warn' : 'ok';
+  const rtext = margin == null ? '予備 —' : margin < 0 ? '予備 不足' : margin > 1 ? '予備 100%超' : `予備 ${pct(margin)}`;
+  return `<svg class="gmsvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${days}
+      ${o.cap <= max ? `<line x1="0" x2="${W}" y1="${P(Y(o.cap))}" y2="${P(Y(o.cap))}" class="gmcap"/>` : ''}
+      <path d="${area(() => 0, (h) => h[5])}" class="gmhy"/>
+      <path d="${area((h) => h[5], (h) => h[5] + h[4])}" class="gmco"/>
+      <path d="${area((h) => h[5] + h[4], (h) => h[5] + h[4] + h[3])}" class="gmdc"/>
+      <path d="${line((h) => h[2])}" class="gmsv"/>
+      <path d="${line((h) => h[1])}" class="gmdem"/>
+      <line x1="${W - 0.8}" x2="${W - 0.8}" y1="0" y2="${H}" class="gmnow"/>
+      <circle cx="${W - 1.5}" cy="${P(Y(last[1]))}" r="2.2" class="gmdot"/>
+    </svg><span class="gmlab"><b>${g.t % 24}時</b><small class="${rcls}">${rtext}</small></span>`;
+}
+
+// ---- 1.5.3 収益が増えたとき：上の帯の数字が数え上げるように増え、緑の「+◯円」が浮かんで消える。電気を届けている町から「¥」が収益の欄へ飛ぶ ----
+// 収益（円）と学習のコインは別物なので、色と印を分ける（収益は緑の「¥」、コインは金色の丸）。¥ は町ごとに 30 秒に1回まで
+let yenShown = null, yenSys = null;
+const yenAt = new Map();
+let yenSound = 0;
+const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+function revenueFx(g) {
+  const prev = yenShown;
+  yenShown = g.yen;
+  if (yenSys !== g) return (yenSys = g); // 系統が切り替わった
+  if (prev == null || !(g.yen - prev >= 1) || document.hidden || !onGrid()) return;
+  const b = document.querySelector('.ghud [data-yen]');
+  const cell = document.querySelector('.ghud [data-yencell]');
+  if (!b || !cell) return;
+  // 数え上げ
+  if (!still()) {
+    const t0 = performance.now(), d = 700;
+    const stepFx = (now) => {
+      const k = Math.min(1, (now - t0) / d);
+      if (!b.isConnected || yenShown !== g.yen) return;
+      b.textContent = yenShort(prev + (g.yen - prev) * (1 - (1 - k) ** 3));
+      if (k < 1) requestAnimationFrame(stepFx);
+    };
+    b.textContent = yenShort(prev);
+    requestAnimationFrame(stepFx);
+  }
+  // 緑の「+◯円」
+  const r = cell.getBoundingClientRect();
+  const f = document.createElement('span');
+  f.className = `gyenfx${A.fx() ? ' fx' : ''}`;
+  f.textContent = `+${yenShort(g.yen - prev)}`;
+  f.style.left = `${Math.round(r.left + r.width / 2)}px`;
+  f.style.top = `${Math.round(r.bottom - 4)}px`;
+  document.body.append(f);
+  setTimeout(() => f.remove(), 1500);
+  if (!still()) flyYen(g, r);
+}
+function flyYen(g, to) {
+  const svg = document.querySelector('[data-mapbox] .gmap');
+  const m = svg?.getScreenCTM();
+  if (!m || document.querySelector('.galert')) return;
+  const now = Date.now();
+  let k = 0;
+  for (const n of Gm.nodesOf(g)) {
+    const st = g.last?.towns[n.id];
+    if (!n.town || !st || !(st.d > 0) || !(st.r > 0) || !g.loads.some((x) => x.town === n.id)) continue;
+    if (now - (yenAt.get(n.id) || 0) < 30000 || k >= 3) continue;
+    yenAt.set(n.id, now);
+    const p = at(n);
+    const x = m.a * p.x + m.c * p.y + m.e, y = m.b * p.x + m.d * p.y + m.f - 14;
+    const el = document.createElement('span');
+    el.className = `gyencoin${A.fx() ? ' fx' : ''}`;
+    el.textContent = '¥';
+    el.style.left = `${Math.round(x)}px`;
+    el.style.top = `${Math.round(y)}px`;
+    document.body.append(el);
+    const dx = to.left + 8 - x, dy = to.top + to.height / 2 - y;
+    const a = el.animate(
+      [
+        { transform: 'translate(-50%, -50%) scale(.3)', opacity: 0 },
+        { transform: 'translate(-50%, calc(-50% - 12px)) scale(1.1)', opacity: 1, offset: 0.22 },
+        { transform: 'translate(-50%, calc(-50% - 12px)) scale(1)', opacity: 1, offset: 0.38 },
+        { transform: `translate(calc(-50% + ${dx.toFixed(0)}px), calc(-50% + ${dy.toFixed(0)}px)) scale(.55)`, opacity: 0.9, offset: 0.95 },
+        { transform: `translate(calc(-50% + ${dx.toFixed(0)}px), calc(-50% + ${dy.toFixed(0)}px)) scale(.4)`, opacity: 0 },
+      ],
+      { duration: 1300, delay: k * 160, easing: 'ease-in-out', fill: 'both' },
+    );
+    a.onfinish = () => {
+      el.remove();
+      if (A.fx() && Date.now() - yenSound > 10000) {
+        yenSound = Date.now();
+        A.playNotes([[1568, 0]]);
+      }
+    };
+    k++;
+  }
+}
+
 // ---- 1.5.2 したことの表示：上の帯のすぐ下（中央）に短い帯を2〜3秒。続けて起きたら順に出す ----
 // テーマがシンプルでも出す（何をしたかの情報なので）。演出ありでは光と短い音を足す
 const ACTQ = [];
@@ -476,7 +653,7 @@ function band(text) {
   if (!actBusy) nextBand();
 }
 function bandTop() {
-  const els = ['.gscreen .gbar', '.gscreen .gdevband', '.gscreen .grebuild', 'header.top', '.gdevband'].map((q) => document.querySelector(q)).filter(Boolean);
+  const els = ['.gscreen .gbar', '.gscreen .gdevband', '.gscreen .grebuild', '.gscreen .gstat', '.gscreen .gmini', 'header.top', '.gdevband'].map((q) => document.querySelector(q)).filter(Boolean);
   return els.length ? Math.max(...els.map((e) => e.getBoundingClientRect().bottom)) + 6 : 8;
 }
 function nextBand() {
@@ -1532,6 +1709,7 @@ function managePanel(g, lc) {
       <p class="small">いつでも、明治の小さな島からやり直せます。時代（レベル）・設計図・性能の上乗せは引き継ぎ、この島の記録は残ります。この島の設備と収益はなくなり、使ったコインは戻りません。</p>
       <button class="btn" data-newisland>新しい島を選ぶ</button>
       <h3>そのほか</h3>
+      <label class="row"><input type="checkbox" data-minion ${miniOn() ? 'checked' : ''}><span>小さなグラフを出す<small>上の帯の下に、直近24時間の需要と電源の出力・予備力の残り（押すと需給）</small></span></label>
       ${DEV.tut || DEV.demo ? '' : '<button class="btn gwide" data-tutagain>チュートリアルをもう一度</button>'}
       <p class="small">テーマ（シンプル／演出あり）は、ホームの「出題対象の設定」で変えられます。演出ありでは、建設・時代が進んだとき・全域停電からの復旧に音と光が付きます。</p>
       ${versionHtml()}`,
@@ -1539,6 +1717,10 @@ function managePanel(g, lc) {
       onAll('[data-rebuild2]', 'click', rebuildDialog);
       onAll('[data-newisland]', 'click', islandDialog);
       onAll('[data-tutagain]', 'click', startTutorial);
+      onAll('[data-minion]', 'change', async (e) => {
+        await setMini(e.target.checked);
+        screen();
+      });
       bindVersion(onAll);
     },
   };

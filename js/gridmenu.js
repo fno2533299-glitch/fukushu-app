@@ -337,3 +337,20 @@ export function newAlerts(g, seen) {
 export function planAlerts(list) {
   return { each: list.slice(0, 2), rest: list.slice(2) };
 }
+
+// ---- 1.5.3 上の帯の下の状態の札（ゲームの状態異常のように）：全域停電・負荷遮断・事故の対処待ち・続いている出来事 ----
+// 悪い状態ほど前に、目立つ色で（cls：c-black＞c-shed＞c-inc＞c-ev）。left：残りの時間（「あと2日」）
+export function leftText(h) {
+  h = Math.max(0, Math.ceil(h));
+  return h < 24 ? `あと${h}時間` : `あと${Math.ceil(h / 24)}日`;
+}
+export function statusChips(g) {
+  const t = g.t;
+  const out = [];
+  const black = Math.max(0, ...Object.values(g.black || {}));
+  if (black > t) out.push({ kind: 'black', name: '全域停電', left: `復旧まで${leftText(black - t)}`, cls: 'c-black' });
+  else if (g.last?.shed) out.push({ kind: 'shed', name: '負荷遮断', left: '', cls: 'c-shed' });
+  for (const i of [...g.incidents].sort((a, b) => a.deadline - b.deadline)) out.push({ kind: 'inc', id: i.id, key: i.key, name: (INC_HEAD[i.key] || Gm.INCIDENTS[i.key].title).replace(/発生$/, ''), left: leftText(i.deadline - t), cls: 'c-inc' });
+  for (const e of g.events.filter((x) => x.until > t).sort((a, b) => a.until - b.until)) out.push({ kind: 'ev', key: e.key, name: Gm.EVENTS[e.key].name, left: leftText(e.until - t), cls: 'c-ev' });
+  return out;
+}
