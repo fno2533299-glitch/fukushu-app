@@ -14,6 +14,7 @@ const FILES = [
   './js/griddev.js',
   './js/gridmenu.js',
   './js/gridimg.js',
+  './js/gridart.js',
   // GRID_IMAGES_BEGIN（ツール/系統画像/make_grid_images.py が書き換える）
   './img/grid/G01.webp',
   './img/grid/G02.webp',

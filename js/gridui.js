@@ -7,6 +7,7 @@ import * as L from './logic.js';
 import * as Dv from './griddev.js';
 import * as Mn from './gridmenu.js';
 import { GRID_IMAGES } from './gridimg.js';
+import * as Art from './gridart.js';
 
 let A = null; // app.js から渡される部品（S・db・show・on・esc・toast など）
 // チュートリアル（1.5.2）：練習の島（kv「gridTutorial」）で動かす。DEV と同じ仕組み（tut: true）
@@ -470,7 +471,7 @@ function mapSvg(g) {
   const cand = B ? candidates(g, learningNow()) : null;
   const selId = sel?.kind === 'node' ? sel.id : null;
   const selLine = sel?.kind === 'line' ? sel.id : null;
-  let s = `<path d="${ISLAND}" fill="var(--land)" stroke="var(--coast)" stroke-width="1.5"/>`;
+  let s = `${Art.MAP_DEFS}<path d="${ISLAND}" fill="var(--land)" stroke="var(--coast)" stroke-width="1.5"/>`;
   // 地形：雪の地域（北西）・山・川・海岸
   s += '<path d="M40,84 C60,46 110,26 150,22 C150,60 120,110 70,140 C40,140 26,116 40,84Z" fill="var(--gsnow)" opacity=".7"/>';
   s += [[150, 60], [176, 46], [205, 62], [232, 52], [262, 70], [118, 86], [278, 104], [196, 96]].map(([x, y]) => `<path d="M${x - 11},${y + 9} L${x},${y - 9} L${x + 11},${y + 9}Z" fill="var(--gmount)"/>`).join('');
@@ -505,25 +506,9 @@ function mapSvg(g) {
     const plants = g.plants.filter((p) => p.site === n.id);
     const subs = g.subs.filter((v) => v.town === n.id);
     const inc = g.incidents.some((i) => i.town === n.id || plants.some((p) => p.id === i.plant) || subs.some((v) => v.id === i.sub));
-    let body = '';
-    if (n.town) {
-      const open = n.era <= g.era;
-      const st = g.last?.towns[n.id];
-      const has = g.loads.some((l) => l.town === n.id);
-      const fill = !has ? 'var(--card)' : !st || st.d <= 0 ? 'var(--gidle)' : st.r >= 0.999 ? 'var(--glit)' : st.r > 0 ? 'var(--idk-bg)' : 'var(--gdark)';
-      body = `<circle cx="${x}" cy="${y}" r="11" fill="${fill}" stroke="${has ? 'var(--text)' : 'var(--muted)'}" stroke-width="1.6" ${open ? '' : 'stroke-dasharray="2 3" opacity=".5"'}/>
-        <path d="M${x - 5},${y + 4} v-5 l3,-3 l3,3 v5z M${x + 1},${y + 4} v-8 h4 v8z" fill="${has ? 'var(--text)' : 'var(--muted)'}" opacity="${open ? 0.8 : 0.4}"/>`;
-      if (subs.length) body += `<rect x="${x + 9}" y="${y - 15}" width="10" height="10" rx="2" fill="var(--card)" stroke="${subs.some((v) => v.readyAt <= t && v.downUntil <= t) ? 'var(--gline)' : subs.every((v) => v.readyAt > t) ? 'var(--muted)' : 'var(--ng)'}" stroke-width="1.5" ${subs.every((v) => v.readyAt > t) ? 'stroke-dasharray="2 2"' : ''}/><text x="${x + 14}" y="${y - 7}" class="gmark">変</text>`;
-    } else {
-      body = `<path d="M${x},${y - 9} L${x + 9},${y} L${x},${y + 9} L${x - 9},${y}Z" fill="var(--card)" stroke="var(--muted)" stroke-width="1.3" ${plants.length ? '' : 'stroke-dasharray="2 3"'}/>`;
-    }
-    plants.forEach((p, i) => {
-      const D = Gm.PLANTS[p.type];
-      const px = x - 14 - (i % 2) * 11, py = y - 14 + Math.floor(i / 2) * 11;
-      const out = g.last?.plants[p.id] || 0;
-      const col = p.readyAt > t ? 'var(--muted)' : p.downUntil > t ? 'var(--ng)' : out > 0 ? (D.coal ? 'var(--gcoal)' : 'var(--ghydro)') : 'var(--gidleplant)';
-      body += D.coal ? `<rect x="${px - 4.5}" y="${py - 4.5}" width="9" height="9" rx="1.5" fill="${col}" ${p.readyAt > t ? 'opacity=".5"' : ''}/>` : `<path d="M${px - 5},${py + 4.5} L${px},${py - 5} L${px + 5},${py + 4.5}Z" fill="${col}" ${p.readyAt > t ? 'opacity=".5"' : ''}/>`;
-    });
+    // 1.5.3：町は家並み（灯ると窓が光り、まわりに光の輪）、用地は菱形。発電所・変電所は種類のアイコンを横に出し、短い線でつなぐ（gridart.js）
+    let body = n.town ? Art.townSvg(x, y, Art.townLook(g, n)) : `<path d="M${x},${y - 9} L${x + 9},${y} L${x},${y + 9} L${x - 9},${y}Z" fill="var(--card)" stroke="var(--muted)" stroke-width="1.3" ${plants.length ? '' : 'stroke-dasharray="2 3"'}/>`;
+    body += Art.assetsSvg(g, n, x, y);
     // 工事中の発電所・変圧器：残りの時間を小さく添える
     const work = [...plants, ...subs].filter((v) => v.readyAt > t).map((v) => v.readyAt - t);
     if (work.length) body += `<text x="${x}" y="${y - 25}" class="glabel gwork">工事 あと${hoursText(Math.min(...work))}</text>${cone(x + 14, y + 13, markOf(n.id) === 'work')}`;
@@ -560,6 +545,8 @@ function syncFlows() {
     if (a && 'startTime' in a) a.startTime = 0;
     else el.style.animationDelay = `${(-((Date.now() / 1000) % Number(el.dataset.sec))).toFixed(3)}s`; // 古いブラウザ：現在時刻から決める
   }
+  // 1.5.3：町の灯り・煙・水・水車・点滅も、描き直しで動きがやり直しにならないよう位相をそろえる
+  for (const el of document.querySelectorAll('.gmap .gsync')) for (const a of el.getAnimations?.() || []) if ('startTime' in a) a.startTime = 0;
 }
 function drawMap() {
   const box = document.querySelector('[data-mapbox]');

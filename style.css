@@ -782,3 +782,65 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 
 /* 1.5.3 デモの帯（開発者モードの赤・チュートリアルの緑と見分ける） */
 .gdevband.gdemoband { background: #4a3d9a; }
+
+/* ---- 1.5.3 町の家並みと、発電所・変電所の種類のアイコン（gridart.js）。動きは gsync（描き直しても位相をそろえる） ---- */
+:root {
+  --ghouse: #efe4cc; --gedge: #6d6352; --groof: #b35a3c; --gwinoff: #8b919a; --gwinon: #ffc928; --gglow: #ffc12e;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --ghouse: #4d535d; --gedge: #a3aab4; --groof: #9a5d48; --gwinoff: #22262c; --gwinon: #ffd447; --gglow: #ffcc4a; }
+}
+.gmap .gwall { fill: var(--ghouse); stroke: var(--gedge); stroke-width: .7; }
+.gmap .groof { fill: var(--groof); stroke: var(--gedge); stroke-width: .6; stroke-linejoin: round; }
+.gmap .gwin { fill: var(--gwinoff); }
+.gmap .gwin.on { fill: var(--gwinon); }
+.gmap .t-none .gwall, .gmap .t-none .groof { fill: var(--card); stroke: var(--muted); }
+.gmap .t-none .gwin { fill: var(--line); }
+.gmap .t-dark .gwall { fill: var(--gdark); stroke: var(--muted); }
+.gmap .t-dark .groof { fill: #3b3e45; stroke: var(--muted); }
+.gmap .t-dark .gwin { fill: #17191d; }
+.gmap .gfuture { opacity: .42; }
+.gmap .gfuture .gwall, .gmap .gfuture .groof { fill: none; stroke: var(--muted); stroke-dasharray: 2 2; }
+.gmap .gtglow { pointer-events: none; transform-box: fill-box; transform-origin: center; animation: gtglow 3.2s ease-in-out infinite; }
+@keyframes gtglow { 0%, 100% { transform: scale(.86); } 50% { transform: scale(1.08); } }
+[data-theme=fx] .gmap .gtglow { animation-name: gtglowfx; animation-duration: 2.6s; }
+@keyframes gtglowfx { 0%, 100% { transform: scale(.9); } 50% { transform: scale(1.22); } }
+.gmap .gasset { --gi: var(--gidleplant); }
+.gmap .gasset.k-coal, .gmap .gasset.k-bigcoal { --gi: var(--gcoal); }
+.gmap .gasset.k-wheel, .gmap .gasset.k-dam { --gi: var(--ghydro); }
+.gmap .gasset.k-sub { --gi: var(--gline); }
+.gmap .gasset.s-stop { --gi: var(--gidleplant); }
+.gmap .gasset.s-work { --gi: var(--muted); }
+.gmap .gasset.s-down { --gi: var(--ng); }
+.gmap .gi-bg { fill: var(--card); stroke: var(--gi); stroke-width: 1.6; }
+.gmap .s-work .gi-bg { stroke-dasharray: 2.4 2; }
+.gmap .gi-b { fill: var(--gi); }
+.gmap .gi-w { stroke: var(--card); stroke-width: 1.4; }
+.gmap .gi-r { fill: var(--card); stroke: var(--gi); stroke-width: 1.3; }
+.gmap .gi-s { stroke: var(--gi); stroke-width: 1; }
+.gmap .gi-f { fill: none; stroke: var(--gi); stroke-width: 1.3; stroke-linejoin: round; }
+.gmap .gi-c { fill: none; stroke: var(--card); stroke-width: 1.1; }
+.gmap .gi-lake { fill: var(--griver); }
+.gmap .gi-sc { fill: none; stroke: #e8812c; stroke-width: 1.3; }
+.gmap .gi-link { stroke: var(--muted); stroke-width: 1; opacity: .75; }
+.gmap .gi-n rect { fill: var(--text); }
+.gmap .gi-n text { fill: var(--bg); font-size: 6.6px; font-weight: 700; text-anchor: middle; }
+.gmap .gsmoke { opacity: 0; }
+.gmap .gsmoke path { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linecap: round; }
+.gmap .s-run .gsmoke { animation: gsmoke 2.4s ease-out infinite; }
+@keyframes gsmoke { 0% { transform: translate(0, 1px); opacity: .95; } 50% { transform: translate(.9px, -1px); opacity: .7; } 100% { transform: translate(-.6px, -3.4px); opacity: .05; } }
+.gmap .s-run .gwheel { transform-box: fill-box; transform-origin: center; animation: gspin 4s linear infinite; }
+@keyframes gspin { to { transform: rotate(360deg); } }
+.gmap .gwater, .gmap .gspray { fill: none; stroke: var(--ghydro); stroke-width: 1.3; stroke-linecap: round; stroke-dasharray: 3 2; }
+.gmap .gspray { stroke-dasharray: 1.6 1.6; opacity: 0; }
+.gmap .s-run .gspray { opacity: 1; }
+.gmap .s-run .gwater, .gmap .s-run .gspray { animation: gwater 1s linear infinite; }
+@keyframes gwater { to { stroke-dashoffset: -5; } }
+.gmap .gblink { animation: gblink 1s step-end infinite; }
+@keyframes gblink { 50% { fill: var(--ng-bg); } }
+[data-theme=fx] .gmap .s-run .gsmoke { animation-duration: 1.9s; }
+@media (prefers-reduced-motion: reduce) {
+  .gmap .gtglow, .gmap .gsmoke, .gmap .gwheel, .gmap .gwater, .gmap .gspray, .gmap .gblink { animation: none !important; }
+  .gmap .s-run .gsmoke { opacity: .7; }
+  .gmap .gblink { fill: var(--ng-bg); }
+}
