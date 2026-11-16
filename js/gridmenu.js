@@ -304,3 +304,36 @@ export function tutorialAction(g, lc, name, advance) {
   }
   return { ok: true };
 }
+
+// ---- 1.5.3 事故・出来事が起きたときの演出：見出し・絵・新しく起きたものの見つけ方 ----
+// 事故の絵は7つにまとめる（I01〜I07。試作/系統ゲーム_画像プロンプト.md）。渇水は出来事の絵（G18）。絵がない間は fallback の G の絵
+export const INC_PIC = { lightning: 'I01', backFlash: 'I01', arc: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18' };
+export const PIC_FALLBACK = { I01: 'G11', I02: 'G11', I03: 'G15', I04: 'G06', I05: 'G10', I06: 'G11', I07: 'G01' };
+export const EV_PIC = { heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18' };
+// 赤い太字の見出し（「◯◯発生」。起きたことではなく判断を求めるものは、それに合う言い方）
+export const INC_HEAD = { dcDrop: '電圧低下発生', parallelIn: '並列投入の判断', salt: '塩害発生', gallop: 'ギャロッピング発生', genTrip: '発電機故障発生', genShort: '発電機故障・予備力不足', reserve: '予備力不足', trLoss: '変圧器の損失報告', trParallel: '循環電流発生', trShare: '変圧器過負荷発生', lineOver: '送電線過負荷発生', factoryPf: '低力率の申し込み', motor: '電灯のちらつき発生', lightning: '落雷事故発生', backFlash: '逆フラッシオーバ発生', arc: '地絡アーク発生', drought: '渇水発生' };
+export const EV_HEAD = { heat: '猛暑到来', cold: '厳冬到来', typhoon: '台風発生', snowstorm: '大雪発生', coalSpike: '石炭価格高騰', priceWar: '電力戦勃発', drought: '渇水発生' };
+const evId = (e) => `${e.key}@${e.at}`;
+// いまある事故と出来事の印（これと比べて、新しく起きたものを見つける）
+export function alertSeen(g) {
+  return { inc: new Set(g.incidents.map((i) => i.id)), ev: new Set(g.events.filter((e) => e.until > g.t).map(evId)) };
+}
+// 印のあとで新しく起きたもの（起きた順）。kind：inc（事故）／ev（出来事）
+export function newAlerts(g, seen) {
+  const out = [];
+  for (const e of g.events) {
+    if (e.until <= g.t || seen?.ev.has(evId(e)) || !Gm.EVENTS[e.key]) continue;
+    const E = Gm.EVENTS[e.key];
+    const days = Math.max(1, Math.round((e.until - e.at) / 24));
+    out.push({ kind: 'ev', key: e.key, at: e.at, head: EV_HEAD[e.key] || E.name, pic: EV_PIC[e.key], text: `${E.text}。${days}日続く（あと${hoursText(e.until - g.t)}）。` });
+  }
+  for (const i of g.incidents) {
+    if (seen?.inc.has(i.id)) continue;
+    out.push({ kind: 'inc', id: i.id, key: i.key, at: i.at, head: INC_HEAD[i.key] || Gm.INCIDENTS[i.key].title, pic: INC_PIC[i.key], text: i.what || Gm.INCIDENTS[i.key].title });
+  }
+  return out.sort((a, b) => a.at - b.at || (a.kind === 'ev' ? -1 : 1));
+}
+// 続けて起きたら順に出す。3つ目からは1枚にまとめる（rest）
+export function planAlerts(list) {
+  return { each: list.slice(0, 2), rest: list.slice(2) };
+}

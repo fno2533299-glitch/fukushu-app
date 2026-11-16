@@ -96,11 +96,13 @@ async function tick() {
   const steps = await sync();
   if (steps > 0 && !DEV.on && onGrid()) announceDone(A.S.grid, before);
   if (steps > 0 && !DEV.on && idle()) live();
+  if (steps > 0 && !DEV.on) collectAlerts();
 }
 export async function onVisible() {
   if (!A?.S.grid && !DEV.on) return;
   if (A.S.grid) await sync();
   if (DEV.on) DEV.state.grid.realAt = Date.now(); // 開発者の系統・デモは、開いている間だけ進む
+  markSeen(); // 閉じていた間に起きたものは演出しない（前回からの結果・状態の札で）
   if (idle()) screen(undefined, !DEV.on);
 }
 
@@ -192,7 +194,9 @@ export async function screen(p, entering = false) {
     </div>`,
     () => {
       S.view = 'grid';
+      inGrid = true;
       A.on('[data-back]', 'click', () => {
+        leaveGrid();
         if (DEV.demo) return exitDemo();
         summary = null;
         B = null;
@@ -214,7 +218,9 @@ export async function screen(p, entering = false) {
       drawDetail();
       effects(g);
       tutPlace();
+      if (entering || AL.g !== G()) markSeen(); // 閉じていた間に起きたもの・切り替えた系統のものは、演出ではなく前回からの結果・状態の札で
       if (entering) offerTutorial();
+      drainAlerts();
     },
   );
 }
@@ -351,7 +357,109 @@ function overlay(picKey, title, text, notes) {
   ov.innerHTML = `<div class="gov">${pic(picKey, 'wide')}<h2>${A.esc(title)}</h2><p>${A.esc(text)}</p><button class="btn primary" data-close>閉じる</button></div>`;
   document.body.append(ov);
   if (A.fx()) A.playNotes(notes.map((f, i) => [f, i * 0.12]));
-  ov.querySelector('[data-close]').onclick = () => ov.remove();
+  ov.querySelector('[data-close]').onclick = () => {
+    ov.remove();
+    drainAlerts();
+  };
+}
+
+// ---- 1.5.3 事故・出来事が起きたときの演出：暗くする → 絵が下から中央へ → 赤い太字「◯◯発生」→ ボタン ----
+// 開いている間に起きたものだけ（閉じていた間の分は前回からの結果と状態の札）。続けて起きたら順に、3つ目からはまとめる。
+// チュートリアル・事故の問題の途中には出さず、系統の画面に戻ってから出す。テーマがシンプルでも出し、演出ありでは揺れと音を足す
+const AL = { g: null, seen: null, queue: [], busy: false };
+let inGrid = false; // 系統の画面（事故の問題の画面を含む）を開いている
+function markSeen() {
+  AL.g = G();
+  AL.seen = AL.g ? Mn.alertSeen(AL.g) : null;
+}
+function leaveGrid() {
+  inGrid = false;
+  AL.queue = [];
+}
+// 時間が進んだあとに呼ぶ：新しく起きたものを待ち行列へ（別の系統に切り替わった・系統を開いていない・チュートリアルの間は印だけ）
+function collectAlerts() {
+  const g = G();
+  if (!g) return;
+  if (AL.g !== g || !AL.seen) return markSeen();
+  const fresh = Mn.newAlerts(g, AL.seen);
+  markSeen();
+  if (!fresh.length || !inGrid || tutOn()) return;
+  AL.queue.push(...fresh);
+  drainAlerts();
+}
+const alertIdle = () => onGrid() && !tutOn() && !DEV.running && !document.querySelector('.modal, .goverlay, .galert, .gtut');
+async function drainAlerts() {
+  if (AL.busy || !AL.queue.length || !alertIdle()) return;
+  AL.busy = true;
+  try {
+    const g = G();
+    const live = AL.queue.splice(0).filter((a) => a.kind !== 'inc' || g.incidents.some((i) => i.id === a.id)); // もう片づいた事故は出さない
+    const { each, rest } = Mn.planAlerts(live);
+    for (let k = 0; k < each.length; k++) {
+      const a = each[k];
+      const r = await showAlert(a);
+      if (r === 'go') {
+        AL.queue.unshift(...each.slice(k + 1), ...rest); // 残りは系統の画面に戻ってから
+        AL.busy = false;
+        return incidentScreen(a.id);
+      }
+      if (r === 'list') setPanel('list');
+    }
+    if (rest.length) {
+      const r = await showAlert({ kind: 'rest', head: `ほかにも ${rest.length}件`, text: rest.map((a) => a.head).join('・'), pic: null });
+      if (r === 'list') setPanel('list');
+    }
+  } finally {
+    AL.busy = false;
+    if (AL.queue.length) setTimeout(drainAlerts, 0); // 出している間に起きたもの
+  }
+}
+function alertPic(id) {
+  const src = id && (GRID_IMAGES[id] || GRID_IMAGES[Mn.PIC_FALLBACK[id]]);
+  return src ? `<img src="${src}" alt="">` : `<svg viewBox="0 0 48 36" aria-hidden="true">${PH.storm}</svg>`;
+}
+// 1枚の演出。戻り値（Promise）：押したボタン（go・list・close）
+function showAlert(a) {
+  return new Promise((resolve) => {
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const ov = document.createElement('div');
+    ov.className = `galert k-${a.kind}${A.fx() ? ' fx' : ''}${still ? ' still' : ''}`;
+    ov.setAttribute('role', 'alertdialog');
+    ov.setAttribute('aria-modal', 'true');
+    ov.setAttribute('aria-label', a.head);
+    const btns = a.kind === 'inc' ? '<button class="btn primary" data-al="go">対処を選ぶ</button><button class="btn" data-al="list">あとで（一覧へ）</button>' : a.kind === 'rest' ? '<button class="btn primary" data-al="list">一覧へ</button><button class="btn" data-al="close">閉じる</button>' : '<button class="btn primary" data-al="close">閉じる</button>';
+    const note = a.kind === 'inc' ? '<p class="galnote">ゲームの1日（現実の1時間）のうちに対処を選ぶ。選ばなければ標準の被害で片づく</p>' : '';
+    ov.innerHTML = `<div class="galbox"><div class="galpic${a.pic ? '' : ' ph'}">${alertPic(a.pic)}<p class="galhead">${A.esc(a.head)}</p></div><p class="galtext">${A.esc(a.text)}</p>${note}<div class="galbtns">${btns}</div><p class="galskip" aria-hidden="true">画面を押すと、とばせます</p></div>`;
+    document.body.append(ov);
+    const timers = [];
+    const head = () => {
+      if (ov.classList.contains('p2')) return;
+      ov.classList.add('p2');
+      if (A.fx()) A.playNotes([[740, 0], [554.4, 0.13], [740, 0.26]]); // 短い警告の音（演出ありだけ）
+    };
+    const all = () => {
+      timers.forEach(clearTimeout);
+      ov.classList.add('p1');
+      head();
+      ov.classList.add('p3');
+      ov.querySelector('[data-al]')?.focus({ preventScroll: true });
+    };
+    if (still) all();
+    else {
+      void ov.offsetWidth;
+      ov.classList.add('p1'); // 暗くする・絵が下から中央へ（0.5 秒）
+      timers.push(setTimeout(head, 560)); // 赤い太字
+      timers.push(setTimeout(all, 1560)); // ボタン
+    }
+    ov.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-al]');
+      if (b && ov.classList.contains('p3')) {
+        ov.remove();
+        return resolve(b.dataset.al);
+      }
+      if (!ov.classList.contains('p3')) all(); // 画面を押すと、演出をとばしてボタンまで
+    });
+  });
 }
 
 // ---- 1.5.2 したことの表示：上の帯のすぐ下（中央）に短い帯を2〜3秒。続けて起きたら順に出す ----
@@ -444,8 +552,17 @@ function summaryPanel() {
       <p class="small">売電 ${yen(s.rev)} − 燃料 ${yen(s.fuel)} − 保守 ${yen(s.maint)} − 修理 ${yen(s.repair)}${s.loan ? ` − 返済 ${yen(s.loan)}` : ''}</p>
       <p class="small">届かなかった電力量 ${Math.round(s.unserved).toLocaleString('ja-JP')} kWh${bad.length ? ` ・ ${bad.join(' ・ ')}` : s.unserved < 1 ? ' ・ 停電なし' : ''}${s.apps ? ` ・ 新しい申し込み ${s.apps}件` : ''}</p>
       ${s.notes.length ? `<ul class="gnotes">${s.notes.map((n) => `<li>${A.esc(n)}</li>`).join('')}</ul>` : ''}
+      ${waitingHtml(G())}
     </div>`,
+    bind: ({ onAll }) => onAll('[data-golist2]', 'click', () => setPanel('list')),
   };
+}
+// 1.5.3：閉じていた間に起きた事故・続いている出来事は、演出ではなく前回からの結果に入れる
+function waitingHtml(g) {
+  const incs = g.incidents.map((i) => `<li class="gng">事故：${A.esc(Gm.INCIDENTS[i.key].title)}（対処待ち。あと ${Math.max(0, i.deadline - g.t)}時間）</li>`);
+  const evs = g.events.filter((e) => e.until > g.t).map((e) => `<li>出来事：${A.esc(Gm.EVENTS[e.key].name)}（${A.esc(Gm.EVENTS[e.key].text)}。あと${Mn.hoursText(e.until - g.t)}）</li>`);
+  if (!incs.length && !evs.length) return '';
+  return `<ul class="gnotes gwait">${incs.join('')}${evs.join('')}</ul>${incs.length ? '<button class="btn primary" data-golist2>一覧で対処を選ぶ</button>' : ''}`;
 }
 
 // ---- 地図 ----
@@ -821,6 +938,7 @@ function unitButtons(units) {
   return `<p class="gunits">${list.map((u) => `<button class="btn small" data-unitgo="${u}">${A.esc(A.subjectOf(A.unitSubjectId(u))?.name || '')}「${A.esc(A.shortName(A.unitName(u)))}」を解く</button>`).join('')}</p>`;
 }
 function goUnit(unitId) {
+  leaveGrid();
   document.querySelector('.modal.gsheet')?.remove();
   summary = null;
   B = null;
@@ -1056,7 +1174,10 @@ function sheet(html, bind) {
   dlg.className = 'modal gsheet';
   dlg.innerHTML = `<div class="sheet">${html}<div class="actions"><button class="btn" data-close>閉じる</button></div></div>`;
   document.body.append(dlg);
-  const close = () => dlg.remove();
+  const close = () => {
+    dlg.remove();
+    setTimeout(drainAlerts, 0); // シートの間に起きたことの演出を、閉じてから出す
+  };
   dlg.querySelector('[data-close]').onclick = close;
   dlg.addEventListener('click', (e) => e.target === dlg && close());
   const q = (sel) => dlg.querySelector(sel);
@@ -1847,6 +1968,7 @@ export async function enterDemo() {
 }
 async function exitDemo() {
   if (DEV.running) return A.toast('早送りの途中です');
+  leaveGrid();
   await save();
   Object.assign(DEV, { on: false, demo: false, key: Dv.DEV_KEY, state: DEV.devState || null });
   summary = null;
@@ -1897,6 +2019,7 @@ async function devTick() {
   const before = Mn.underWork(g);
   Dv.advance(g, learningNow(), n, DEV.state.money);
   if (onGrid()) announceDone(g, before);
+  collectAlerts();
   if (Date.now() - DEV.savedAt > 5000) {
     DEV.savedAt = Date.now();
     save();
@@ -1971,14 +2094,16 @@ function devSheet() {
         await save();
         if (!r.ok) return A.toast(r.why);
         close();
-        if (r.inc) return incidentScreen(r.inc.id);
-        screen();
+        await screen();
+        collectAlerts(); // 1.5.3：起きたときの演出（暗転 → 絵 → 赤い太字）から「対処を選ぶ」
       });
       onAll('[data-evgo]', 'click', async () => {
         const r = Dv.triggerEvent(G(), learningNow(), $('[data-evkey]').value);
         await save();
-        A.toast(r.ok ? '出来事を起こした' : r.why);
-        if (r.ok) (close(), screen());
+        if (!r.ok) return A.toast(r.why);
+        close();
+        await screen();
+        collectAlerts();
       });
       onAll('[data-devreset]', 'click', async (e) => {
         const g2 = Dv.freshGrid(Date.now(), e.currentTarget.dataset.devreset);
@@ -2019,5 +2144,6 @@ async function devJump(kind, $) {
   document.querySelector('.modal.gsheet')?.remove();
   await screen();
   announceDone(G(), before);
-  devSheet();
+  collectAlerts();
+  if (!AL.busy) devSheet(); // 起きたことの演出があれば、そちらを先に
 }
