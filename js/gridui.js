@@ -12,6 +12,8 @@ let A = null; // app.js から渡される部品（S・db・show・on・esc・to
 // チュートリアル（1.5.2）：練習の島（kv「gridTutorial」）で動かす。DEV と同じ仕組み（tut: true）
 const tutOn = () => DEV.on && DEV.tut;
 const devMode = () => DEV.on && !DEV.tut;
+// 1.5.3 デモ：問題データなしで試す別の系統（kv「gridDemo」）。開発者モードと同じ操作ができる（demo: true）
+const demoOn = () => DEV.on && DEV.demo;
 let lcCache = null;
 let summary = null; // 開いたときのまとめ（閉じるまでパネルに出す）
 let gridSession = null; // 事故の問題の回答をまとめるセッション（mode「系統」）
@@ -23,7 +25,7 @@ let whyOpen = null; // 建設のパネルで、理由を開いている種類
 let sel = null;
 // 開発者モード（1.5.1）：本番とは別の系統（kv「gridDev」）。入っているかどうかは保存しない（開き直すと本番に戻る）
 // 1.5.2：チュートリアルの練習の島も同じ仕組みで動かす（tut: true、key: 'gridTutorial'）
-const DEV = { on: false, tut: false, key: Dv.DEV_KEY, state: null, taps: 0, tapAt: 0, savedAt: 0, running: false };
+const DEV = { on: false, tut: false, demo: false, key: Dv.DEV_KEY, state: null, taps: 0, tapAt: 0, savedAt: 0, running: false };
 let store = null;
 
 export function init(api) {
@@ -59,10 +61,12 @@ function learningReal() {
   if (!lcCache || lcCache.key !== key) lcCache = { key, lc: Gm.learning(S.logs, S.data, S.grid?.perfMax || {}) };
   return lcCache.lc;
 }
+// 開発者モード・デモの学習の状況の元（デモは問題データを使わない）
+const learningBase = () => (DEV.demo ? Dv.demoBase() : learningReal());
 // いま出している系統の学習の状況（開発者モードでは差し替える）
 export function learningNow() {
   if (!DEV.on) return learningReal();
-  return DEV.tut ? Mn.tutorialLearning(learningReal()) : Dv.devLearning(learningReal(), DEV.state.opts);
+  return DEV.tut ? Mn.tutorialLearning(learningReal()) : Dv.devLearning(learningBase(), DEV.state.opts);
 }
 
 // 現実の時刻まで本番の系統を進めて保存する（開発者モードの間も、本番の系統は現実の時刻で回る）。戻り値：進めた刻みの数
@@ -93,15 +97,15 @@ async function tick() {
   if (steps > 0 && !DEV.on && idle()) live();
 }
 export async function onVisible() {
-  if (!A?.S.grid) return;
-  await sync();
-  if (DEV.on) DEV.state.grid.realAt = Date.now(); // 開発者の系統は、開いている間だけ進む
+  if (!A?.S.grid && !DEV.on) return;
+  if (A.S.grid) await sync();
+  if (DEV.on) DEV.state.grid.realAt = Date.now(); // 開発者の系統・デモは、開いている間だけ進む
   if (idle()) screen(undefined, !DEV.on);
 }
 
 // 学習通貨の支出は、ガチャと同じ台帳に記録する（開発者モードでは書かない）
 const spend = (coins, what) => store.spend(coins, what, { gachaId: A.uid(), at: new Date().toISOString() });
-const balance = () => store.balance(A.walletNow().balance);
+const balance = () => store.balance(DEV.on ? 0 : A.walletNow().balance); // 開発者モード・デモでは本番のコインを見ない
 const coinText = (v) => (v === Infinity ? '∞' : A.num(v));
 
 export function timeLabel(g = G()) {
@@ -153,8 +157,10 @@ export function homeCard() {
 // p：開くパネル（'map' や null なら閉じたまま、undefined なら今のまま）。entering：外から入ったとき（前回からの結果を出す）
 export async function screen(p, entering = false) {
   const { S } = A;
-  if (!S.grid) await sync();
-  if (!S.grid) return A.toast('問題データを読み込むと使えるようになります');
+  if (!DEV.on) {
+    if (!S.grid) await sync();
+    if (!S.grid) return A.toast('問題データを読み込むと使えるようになります');
+  }
   if (p !== undefined) panel = p === 'map' ? null : p;
   if (entering) {
     B = null;
@@ -170,7 +176,7 @@ export async function screen(p, entering = false) {
   const g = G();
   A.show(
     `<div class="gscreen${B ? ' building' : ''}">
-      <header class="gbar${eraImg(g) ? ' hasimg' : ''}" style="${eraImg(g)}"><button class="back" data-back>‹ ホーム</button><button class="ghud" data-hud aria-label="需給を開く">${hudHtml(g)}</button></header>
+      <header class="gbar${eraImg(g) ? ' hasimg' : ''}" style="${eraImg(g)}"><button class="back" data-back>‹ ${DEV.demo ? '戻る' : 'ホーム'}</button><button class="ghud" data-hud aria-label="需給を開く">${hudHtml(g)}</button></header>
       ${devBand()}
       ${g.rebuild ? '<button class="btn primary gwide gwarn grebuild" data-rebuild>経営再建：手放すか、借入れを選ぶ</button>' : ''}
       <div class="gmid" data-mid>
@@ -186,6 +192,7 @@ export async function screen(p, entering = false) {
     () => {
       S.view = 'grid';
       A.on('[data-back]', 'click', () => {
+        if (DEV.demo) return exitDemo();
         summary = null;
         B = null;
         panel = null;
@@ -820,6 +827,7 @@ function whyHtml(q) {
   return `<p class="warn small">${A.esc(q.why)}</p>${unitButtons(units)}`;
 }
 function unitButtons(units) {
+  if (DEV.demo) return ''; // デモには問題データがないので「この単元を解く」は出さない
   const has = new Set(L.activeQuestions(A.S.data).map((x) => x.unitId));
   const list = [...new Set(units)].filter((u) => has.has(u));
   if (!list.length) return units.length ? '<p class="small">（関係する単元の問題が、まだ問題データにありません）</p>' : '';
@@ -1314,7 +1322,7 @@ function devSupplyHtml(g, lc) {
     const out = g.last?.plants[p.id] || 0;
     return `<p class="spread grow"><span>${D.short} ${kw(p.kw)}（${A.esc(Gm.nodeOf(g, p.site).name)}）<small> ${plantState(g, p)}</small></span><small>出力 ${kw(out)}（${pct(p.kw ? out / p.kw : 0)}）${D.coal ? ` ・ 効率 ${(Gm.plantEff(p, lc) * 100).toFixed(1)}%` : ''}</small></p>`;
   }).join('');
-  return `<div class="gdevbox"><h3>開発者モード：直近 ${d.hours}時間の収益の内訳</h3>
+  return `<div class="gdevbox"><h3>${DEV.demo ? "デモ" : "開発者モード"}：直近 ${d.hours}時間の収益の内訳</h3>
     <p class="spread grow"><span>料金（売電）</span><b>${yen(d.rev)}</b></p>
     <p class="spread grow"><span>燃料費</span><b>−${yen(d.fuel)}</b></p>
     <p class="spread grow"><span>保守費</span><b>−${yen(d.maint)}</b></p>
@@ -1416,7 +1424,7 @@ function managePanel(g, lc) {
       <p class="small">いつでも、明治の小さな島からやり直せます。時代（レベル）・設計図・性能の上乗せは引き継ぎ、この島の記録は残ります。この島の設備と収益はなくなり、使ったコインは戻りません。</p>
       <button class="btn" data-newisland>新しい島を選ぶ</button>
       <h3>そのほか</h3>
-      ${DEV.tut ? '' : '<button class="btn gwide" data-tutagain>チュートリアルをもう一度</button>'}
+      ${DEV.tut || DEV.demo ? '' : '<button class="btn gwide" data-tutagain>チュートリアルをもう一度</button>'}
       <p class="small">テーマ（シンプル／演出あり）は、ホームの「出題対象の設定」で変えられます。演出ありでは、建設・時代が進んだとき・全域停電からの復旧に音と光が付きます。</p>
       ${versionHtml()}`,
     bind: ({ onAll }) => {
@@ -1433,7 +1441,8 @@ function incidentScreen(id) {
   const { S } = A;
   const g = G();
   const inc = g.incidents.find((x) => x.id === id);
-  const q = inc && S.data.questions.find((x) => x.questionId === inc.qid);
+  const q = inc && S.data?.questions.find((x) => x.questionId === inc.qid);
+  if (inc && !q && DEV.demo) return demoNoQuestion(inc);
   if (!q) return screen('list');
   const order = L.shuffle(q.choices);
   A.show(
@@ -1483,7 +1492,7 @@ async function answerIncident(inc, q, order, choiceId) {
     `<header class="top"><h1>事故の対処</h1></header>
     ${devBand()}
     <div class="verdict ${correct ? 'ok' : 'ng'}">${correct ? '正しく対処した' : '対処を誤った'}</div>
-    <section class="card geffect"><p>${A.esc(text || '')}</p>${DEV.on ? `<p class="small">${DEV.tut ? '練習の島' : '開発者モード'}：回答記録には残りません</p>` : correct ? '<p class="small">コイン +100（同じ問題は1日1回まで）</p>' : ''}</section>
+    <section class="card geffect"><p>${A.esc(text || '')}</p>${DEV.on ? `<p class="small">${DEV.tut ? '練習の島' : DEV.demo ? 'デモ' : '開発者モード'}：回答記録には残りません</p>` : correct ? '<p class="small">コイン +100（同じ問題は1日1回まで）</p>' : ''}</section>
     <div class="choices done">
       ${order.map((c, i) => `<div class="choice ${c.choiceId === q.correctChoiceId ? `correct${correct ? ' flash' : ''}` : c.choiceId === choiceId ? 'wrong' : ''}"><span class="mark">${'ABCD'[i]}</span><span>${A.rich(c.text)}</span></div>`).join('')}
     </div>
@@ -1830,8 +1839,59 @@ async function exitDev() {
   A.toast('本番の系統に戻った');
   screen(null);
 }
+// ---- 1.5.3 デモ：問題データなしで試す（データ管理の「動く系統を試す（デモ）」、URL の ?demo）。kv「gridDemo」 ----
+// 本番の kv「grid」・回答記録・コイン（gachaLog）などには書かない（書き込みはすべて makeStore を通る）
+export const wantsDemo = Dv.wantsDemo;
+export async function enterDemo() {
+  if (DEV.running) return;
+  if (DEV.on) await save();
+  const now = Date.now();
+  DEV.state = Dv.normalize(await A.db.getKV(Dv.DEMO_KEY), now);
+  DEV.state.grid.realAt = now; // デモの系統は、開いている間だけ進む
+  Object.assign(DEV, { on: true, tut: false, demo: true, key: Dv.DEMO_KEY });
+  summary = null;
+  B = null;
+  sel = null;
+  panel = null;
+  Gm.applyLearning(G(), learningNow());
+  delete G().eraUp;
+  await save();
+  await screen(null);
+}
+async function exitDemo() {
+  if (DEV.running) return A.toast('早送りの途中です');
+  await save();
+  Object.assign(DEV, { on: false, demo: false, key: Dv.DEV_KEY, state: DEV.devState || null });
+  summary = null;
+  B = null;
+  sel = null;
+  panel = null;
+  document.querySelector('.modal.gsheet')?.remove();
+  A.home();
+}
+// デモで「対処を選ぶ」：問題データがないので問題は出さない（標準の被害で片づける）
+function demoNoQuestion(inc) {
+  sheet(
+    `<h2>${A.esc(Gm.INCIDENTS[inc.key].title)}</h2>
+    <p class="small">${A.esc(inc.what || '')}</p>
+    <p>デモでは問題が出ません。本番では、ここで4択の対処を選びます（正しいと被害が小さく、誤ると大きくなります）。</p>
+    <button class="btn primary gwide" data-settle>標準の被害で片づける</button>
+    <p class="small">閉じると、ゲームの1日たったときに標準の被害で片づきます。</p>`,
+    ({ onAll, close }) =>
+      onAll('[data-settle]', 'click', async () => {
+        Dv.settleIncident(G(), inc.id);
+        await save();
+        close();
+        await screen();
+        act('incident', { title: Gm.INCIDENTS[inc.key].title, settled: true });
+      }),
+  );
+}
 const devSpeedText = () => `${DEV.state.opts.speed ? `×${DEV.state.opts.speed}` : '停止中'} ・ 操作`;
 function devBand() {
+  if (DEV.demo)
+    return `<div class="gdevband gdemoband"><span><b>デモ（記録には残りません）</b><small>問題データなしで試せます</small></span>
+    <span class="gdevbtns"><button class="btn small" data-devops>${devSpeedText()}</button><button class="btn small" data-devout>抜ける</button></span></div>`;
   if (DEV.tut) return '<div class="gdevband gtutband"><span><b>チュートリアル（練習の島）</b><small>本番の系統・コイン・記録は変わりません</small></span></div>';
   if (!DEV.on) return '';
   return `<div class="gdevband"><span><b>開発者モード</b><small>本番の記録には影響しません</small></span>
@@ -1839,11 +1899,11 @@ function devBand() {
 }
 function bindDevBand() {
   A.on('[data-devops]', 'click', devSheet);
-  A.on('[data-devout]', 'click', exitDev);
+  A.on('[data-devout]', 'click', () => (DEV.demo ? exitDemo() : exitDev()));
 }
 // 現実の時刻に合わせて開発者の系統を進める（×10・×100 は1秒ごとに見る）
 async function devTick() {
-  if (!DEV.on || DEV.tut || DEV.running || document.hidden || !A?.S.data) return;
+  if (!DEV.on || DEV.tut || DEV.running || document.hidden || (!A?.S.data && !DEV.demo)) return;
   const g = G();
   const n = Dv.dueSteps(g, Date.now(), DEV.state.opts.speed);
   if (!n) return;
@@ -1862,12 +1922,12 @@ const devSheetLive = () => {
   if (el) el.textContent = `${timeLabel(G())} ・ 島 ${G().islandNo}（${Gm.TERRAINS[G().terrain].name}）`;
 };
 function devSheet() {
-  const g = G(), o = DEV.state.opts, real = learningReal(), lc = learningNow();
+  const g = G(), o = DEV.state.opts, real = learningBase(), lc = learningNow();
   const perfNow = Math.round((o.perf ?? 0) * 100);
   const incs = Object.entries(Gm.INCIDENTS).map(([k, D]) => `<option value="${k}">${A.esc(D.title)}</option>`).join('');
   const evs = Object.entries(Gm.EVENTS).map(([k, E]) => `<option value="${k}">${A.esc(E.name)}（${A.esc(E.text)}）</option>`).join('');
   sheet(
-    `<h2>開発者モードの操作</h2>
+    `<h2>${DEV.demo ? 'デモの操作' : '開発者モードの操作'}</h2>
     <p class="small" data-devclock>${timeLabel(g)} ・ 島 ${g.islandNo}（${Gm.TERRAINS[g.terrain].name}）</p>
     <h3>時間</h3>
     <div class="gseg">${Dv.SPEEDS.map((v) => `<button class="btn small ${o.speed === v ? 'on' : ''}" data-speed="${v}">${v ? `×${v}` : '一時停止'}</button>`).join('')}</div>
@@ -1884,15 +1944,15 @@ function devSheet() {
     <label class="row"><span>レベル</span><input type="number" min="1" max="60" value="${o.level ?? real.level}" data-level class="gnum"></label>
     <label class="row"><span>時代</span><select data-era><option value="">レベルから決める</option>${Gm.ERAS.filter((e) => e.n <= Gm.MAX_ERA).map((e) => `<option value="${e.n}" ${o.era === e.n ? 'selected' : ''}>${e.id} ${e.name}</option>`).join('')}</select></label>
     <label class="row"><span>定着の問題数</span><input type="number" min="0" max="5000" value="${o.mastered ?? real.mastered}" data-mastered class="gnum"></label>
-    <p class="small">いま：Lv ${lc.level} ・ ${eraName(lc.era)} ・ 定着 ${lc.mastered}問 ・ 需要の上限 ${kw(lc.dmax)}（本番の記録は Lv ${real.level}・定着 ${real.mastered}問）</p>
-    <button class="btn small" data-devreal>本番の記録の値に戻す</button>
+    <p class="small">いま：Lv ${lc.level} ・ ${eraName(lc.era)} ・ 定着 ${lc.mastered}問 ・ 需要の上限 ${kw(lc.dmax)}${DEV.demo ? '' : `（本番の記録は Lv ${real.level}・定着 ${real.mastered}問）`}</p>
+    <button class="btn small" data-devreal>${DEV.demo ? '最初の値に戻す' : '本番の記録の値に戻す'}</button>
     <h3>事故・出来事をすぐ起こす</h3>
     <div class="grow gpick"><select data-inckey>${incs}</select><button class="btn small" data-incgo>起こす</button></div>
     <div class="grow gpick"><select data-evkey>${evs}</select><button class="btn small" data-evgo>起こす</button></div>
-    <p class="small">事故の問題も解けます（回答記録には残りません。正誤だけをゲームに反映します）。対象の設備がなければ、対象なしで起きます。</p>
+    <p class="small">${DEV.demo ? 'デモでは事故の問題は出ません（標準の被害で片づきます）。' : '事故の問題も解けます（回答記録には残りません。正誤だけをゲームに反映します）。'}対象の設備がなければ、対象なしで起きます。</p>
     <h3>系統のリセット</h3>
     <div class="gseg">${Object.entries(Gm.TERRAINS).map(([k, T]) => `<button class="btn small" data-devreset="${k}">${T.name}</button>`).join('')}</div>
-    <p class="small">選んだ地形で、開発者の系統を最初からやり直します（本番の系統は変わりません）。</p>`,
+    <p class="small">選んだ地形で、${DEV.demo ? 'デモ' : '開発者'}の系統を最初からやり直します（本番の系統は変わりません）。</p>`,
     ({ q: $, onAll, close }) => {
       const set = async (patch) => {
         Object.assign(o, patch);
@@ -1909,7 +1969,7 @@ function devSheet() {
         set({ speed: Number(e.currentTarget.dataset.speed) });
       });
       onAll('[data-jump]', 'click', (e) => devJump(e.currentTarget.dataset.jump, $));
-      $('[data-coins]').onchange = (e) => set(e.target.checked ? { coins: 'unlimited' } : { coins: 'limited', devCoins: o.devCoins || A.walletNow().balance });
+      $('[data-coins]').onchange = (e) => set(e.target.checked ? { coins: 'unlimited' } : { coins: 'limited', devCoins: o.devCoins || (DEV.demo ? 100000 : A.walletNow().balance) });
       onAll('[data-devcoins]', 'change', (e) => set({ devCoins: Math.max(0, Number(e.target.value) || 0) }));
       $('[data-gates]').onchange = (e) => set({ ignoreGates: e.target.checked });
       $('[data-perfon]').onchange = (e) => set({ perf: e.target.checked ? o.perf ?? 0.5 : null });
@@ -1920,7 +1980,7 @@ function devSheet() {
       $('[data-mastered]').onchange = (e) => set({ mastered: Math.max(0, Math.round(Number(e.target.value) || 0)) });
       onAll('[data-devreal]', 'click', () => set({ level: null, era: null, mastered: null, perf: null }));
       onAll('[data-incgo]', 'click', async () => {
-        const r = Dv.triggerIncident(G(), learningNow(), $('[data-inckey]').value);
+        const r = Dv.triggerIncident(G(), learningNow(), $('[data-inckey]').value, DEV.demo ? 'デモ' : '開発者モード');
         await save();
         if (!r.ok) return A.toast(r.why);
         close();

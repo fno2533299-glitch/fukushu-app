@@ -173,7 +173,7 @@ export function actText(g, kind, x = {}) {
     case 'cap':
       return `${nodeName(g, x.town)}の工場に進相コンデンサを付けた（力率 0.95）`;
     case 'incident':
-      return `事故「${x.title}」：${x.correct ? '正しく対処した' : '対処を誤った'}${x.text ? `。${x.text}` : ''}`;
+      return `事故「${x.title}」：${x.settled ? '標準の被害で片づけた' : x.correct ? '正しく対処した' : '対処を誤った'}${x.text ? `。${x.text}` : ''}`;
     case 'accept':
       return `${nodeName(g, x.town)}の${Gm.LOADS[x.type].name}（${Gm.fmtKw(x.kw)}）の申し込みを受けた`;
     case 'hold':

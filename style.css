@@ -779,3 +779,6 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gbar.hasimg { position: relative; isolation: isolate; }
 .gbar.hasimg::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--eraimg) center 40% / cover no-repeat; opacity: .16; pointer-events: none; }
 @media (prefers-color-scheme: dark) { .gbar.hasimg::before { opacity: .28; } }
+
+/* 1.5.3 デモの帯（開発者モードの赤・チュートリアルの緑と見分ける） */
+.gdevband.gdemoband { background: #4a3d9a; }

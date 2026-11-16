@@ -1381,6 +1381,8 @@ function dataScreen() {
   const has = !!S.data && S.data.questions.length > 0;
   const open = S.reports.filter((r) => !r.resolved);
   const qById = new Map((S.data?.questions || []).map((q) => [q.questionId, q]));
+  // 1.5.3：問題データがなくても、動く系統を試せる（デモ。記録には残らない）。URL に ?demo を付けて開いても入れる
+  const demoCard = `<section class="card"><h2>動く系統のデモ</h2><p class="note">問題データがなくても、動く系統（発電所と送電線で町に電気を届けるゲーム）を試せます。コイン無制限・早送りつきで、学習の記録・コイン・系統には残りません。</p><button class="btn" data-demo>動く系統を試す（デモ）</button></section>`;
   show(
     `<header class="top">${has ? '<button class="back" data-back>‹ ホーム</button>' : ''}<h1>データ管理</h1></header>
     ${has ? '' : `<section class="card welcome"><h2>はじめに</h2><p>問題データ（.json）を読み込むと使えるようになります。iPhoneでは「ファイル」アプリ（Google Drive など）から選べます。</p></section>`}
@@ -1400,6 +1402,7 @@ function dataScreen() {
       <p class="note">カードと称号のデータ：${S.cards ? `読み込み済み（${esc(new Date(S.cards.importedAt).toLocaleString('ja-JP'))}）` : 'まだありません（「カードと称号.json」も同じボタンで読み込めます）'}</p>
       <button class="btn primary" data-import>問題データを読み込む</button>
     </section>
+    ${has ? '' : demoCard}
     <section class="card">
       <h2>バックアップ</h2>
       <p class="note">問題データ・学習履歴・設定を1つのファイルに書き出します。最終書き出し：${esc(S.lastBackup ? new Date(S.lastBackup).toLocaleString('ja-JP') : 'なし')}</p>
@@ -1422,12 +1425,14 @@ function dataScreen() {
           : '<p class="note">まだありません</p>'
       }
     </section>
+    ${has ? demoCard : ''}
     <p class="note center">記録 ${S.logs.length}件 ／ 復習状態 ${Object.keys(S.states).length}問 ／ 版 ${esc(window.APP_VERSION || '')}</p>`,
     () => {
       on('[data-back]', 'click', home);
       on('[data-import]', 'click', importFlow);
       on('[data-backup]', 'click', exportBackup);
       on('[data-restore]', 'click', restoreFlow);
+      on('[data-demo]', 'click', () => GU.enterDemo());
       on('[data-resolve]', 'change', async (e) => {
         const r = S.reports.find((x) => x.reportId === e.target.dataset.resolve);
         r.resolved = e.target.checked;
@@ -1565,7 +1570,7 @@ async function restoreFlow() {
     () => {
       on('[data-cancel]', 'click', dataScreen);
       on('[data-ok]', 'click', async () => {
-        await db.replaceAll(b, S.cards, await db.getKV('gridDev')); // 古いバックアップ（カードのデータなし）なら、今のカードのデータを残す。開発者モードの系統も残す
+        await db.replaceAll(b, S.cards, await db.getKV('gridDev'), await db.getKV('gridDemo')); // 古いバックアップ（カードのデータなし）なら、今のカードのデータを残す。開発者モード・デモの系統も残す
         await load();
         await syncCollection();
         await GU.sync();
@@ -1639,7 +1644,8 @@ try {
   await load();
   await syncCollection(); // これまでの記録で手に入る称号・覚醒（さかのぼって効く）
   await GU.sync(); // 閉じていた分だけ系統を進める（1.5.0）
-  home();
+  if (GU.wantsDemo(location.search)) await GU.enterDemo(); // 1.5.3：URL に ?demo（Gemini のリモートブラウザでのレビュー用）
+  else home();
 } catch (e) {
   app.innerHTML = `<p class="warn">データを読み込めませんでした：${esc(e.message)}</p>`;
 }

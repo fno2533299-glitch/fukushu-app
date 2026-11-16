@@ -1,8 +1,24 @@
 // 動く系統の開発者モード（1.5.1）。画面に依存しない部分（テストできるように分けた）
 // 本番とは別の系統（kv「gridDev」）で動かし、本番の kv「grid」・回答記録・コイン（gachaLog）・称号などには一切書かない
 import * as Gm from './grid.js';
+import { GRID_SUBJECT } from './logic.js';
 
 export const DEV_KEY = 'gridDev';
+// 1.5.3 デモ：問題データなしで動く系統を試す（Gemini のリモートブラウザでのレビュー用）。開発者モードと同じ仕組みで、kv「gridDemo」に保存する
+export const DEMO_KEY = 'gridDemo';
+// URL に ?demo（?demo=1、?x=1&demo など）が付いていれば、デモから始める
+export const wantsDemo = (search) => new URLSearchParams(search || '').has('demo');
+// デモの学習の状況の元：何も学習していない状態に、事故の問題の一覧だけ入れる（問題データがなくても事故が起きるように）
+export const DEMO_QIDS = [...new Set(Object.values(Gm.INCIDENTS).flatMap((D) => D.q.map((q) => `${GRID_SUBJECT}-${q}`)))];
+export const demoBase = () => Gm.blankLearning({ incidentQs: new Set(DEMO_QIDS) });
+// デモの事故の問題がないとき：その事故だけを標準の被害で片づける（期限が来たときと同じ扱い）
+export function settleIncident(G, id) {
+  const i = G.incidents.findIndex((x) => x.id === id);
+  if (i < 0) return false;
+  const [inc] = G.incidents.splice(i, 1);
+  Gm.addReport(G, { title: Gm.INCIDENTS[inc.key].title, what: `${inc.what || ''}標準の被害で片づいた（デモ）。`, units: Gm.INCIDENTS[inc.key].units });
+  return true;
+}
 export const SPEEDS = [0, 1, 10, 100]; // 一時停止・×1・×10・×100
 export const JUMPS = { day: 24, week: 24 * 7, year: 24 * Gm.YEAR_DAYS }; // 1年＝16,128 刻み
 
@@ -110,7 +126,8 @@ const LINE_KEYS = { salt: 'coast', gallop: 'snow', lightning: 'thunder', backFla
 const PLANT_KEYS = ['parallelIn', 'genTrip', 'genShort'];
 const SUB_KEYS = ['trLoss', 'trParallel', 'trShare'];
 const TOWN_KEYS = ['dcDrop', 'factoryPf', 'motor'];
-export function triggerIncident(G, lc, key) {
+// tag：事故の文に添える呼び名（開発者モード／デモ）
+export function triggerIncident(G, lc, key, tag = '開発者モード') {
   if (!Gm.INCIDENTS[key]) return { ok: false, why: '事故の種類がない' };
   if (key === 'drought') {
     const e = Gm.evOn(G, 'drought');
@@ -133,7 +150,7 @@ export function triggerIncident(G, lc, key) {
     if (l) {
       info.line = l.id;
       const name = Gm.lineName(G, l);
-      if (key === 'lineOver') info.what = `${name}の使用率が 120% を超えた（開発者モード）。`;
+      if (key === 'lineOver') info.what = `${name}の使用率が 120% を超えた（${tag}）。`;
       else {
         const dur = 24;
         const cost = l.cost * 0.05;
@@ -141,7 +158,7 @@ export function triggerIncident(G, lc, key) {
         if (circuit) l.c1Until = t + dur;
         else l.downUntil = t + dur;
         G.yen -= cost;
-        Object.assign(info, { dur, cost, circuit, what: `${name}が止まった（開発者モード。${circuit ? '1回線' : '全回線'}）。` });
+        Object.assign(info, { dur, cost, circuit, what: `${name}が止まった（${tag}。${circuit ? '1回線' : '全回線'}）。` });
       }
     }
   } else if (PLANT_KEYS.includes(key)) {
@@ -149,7 +166,7 @@ export function triggerIncident(G, lc, key) {
     if (p) {
       info.plant = p.id;
       const name = `${Gm.nodeOf(G, p.site).name}の${Gm.PLANTS[p.type].short}（${Gm.fmtKw(p.kw)}）`;
-      if (key === 'parallelIn') info.what = `${name}を、系統に並列投入する（開発者モード）。`;
+      if (key === 'parallelIn') info.what = `${name}を、系統に並列投入する（${tag}）。`;
       else {
         const dur = 48;
         const cost = p.cost * 0.05;
@@ -157,17 +174,17 @@ export function triggerIncident(G, lc, key) {
         p.onAt = null;
         p.downUntil = t + dur;
         G.yen -= cost;
-        Object.assign(info, { dur, cost, what: `${name}が故障で止まった（開発者モード）。` });
+        Object.assign(info, { dur, cost, what: `${name}が故障で止まった（${tag}）。` });
       }
     }
   } else if (SUB_KEYS.includes(key)) {
     const s = G.subs[0];
-    if (s) Object.assign(info, { sub: s.id, what: `${Gm.nodeOf(G, s.town).name}の変電所から報告が来た（開発者モード）。` });
+    if (s) Object.assign(info, { sub: s.id, what: `${Gm.nodeOf(G, s.town).name}の変電所から報告が来た（${tag}）。` });
   } else if (TOWN_KEYS.includes(key)) {
     const town = G.loads[0]?.town || 'T1';
-    Object.assign(info, { town, what: `${Gm.nodeOf(G, town).name}で起きた（開発者モード）。` });
+    Object.assign(info, { town, what: `${Gm.nodeOf(G, town).name}で起きた（${tag}）。` });
   }
-  info.what ||= '開発者モードで起こした。';
+  info.what ||= `${tag}で起こした。`;
   G.cool[key] = 0;
   const inc = Gm.raise(G, lc, key, info);
   if (!inc) return { ok: false, why: '事故の問題（系統の事故.json）が読み込まれていない' };
