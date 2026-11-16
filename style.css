@@ -894,7 +894,7 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gmini { flex: none; display: flex; align-items: stretch; gap: 6px; width: auto; margin: 5px 8px 0; padding: 0 0 0 4px; height: 44px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; text-align: left; }
 .gmsvg { flex: 1; min-width: 0; height: 40px; align-self: center; }
 .gmempty { align-self: center; font-size: 0.72rem; color: var(--muted); padding-left: 6px; }
-.gmlab { flex: none; width: 64px; display: flex; flex-direction: column; justify-content: center; padding-right: 8px; border-left: 1px solid var(--line); padding-left: 6px; font-size: 0.72rem; line-height: 1.35; font-variant-numeric: tabular-nums; }
+.gmlab { flex: none; width: 78px; display: flex; flex-direction: column; justify-content: center; padding-right: 8px; border-left: 1px solid var(--line); padding-left: 6px; font-size: 0.72rem; line-height: 1.35; font-variant-numeric: tabular-nums; }
 .gmlab small { font-size: 0.68rem; font-weight: 700; color: var(--muted); white-space: nowrap; }
 .gmlab small.ok { color: var(--ok); } .gmlab small.warn { color: var(--idk); } .gmlab small.bad { color: var(--ng); }
 .gmini .gmday { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }

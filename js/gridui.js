@@ -1711,7 +1711,7 @@ function managePanel(g, lc) {
       <h3>そのほか</h3>
       <label class="row"><input type="checkbox" data-minion ${miniOn() ? 'checked' : ''}><span>小さなグラフを出す<small>上の帯の下に、直近24時間の需要と電源の出力・予備力の残り（押すと需給）</small></span></label>
       ${DEV.tut || DEV.demo ? '' : '<button class="btn gwide" data-tutagain>チュートリアルをもう一度</button>'}
-      <p class="small">テーマ（シンプル／演出あり）は、ホームの「出題対象の設定」で変えられます。演出ありでは、建設・時代が進んだとき・全域停電からの復旧に音と光が付きます。</p>
+      <p class="small">テーマ（シンプル／演出あり）は、ホームの「出題対象の設定」で変えられます。事故・出来事が起きたときの演出と収益の演出は、どちらのテーマでも出ます。演出ありでは、揺れ・光・音が少し強くなります（建設・時代が進んだとき・全域停電からの復旧にも音と光）。</p>
       ${versionHtml()}`,
     bind: ({ onAll }) => {
       onAll('[data-rebuild2]', 'click', rebuildDialog);
