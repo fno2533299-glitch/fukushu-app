@@ -700,8 +700,9 @@ export function solve(G, lc, t, o = {}) {
     if (!n.town) continue;
     const f = f0.get(n.id) || 0;
     const a = Math.max(0, f * (1 + sigma * (sigma ? gauss(G) : 0)));
+    if (!(f > 0 || a > 0)) continue;
     const q = G.loads.filter((ld) => ld.town === n.id).reduce((s, ld) => s + loadKw(G, ld, t) * loadTan(ld), 0) * (f > 0 ? a / f : 0);
-    if (f > 0 || a > 0) dem.set(n.id, { f, a, q });
+    dem.set(n.id, { f, a, q });
   }
   const dcNets = networks(G, t, true);
   const acNets = networks(G, t, false);
@@ -726,12 +727,22 @@ export function solve(G, lc, t, o = {}) {
     return m;
   };
   const fcShare = new Map();
+  const NONE = new Map();
   const dcShareAt = (d, tt) => {
+    if (!d.plants.length) return NONE; // 直流の発電所のない網（1.6.0：地点が多いので、先に省く）
     const key = `${d.nodes[0]}|${tt}`;
     if (!fcShare.has(key)) fcShare.set(key, share(d, dcCap(d, t) * 0.95, (n) => fcTown(tt).get(n) || 0));
     return fcShare.get(key);
   };
-  const acFc = (net, tt) => net.nodes.reduce((x, n) => x + (fcTown(tt).get(n) || 0) * (1 - (dcShareAt(dcOf.get(n), tt).get(n) || 0)), 0);
+  const acFc = (net, tt) => {
+    const fc = fcTown(tt);
+    let x = 0;
+    for (const n of net.nodes) {
+      const v = fc.get(n);
+      if (v) x += v * (1 - (dcShareAt(dcOf.get(n), tt).get(n) || 0));
+    }
+    return x;
+  };
   const results = [];
   const served = new Map(); // 町 → 届いた割合
   const rest = new Map();
@@ -750,6 +761,8 @@ export function solve(G, lc, t, o = {}) {
     if (k > 1e-9) rest.set(n, { f: d.f * fk, a: d.a * k, q: d.q * k });
   }
   for (const net of acNets) {
+    // 発電機のない網（線だけ・地点1つだけ）は計算しない：交流の電気は届かない（1.6.0。地点が多いので）
+    if (!net.plants.length) continue;
     const r = runNet(G, lc, t, net, rest, acFc, o);
     r.net = net;
     results.push(r);
@@ -1345,6 +1358,9 @@ export function netHz(G, id) {
   const c = acComponent(G, id);
   return G.plants.find((p) => PLANTS[p.type].ac && p.hz && c.has(p.site))?.hz || G.hz || null;
 }
+// 画面に出す周波数：いちばん乱れている網（なければ古い島の周波数）。使っている周波数の一覧
+export const freqNow = (G) => G.last?.hz || G.hz || null;
+export const hzList = (G) => [...new Set(G.plants.filter((p) => PLANTS[p.type].ac && p.hz).map((p) => p.hz))].sort();
 export const HZ_WHY = '周波数が違う網どうしはつなげない（周波数変換所ができるのは 1965 年の佐久間から）';
 export const SEA_WHY = '海をこえて島どうしをつなぐ線は、まだ作れない（1945 年の九州と本州の連系から）';
 export function quotePlant(G, lc, { type, kw, site, hz = null }) {
@@ -1370,14 +1386,15 @@ export function quotePlant(G, lc, { type, kw, site, hz = null }) {
   const proto = st === 'proto';
   let cost = size[1] * (proto ? 3 : 1);
   if (!D.ac && G.buffs.dcDiscount) cost *= 0.8;
-  return { ok: true, cost: Math.round(cost), hours: buildHours(D.build, lc, D.perf), proto, ...(D.ac ? { hz: netF || hz, newHz: !netF } : {}) };
+  return { ok: true, cost: Math.round(cost), hours: buildHours(D.build, lc, D.perf), proto, ...(D.ac ? { freq: netF || hz, newHz: !netF } : {}) };
 }
 export function buildPlant(G, lc, spec) {
   const q = quotePlant(G, lc, spec);
   if (!q.ok) return q;
   if (!PLANTS[spec.type].ac) G.buffs.dcDiscount = false;
   const p = { id: `P${G.nextId++}`, type: spec.type, kw: spec.kw, site: spec.site, cost: q.cost, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, on: false, onAt: null, downUntil: 0, idle: false, store: 0, hold: 0, done: false };
-  if (q.hz) p.hz = q.hz; // 交流の発電機の周波数（網が分かれたり、つながったりしても変えない）
+  if (q.freq) p.hz = q.freq; // 交流の発電機の周波数（網が分かれたり、つながったりしても変えない）
+  if (q.newHz) addReport(G, { title: `周波数を ${q.freq} Hz に決めた`, what: `${nodeOf(G, spec.site).name}の交流の網は、これから ${q.freq} Hz で動く。周波数の違う網とは線でつなげない（網が分かれたり、つながったりしても、発電機の周波数は変わらない）。`, units: [] });
   G.plants.push(p);
   // 燃料のいらない水力は、優先順位の先頭に入れる（あとで並べ替えられる）
   if (PLANTS[spec.type].coal) G.priority.push(p.id);

@@ -270,7 +270,7 @@ function gridState(g) {
   if (Object.values(g.black).some((u) => u > g.t)) return { text: '全域停電', cls: 'bad' };
   if (l.shed) return { text: '負荷遮断', cls: 'bad' };
   if (l.demand - l.served > 0.01 * l.demand) return { text: '一部に届いていない', cls: 'bad' };
-  if (g.hz && Math.abs(l.x) > Gm.FREQ.ok) return { text: '周波数の乱れ', cls: 'warn' };
+  if (Gm.freqNow(g) && Math.abs(l.x) > Gm.FREQ.ok) return { text: '周波数の乱れ', cls: 'warn' };
   return { text: '正常', cls: 'ok' };
 }
 function hudHtml(g) {
@@ -280,7 +280,7 @@ function hudHtml(g) {
   const [dv, du] = kw(l?.demand || 0).split(' '), [sv, su] = kw(l?.served || 0).split(' ');
   const ds = du === su ? `需要 <b>${dv}</b>／届 <b>${sv}</b> ${du}` : `需要 <b>${dv}</b> ${du}／届 <b>${sv}</b> ${su}`;
   return `<span class="hr"><span class="hcell grow1">${eraName(g.era)} ${timeShort(g)}</span><span class="hstate ${st.cls}">${st.text}</span></span>
-    <span class="hr"><span class="hcell"><i class="hcoin" aria-label="コイン"></i><b>${coinText(balance())}</b></span><span class="hcell" data-yencell><i class="hyen" aria-hidden="true">¥</i>収益 <b class="${g.yen < 0 ? 'gneg' : ''}" data-yen>${yenShort(g.yen)}</b></span><span class="hcell grow1">${ds}</span>${g.hz ? `<span class="hcell">${(g.hz + (l?.x || 0)).toFixed(2)}Hz</span>` : ''}</span>`;
+    <span class="hr"><span class="hcell"><i class="hcoin" aria-label="コイン"></i><b>${coinText(balance())}</b></span><span class="hcell" data-yencell><i class="hyen" aria-hidden="true">¥</i>収益 <b class="${g.yen < 0 ? 'gneg' : ''}" data-yen>${yenShort(g.yen)}</b></span><span class="hcell grow1">${ds}</span>${Gm.freqNow(g) ? `<span class="hcell">${(Gm.freqNow(g) + (l?.x || 0)).toFixed(2)}Hz</span>` : ''}</span>`;
 }
 
 // ---- 下のボタン5つ ----
@@ -355,7 +355,7 @@ function drawPanel(keep = false) {
 function effects(g) {
   if (g.eraUp) {
     const E = Gm.ERAS[g.eraUp - 1];
-    overlay(`era${g.eraUp}`, `時代が進んだ：${E.name}`, `${E.year}　新しい設備と需要が登場する。${g.eraUp === 2 && !g.hz ? '交流の発電機を建てるとき、周波数（50 Hz／60 Hz）を選ぶ。' : ''}`, [523.3, 659.3, 784, 1046.5]);
+    overlay(`era${g.eraUp}`, `時代が進んだ：${E.name}`, `${E.year}　新しい設備と需要が登場する。${g.eraUp === 2 && !Gm.hzList(g).length && !g.hz ? '交流の発電機を、まだ周波数のない網に初めて建てるとき、周波数（50 Hz／60 Hz）を選ぶ。' : ''}`, [523.3, 659.3, 784, 1046.5]);
     delete g.eraUp;
     save();
   } else if (g.blackoutFx && !Object.values(g.black).some((u) => u > g.t)) {
@@ -1541,10 +1541,24 @@ function buildBarHtml(g) {
   const name = B.kind === 'plant' ? Gm.PLANTS[B.type].name : B.kind === 'line' ? Gm.LINES[B.lk].name : '変圧器';
   const what = B.kind === 'plant' ? `${name}を建てる場所を選ぶ` : B.kind === 'sub' ? '変圧器を置く町を選ぶ' : !B.from ? `${name}：始点を選ぶ` : !B.to ? `${name}：終点を選ぶ（始点 ${Gm.nodeOf(g, B.from).name}）` : `${name}：${Gm.nodeOf(g, B.from).name} 〜 ${Gm.nodeOf(g, B.to).name}`;
   const hint = B.kind === 'line' && B.to ? '別の光っている地点を押すと終点を変える。始点を押すと選び直し' : '光っている地点を押す';
-  return `<p><b>${A.esc(what)}</b><small>${hint}</small></p><button class="btn small" data-bquit>やめる</button>`;
+  // 1.6.0：候補の数と、画面の外にある数（拡大していると見えない候補があるので）
+  const cand = [...candidates(g, learningNow())].filter(([, v]) => v === 'can').map(([id]) => Gm.nodeOf(g, id));
+  const off = cand.filter((n) => {
+    const p = at(n);
+    return p.x < 0 || p.y < 0 || p.x > VIEW.W || p.y > VIEW.H;
+  }).length;
+  const cnt = `<small class="gbcount">候補 ${cand.length} か所${off ? `（画面の外 ${off}）` : ''}${off ? ' <button class="link" data-bfit>候補をすべて見る</button>' : ''}</small>`;
+  return `<p><b>${A.esc(what)}</b><small>${hint}</small>${cnt}</p><button class="btn small" data-bquit>やめる</button>`;
 }
 function bindBuildBar() {
   document.querySelector('[data-bquit]')?.addEventListener('click', exitBuild);
+  document.querySelector('[data-bfit]')?.addEventListener('click', () => {
+    const g = G();
+    const ids = [...candidates(g, learningNow()).keys()];
+    if (!ids.length) return;
+    fitView(g, bboxOf(ids.map((id) => Gm.nodeOf(g, id))), 0.12, Gm.isJapan(g) ? 8 : 90);
+    afterMove();
+  });
 }
 const quoteHtml = (q) =>
   q.ok
@@ -1567,14 +1581,14 @@ function drawBuildCard() {
   if (B.kind === 'plant') {
     const D = Gm.PLANTS[B.type];
     const sizes = D.sizes.filter((z) => Gm.eraStatus(lc, Math.max(D.era, z[2]?.era || 0)) !== 'no');
-    q = Gm.quotePlant(g, lc, { type: B.type, kw: B.size, site: B.site });
+    q = Gm.quotePlant(g, lc, { type: B.type, kw: B.size, site: B.site, hz: B.hz });
     const eff = D.coal ? `熱効率 ${(D.eff[0] * 100).toFixed(0)}〜${(D.eff[1] * 100).toFixed(0)}%（いま ${(Gm.plantEff({ type: B.type, proto: q.proto }, lc) * 100).toFixed(1)}%）・起動 ${D.start}時間・最低出力 ${pct(D.min)}` : B.type === 'ror' ? '燃料なし。出力は川の流量しだい（春 1.3・夏 1.0・秋 0.9・冬 0.6）' : '燃料なし。1日分の水をためて、時間をずらして使う（池＝出力の6時間分）';
     h = `<p class="gbch"><b>${A.esc(Gm.nodeOf(g, B.site).name)}</b>：${D.name}</p>
       <div class="gseg gsizes">${sizes.map((z) => `<button class="btn small ${z[0] === B.size ? 'on' : ''}" data-bsize="${z[0]}">${kw(z[0])}</button>`).join('')}</div>
       <p class="small">${eff} ・ ${D.bs ? 'ブラックスタートできる' : 'ブラックスタートできない'}</p>
-      ${q.hz ? '<p class="small">交流の発電機を初めて建てるので、先に周波数を決めます。</p><button class="btn primary gwide" data-hz>周波数を選ぶ</button>' : quoteHtml(q)}`;
+      ${q.hz === true ? '<p class="small">この網には、まだ交流の発電機がありません。先に周波数を決めます（この網の周波数になります）。</p><button class="btn primary gwide" data-hz>周波数を選ぶ</button>' : `${q.freq ? `<p class="small">周波数 <b>${q.freq} Hz</b>（${q.newHz ? 'この網で初めて決める。あとから変えられない' : 'つながっている網の周波数'}）${q.newHz ? ' <button class="btn small" data-hz>選び直す</button>' : ''}</p>` : ''}${quoteHtml(q)}`}`;
     what = `${D.short} ${kw(B.size)}`;
-    doBuild = () => Gm.buildPlant(g, lc, { type: B.type, kw: B.size, site: B.site });
+    doBuild = () => Gm.buildPlant(g, lc, { type: B.type, kw: B.size, site: B.site, hz: B.hz });
   } else if (B.kind === 'line') {
     const K = Gm.LINES[B.lk];
     q = Gm.quoteLine(g, lc, { a: B.from, b: B.to, kind: B.lk, route: B.route, opts: B.opts });
@@ -1693,7 +1707,12 @@ function nodePanel(g, lc, id) {
   const loads = g.loads.filter((l) => l.town === id);
   const st = g.last?.towns[id];
   const incs = g.incidents.filter((i) => i.town === id || plants.some((p) => p.id === i.plant) || subs.some((x) => x.id === i.sub));
-  let h = `<p class="small">${n.town ? '町' : n.hydro ? `水力の地点（使える水 ${kw(n.hydro)}${n.pond ? '・調整池を作れる' : ''}）` : '石炭火力の用地'} ・ 中央の町から ${Gm.distKm(g, 'T1', id) < 0.5 ? '0' : Gm.distKm(g, 'T1', id).toFixed(1)} km ・ この場所の危険：${hazardText(n.tags)}</p>`;
+  const start = Gm.startId(g);
+  const dist = start === id ? (Gm.isJapan(g) ? '始めた町' : '中央の町') : `${A.esc(Gm.nodeOf(g, start).name)}から ${Gm.distKm(g, start, id) < 0.5 ? '0' : Gm.distKm(g, start, id).toFixed(1)} km`;
+  const where = Gm.isJapan(g) ? `${A.esc(n.pref)}${n.place ? ` ${A.esc(n.place)}` : ''}${n.river ? `・${A.esc(n.river)}` : ''} ・ ` : '';
+  let h = `<p class="small">${where}${n.town ? '町' : n.hydro ? `水力の地点（使える水 ${kw(n.hydro)}${n.pond ? '・調整池を作れる' : ''}）` : '石炭火力の用地'} ・ ${dist} ・ この場所の危険：${hazardText(n.tags)}</p>`;
+  if (!Gm.nodeOpen(g, n)) h += `<p class="warn small">まだ開いていない地点です（${eraName(Gm.openEra(g, n))}から）。</p>`;
+  if (Gm.isJapan(g)) h += historyHtml(n);
   if (incs.length) h += `<p class="warn small">事故の対処待ちがあります <button class="btn small" data-golist>一覧へ</button></p>`;
   if (n.town) {
     const rep = g.rep[id] ?? 1;
@@ -1704,9 +1723,10 @@ function nodePanel(g, lc, id) {
   h += `<h3>発電所</h3>${plants.length ? plants.map((p) => `<p class="spread grow"><span>${Gm.PLANTS[p.type].short} ${kw(p.kw)}${p.proto ? '（試作）' : ''} ・ ${plantState(g, p)}</span><button class="btn small" data-rm="plant:${p.id}">撤去</button></p>`).join('') : '<p class="small">なし</p>'}
 `;
   return {
-    title: `${A.esc(n.name)}${n.town && n.era > g.era ? ' <span class="tag">まだ先の時代の町</span>' : ''}`,
+    title: `${A.esc(n.name)}${!Gm.townActive(g, n) || !Gm.nodeOpen(g, n) ? ` <span class="tag">${eraName(Gm.isJapan(g) ? Gm.openEra(g, n) : n.era)}から</span>` : ''}`,
     html: h,
     bind: ({ onAll }) => {
+      onAll('[data-sources]', 'click', sourcesSheet);
       onAll('[data-golist]', 'click', () => setPanel('list'));
       onAll('[data-cap]', 'click', (e) => capDialog(e.currentTarget.dataset.cap));
       onAll('[data-rm]', 'click', (e) => removeDialog(...e.currentTarget.dataset.rm.split(':')));
@@ -1714,23 +1734,40 @@ function nodePanel(g, lc, id) {
   };
 }
 
-// E2 の出来事：周波数の選択（以後その島の周波数になる）
+// ---- 1.6.0 史実の表示：地点の史実の年と1行・出典・確かめたかどうか・位置はおおよそ。ゲームの値は「ゲーム」と分ける ----
+const confOf = (c) => (/^確認済み/.test(c || '') ? '確かめた' : c === 'ゲームの地点' ? '' : '未確認');
+function historyHtml(n) {
+  const rows = [];
+  if (n.game) rows.push('<p class="small">ゲームの地点（実在の川の名前を使った、史実ではない地点）</p>');
+  else if (n.year || n.fact) rows.push(`<p class="small">${n.year && !(n.fact || '').startsWith(String(n.year)) ? `${n.year}年 ` : ''}${A.esc(n.fact || (n.hydro ? '運転開始の年' : ''))}</p>`);
+  if (n.hydro) rows.push(`<p class="small">使える水の上限 ${kw(n.hydro)}：${n.limitBy === 'ゲーム' ? 'ゲームの値' : '今の最大出力（運転開始のころの値ではない。その川の力の目安）'}</p>`);
+  const conf = confOf(n.conf);
+  rows.push(`<p class="small gsrc">${n.src ? `出典 ${A.esc(n.src)}${conf ? `（${conf}）` : ''} ・ ` : ''}位置はおおよそ <button class="link" data-sources>出典の一覧</button></p>`);
+  return `<h3>史実</h3>${rows.join('')}`;
+}
+function sourcesSheet() {
+  sheet(
+    `<h2>出典の一覧</h2>
+    <p class="small">史実の値は、出典で確かめたものだけを「確かめた」としています。Gemini の調査（G1・G2）だけのものは「未確認」です。ゲームのために決めた値（発電所の大きさ・費用・需要など）は史実ではありません。</p>
+    <ul class="gsources">${J.SOURCES.map(([k, name, url]) => `<li><b>${k}</b> ${A.esc(name)}${url ? `<br><small>${A.esc(url)}</small>` : ''}</li>`).join('')}</ul>
+    <p class="small">地図：Natural Earth（1:10m。パブリックドメイン）。主な島だけを描いています。地点の位置はおおよそです。</p>`,
+  );
+}
+
+// 周波数の選択（1.6.0：系統ごと）。まだ周波数のない網に、交流の発電機を初めて建てるとき。建てるとその網の周波数になる
 function hzDialog(after) {
   sheet(
     `<h2>周波数を選ぶ</h2>
-    <p>交流の発電機を、どこから買うか。<b>一度決めると、この島の周波数は変えられません</b>。</p>
+    <p>交流の発電機を、どこから買うか。建てると<b>この網（線でつながった範囲）の周波数</b>になり、あとから変えられません。周波数の違う網とは、線でつなげません。</p>
     <div class="gbtns2">
       <button class="btn big" data-hz="50">ドイツ製<small>50 Hz</small></button>
       <button class="btn big" data-hz="60">アメリカ製<small>60 Hz</small></button>
     </div>
-    <p class="small">明治の日本でも、東京はドイツ製（50 Hz）、大阪はアメリカ製（60 Hz）の発電機を入れたことが、今の東西の周波数の違いの始まり。1.5.0 ではどちらを選んでも性能は同じ（島どうしをつなぐときに効いてくる）。</p>`,
+    <p class="small">史実：1895年、東京の浅草の火力がドイツ製の 50 Hz、1897年、大阪の幸町がアメリカ製の 60 Hz の発電機を入れたことが、今の東西の周波数の違いの始まり（S1・S2。確かめた）。どちらを選んでも性能は同じで、違いが効くのは網どうしをつなぐとき。</p>`,
     ({ onAll, close }) =>
       onAll('[data-hz]', 'click', async (e) => {
-        Gm.setHz(G(), Number(e.currentTarget.dataset.hz));
-        Gm.addReport(G(), { title: `周波数を ${G().hz} Hz に決めた`, what: 'この島の交流の系統は、これからこの周波数で動く。', units: [] });
-        await save();
+        if (B?.kind === 'plant') B.hz = Number(e.currentTarget.dataset.hz);
         close();
-        act('hz', { value: G().hz });
         after();
       }),
   );
@@ -1881,11 +1918,11 @@ function supplyPanel(g, lc) {
         <path d="${line((h) => h[2])}" fill="none" stroke="var(--ok)" stroke-width="1.2" stroke-dasharray="3 3"/>
       </svg>
       <p class="legend"><span><i class="gl-hydro"></i>水力</span><span><i class="gl-coal"></i>石炭火力（交流）</span><span><i class="gl-dc"></i>直流の火力</span><span><i class="gl-dem"></i>需要</span><span>緑の点線＝届いた分</span><span>縦線＝0時 ・ 上端 ${kw(max)}</span></p>`;
-    if (g.hz) {
+    if (Gm.freqNow(g)) {
       const FH = 70, r = 2.2;
       const FY = (x) => FH / 2 - (Math.max(-r, Math.min(r, x)) / r) * (FH / 2);
       const band = (a, b, col) => `<rect x="0" y="${FY(b)}" width="${W}" height="${FY(a) - FY(b)}" fill="${col}"/>`;
-      chart += `<h3>周波数（${g.hz} Hz からのずれ）</h3>
+      chart += `<h3>周波数（基準からのずれ${Gm.hzList(g).length > 1 ? '。いちばん乱れている網' : `。${Gm.freqNow(g)} Hz`}）</h3>
         <svg class="gchart" viewBox="0 0 ${W} ${FH}" role="img" aria-label="周波数のずれ">${band(-Gm.FREQ.ok, Gm.FREQ.ok, 'var(--ok-bg)')}
           <line x1="0" x2="${W}" y1="${FY(-Gm.FREQ.shed1)}" y2="${FY(-Gm.FREQ.shed1)}" stroke="var(--idk)" stroke-dasharray="3 3"/>
           <line x1="0" x2="${W}" y1="${FY(-Gm.FREQ.black)}" y2="${FY(-Gm.FREQ.black)}" stroke="var(--ng)" stroke-dasharray="3 3"/>
@@ -1899,7 +1936,7 @@ function supplyPanel(g, lc) {
   return {
     title: '需給',
     html: `${ev.length ? `<div class="gev">${ev.map((e) => `<p class="gevrow">${pic(e.key, 'mini')}<span><b>${Gm.EVENTS[e.key].name}</b><small>${Gm.EVENTS[e.key].text}（あと ${Math.ceil((e.until - g.t) / 24)}日）</small></span></p>`).join('')}</div>` : ''}
-      ${l ? `<p class="small">いま：需要 ${kw(l.demand)} ・ 届いた ${kw(l.served)} ・ 損失 ${kw(l.loss)}${g.hz ? ` ・ 周波数 ${(g.hz + l.x).toFixed(2)} Hz` : ''} ・ ${gridState(g).text}</p>` : ''}
+      ${l ? `<p class="small">いま：需要 ${kw(l.demand)} ・ 届いた ${kw(l.served)} ・ 損失 ${kw(l.loss)}${Gm.freqNow(g) ? ` ・ 周波数 ${(Gm.freqNow(g) + l.x).toFixed(2)} Hz` : ''} ・ ${gridState(g).text}</p>` : ''}
       <h3>需要と電源（直近 ${hs.length}時間）</h3>
       ${chart}
       ${devMode() ? devSupplyHtml(g, lc) : ''}
@@ -1911,7 +1948,7 @@ function supplyPanel(g, lc) {
       <p class="spread grow"><span>使える発電機の合計</span><b class="${o.cap < o.peak ? 'gneg' : ''}">${kw(o.cap)}</b></p>
       <p class="spread grow"><span>予備力の目標（${pct(g.reserve)}）</span><b>${kw(o.reserveKw)}</b></p>
       ${lc.gate.rel ? `<p class="small">最大の発電機1台分は ${kw(o.biggest)}。${o.reserveKw >= o.biggest ? '1台止まっても埋められる（N-1）' : '<b class="gneg">1台止まると埋めきれない</b>'}</p>` : `<p class="small">電力系統工学「信頼度指標」を1問正解すると、予備力の目安（最大の発電機1台分との比較）が出ます</p>`}
-      ${g.hz && K ? `<p class="spread grow"><span>系統定数 K</span><b>${kw(K)}/Hz</b></p><p class="small">Δf＝−ΔP/K。いまいちばん出力の大きい発電機（${kw(topOut)}）が止まると、余裕が足りていれば ${(topOut / K).toFixed(2)} Hz 下がる</p>` : ''}`,
+      ${Gm.freqNow(g) && K ? `<p class="spread grow"><span>系統定数 K</span><b>${kw(K)}/Hz</b></p><p class="small">Δf＝−ΔP/K。いまいちばん出力の大きい発電機（${kw(topOut)}）が止まると、余裕が足りていれば ${(topOut / K).toFixed(2)} Hz 下がる</p>` : ''}`,
   };
 }
 // 開発者モード：数値を確かめやすいように、1日の収益の内訳と発電所ごとの出力・効率
@@ -2019,7 +2056,7 @@ function managePanel(g, lc) {
       <h3>設計図</h3><p class="gtags">${bps}</p>
       <p class="small">その単元の試験レベルに正解するか、関係する外部試験で満点の3割以上</p>
       <h3>島</h3>
-      <p class="small">島 ${g.islandNo}（${Gm.TERRAINS[g.terrain].name}）${g.hz ? ` ・ 周波数 ${g.hz} Hz` : ' ・ 周波数はまだ決めていない'} ・ ${Math.floor(g.t / 24)}日目</p>
+      <p class="small">島 ${g.islandNo}（${A.esc(Gm.placeName(g))}）${Gm.hzList(g).length ? ` ・ 周波数 ${Gm.hzList(g).join(' Hz と ')} Hz${Gm.hzList(g).length > 1 ? '（網ごと）' : ''}` : g.hz ? ` ・ 周波数 ${g.hz} Hz` : ' ・ 周波数はまだ決めていない'} ・ ${Math.floor(g.t / 24)}日目</p>
       ${(g.past || []).length ? `<p class="small">前の島：${g.past.map((p) => `島 ${p.islandNo}（${Gm.TERRAINS[p.terrain]?.name || ''}）${Math.floor(p.hours / 24)}日・最高の年間利益 ${p.best ? yen(p.best.profit) : '—'}`).join(' ／ ')}</p>` : ''}
       <p class="small">いつでも、明治の小さな島からやり直せます。時代（レベル）・設計図・性能の上乗せは引き継ぎ、この島の記録は残ります。この島の設備と収益はなくなり、使ったコインは戻りません。</p>
       <button class="btn" data-newisland>新しい島を選ぶ</button>
