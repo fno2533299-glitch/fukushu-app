@@ -138,6 +138,21 @@ export function cardSide(ys, h) {
   return y > h / 2 ? 'top' : 'bottom';
 }
 
+// ---- 地点名の改行（1.6.0。Gemini の UIレビュー 7番）----
+// 6 文字までは1行。長い名前は、切れ目の候補（「の」の後ろ、「・」「（」の前）のうち真ん中に近いところで2行に。候補がなければ1行のまま
+export function splitName(name, max = 6) {
+  const s = String(name || '');
+  if (s.length <= max) return [s];
+  const cuts = [];
+  for (let i = 1; i < s.length; i++) {
+    if (s[i - 1] === 'の' || s[i] === '・' || s[i] === '（') cuts.push(i);
+  }
+  if (!cuts.length) return [s];
+  const mid = s.length / 2;
+  const i = cuts.reduce((a, b) => (Math.abs(b - mid) < Math.abs(a - mid) ? b : a));
+  return [s.slice(0, i), s.slice(i)];
+}
+
 // ---- したことの表示の文 ----
 export function hoursText(h) {
   h = Math.max(0, Math.round(h));

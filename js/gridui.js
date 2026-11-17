@@ -8,6 +8,8 @@ import * as Dv from './griddev.js';
 import * as Mn from './gridmenu.js';
 import { GRID_IMAGES } from './gridimg.js';
 import * as Art from './gridart.js';
+import { JAPAN_COAST, JAPAN_BOUNDS, JAPAN_HZ_LINE } from './japan.js';
+import * as J from './gridjapan.js';
 
 let A = null; // app.js から渡される部品（S・db・show・on・esc・toast など）
 // チュートリアル（1.5.2）：練習の島（kv「gridTutorial」）で動かす。DEV と同じ仕組み（tut: true）
@@ -185,7 +187,7 @@ export async function screen(p, entering = false) {
       <div class="gstat" data-chips>${chipsHtml(g)}</div>
       ${miniOn() ? `<button class="gmini" data-mini aria-label="需給を開く">${miniHtml(g)}</button>` : ''}
       <div class="gmid" data-mid>
-        <div class="gmapbox" data-mapbox>${mapSvg(g)}</div>
+        <div class="gmapbox" data-mapbox>${mapHtml(g)}</div>
         <div class="gmenu" data-menu></div>
         <div class="gdetail" data-detail></div>
         <div class="gbuildbar" data-bbar>${buildBarHtml(g)}</div>
@@ -215,7 +217,7 @@ export async function screen(p, entering = false) {
       bindDock();
       bindDevBand();
       bindMap();
-      syncFlows();
+      drawMap(); // 地図の箱の大きさを測ってから描き直す
       bindBuildBar();
       drawPanel();
       drawBuildCard();
@@ -599,7 +601,7 @@ function revenueFx(g) {
   if (!still()) flyYen(g, r);
 }
 function flyYen(g, to) {
-  const svg = document.querySelector('[data-mapbox] .gmap');
+  const svg = document.querySelector('[data-top]');
   const m = svg?.getScreenCTM();
   if (!m || document.querySelector('.galert')) return;
   const now = Date.now();
@@ -610,6 +612,7 @@ function flyYen(g, to) {
     if (now - (yenAt.get(n.id) || 0) < 30000 || k >= 3) continue;
     yenAt.set(n.id, now);
     const p = at(n);
+    if (p.x < 0 || p.y < 0 || p.x > VIEW.W || p.y > VIEW.H) continue; // 画面の外の町からは飛ばさない
     const x = m.a * p.x + m.c * p.y + m.e, y = m.b * p.x + m.d * p.y + m.f - 14;
     const el = document.createElement('span');
     el.className = `gyencoin${A.fx() ? ' fx' : ''}`;
@@ -743,40 +746,137 @@ function waitingHtml(g) {
 }
 
 // ---- 地図 ----
-// 座標の変換はここだけ：地点の (x, y) → 地図の座標。拡大・移動（1.6.0）は VIEW（viewBox）を変えるだけでできる
+// 1.6.0：地図の座標（日本列島は 1 単位＝1 km、古い島は 360×400）を画面の px に直して描く。文字とアイコンは、拡大しても画面の上の大きさが変わらない
+// 海岸線は下の層（data-base）に1回だけ描き、拡大・移動では transform だけを変える。線・地点は上の層（data-top）に毎回描く
+// 動かしている間は描き直さず、CSS の transform で動かし（data-mapwrap）、指を離したら VIEW を変えて描き直す
 const MAP_W = 360, MAP_H = 400;
-const VIEW = { x: 0, y: 0, w: MAP_W, h: MAP_H };
-const at = (n) => ({ x: n.x, y: n.y });
 const ISLAND = 'M38,78 C70,22 170,6 252,36 C312,58 348,150 338,244 C332,322 300,372 232,386 C150,398 62,366 34,296 C8,226 10,128 38,78Z';
+// VIEW：画面の左上の地図の座標（x・y）と、画面の幅に入る地図の幅（w）。W・H：地図の箱の大きさ（px）。key：どの系統の地図か
+const VIEW = { x: 0, y: 0, w: MAP_W, W: 360, H: 400, key: null, base: null };
+const scaleK = () => VIEW.W / VIEW.w;
+const viewH = () => (VIEW.w * VIEW.H) / VIEW.W;
+const at = (n) => ({ x: (n.x - VIEW.x) * scaleK(), y: (n.y - VIEW.y) * scaleK() });
 const utilColor = (u) => (u > 1.2 ? 'var(--ng)' : u > 1 ? 'var(--idk)' : 'var(--gline)');
+// 地図の範囲と拡大の限度（幅 4 km〜列島全体。古い島は 90〜島全体）
+function mapBounds(g) {
+  if (Gm.isJapan(g)) {
+    const [x0, y0, x1, y1] = JAPAN_BOUNDS;
+    return { x0, y0, x1, y1, minW: 4 };
+  }
+  return { x0: 0, y0: 0, x1: MAP_W, y1: MAP_H, minW: 90 };
+}
+function clampView(g) {
+  const b = mapBounds(g);
+  const maxW = Math.max(b.x1 - b.x0, ((b.y1 - b.y0) * VIEW.W) / VIEW.H) * 1.06;
+  VIEW.w = Math.max(b.minW, Math.min(maxW, VIEW.w));
+  const h = viewH();
+  const cx = Math.max(b.x0, Math.min(b.x1, VIEW.x + VIEW.w / 2)), cy = Math.max(b.y0, Math.min(b.y1, VIEW.y + h / 2));
+  VIEW.x = cx - VIEW.w / 2;
+  VIEW.y = cy - h / 2;
+}
+// 長方形 [x0, y0, x1, y1] が入るように（pad：まわりの余白の割合、minW：いちばん狭い幅）
+function fitView(g, [x0, y0, x1, y1], pad = 0.15, minW = 0) {
+  const w = Math.max(minW, (x1 - x0) * (1 + 2 * pad), (((y1 - y0) * (1 + 2 * pad)) * VIEW.W) / VIEW.H);
+  VIEW.w = w;
+  VIEW.x = (x0 + x1) / 2 - w / 2;
+  VIEW.y = (y0 + y1) / 2 - viewH() / 2;
+  clampView(g);
+}
+const bboxOf = (ns) => [Math.min(...ns.map((n) => n.x)), Math.min(...ns.map((n) => n.y)), Math.max(...ns.map((n) => n.x)), Math.max(...ns.map((n) => n.y))];
+// 全体（列島全体・島全体）
+function viewAll(g) {
+  const b = mapBounds(g);
+  fitView(g, [b.x0, b.y0, b.x1, b.y1], 0.02);
+}
+// 始めた町のまわり（東京は区が入るくらい）
+function viewStart(g) {
+  if (!Gm.isJapan(g)) return viewAll(g);
+  const s = Gm.nodeOf(g, Gm.startId(g));
+  const ns = s.area === '東京市内' ? Gm.nodesOf(g).filter((n) => n.area === '東京市内') : [s];
+  fitView(g, bboxOf(ns), 0.2, 16);
+}
+// 開いたとき：開いている地点が入るように
+function viewHome(g) {
+  if (!Gm.isJapan(g)) return viewAll(g);
+  const open = Gm.nodesOf(g).filter((n) => Gm.nodeOpen(g, n));
+  if (open.length <= 1) return viewStart(g);
+  fitView(g, bboxOf(open), 0.12, 12);
+}
+const viewKeyOf = (g) => `${DEV.on ? DEV.key : 'grid'}|${g.islandNo}|${g.terrain}|${g.start || ''}`;
+// 地図の箱の大きさを測り、系統が変わっていれば最初の見え方にする
+function ensureView(g) {
+  const box = document.querySelector('[data-mapbox]');
+  if (box?.clientWidth) (VIEW.W = box.clientWidth), (VIEW.H = box.clientHeight || VIEW.H);
+  const key = viewKeyOf(g);
+  if (VIEW.key !== key) {
+    VIEW.key = key;
+    VIEW.base = null;
+    viewHome(g);
+  } else clampView(g);
+}
 // 線の形（2次ベジェ）。回り道はふくらませ、直流は少しずらす（同じ2地点の交流と重ならないように）
 function linePath(a, b, route, dc) {
   const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
   const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
-  const bend = route === 'detour' ? 26 : dc ? -8 : 0;
+  const bend = route === 'detour' ? Math.min(26, len * 0.18) : dc ? -Math.min(8, len * 0.1) : 0;
   const cx = mx + (dy / len) * bend, cy = my - (dx / len) * bend;
-  return { d: `M${a.x},${a.y} Q${cx},${cy} ${b.x},${b.y}`, back: `M${b.x},${b.y} Q${cx},${cy} ${a.x},${a.y}`, lx: (mx + cx) / 2, ly: (my + cy) / 2 };
+  const f = (v) => v.toFixed(1);
+  return { d: `M${f(a.x)},${f(a.y)} Q${f(cx)},${f(cy)} ${f(b.x)},${f(b.y)}`, back: `M${f(b.x)},${f(b.y)} Q${f(cx)},${f(cy)} ${f(a.x)},${f(a.y)}`, lx: (mx + cx) / 2, ly: (my + cy) / 2, len };
 }
 const hoursText = (h) => (h >= 48 ? `${Math.ceil(h / 24)}日` : `${h}時間`);
-function mapSvg(g) {
-  const nodes = Gm.nodesOf(g);
-  const N = (id) => at(nodes.find((n) => n.id === id));
-  const t = g.t;
-  const cand = B ? candidates(g, learningNow()) : null;
-  const selId = sel?.kind === 'node' ? sel.id : null;
-  const selLine = sel?.kind === 'line' ? sel.id : null;
-  let s = `${Art.MAP_DEFS}<path d="${ISLAND}" fill="var(--land)" stroke="var(--coast)" stroke-width="1.5"/>`;
-  // 地形：雪の地域（北西）・山・川・海岸
+// 下の層（海岸線など）の transform：地図の座標 → 画面の px
+const baseTf = () => `matrix(${scaleK()} 0 0 ${scaleK()} ${(-VIEW.x * scaleK()).toFixed(2)} ${(-VIEW.y * scaleK()).toFixed(2)})`;
+function baseInner(g) {
+  if (Gm.isJapan(g)) {
+    const hz = g.era >= 2 ? `<path d="M${JAPAN_HZ_LINE.map((p) => p.join(',')).join(' L')}" class="ghzline" vector-effect="non-scaling-stroke"/>` : '';
+    return `<path d="${JAPAN_COAST}" class="gcoastl" vector-effect="non-scaling-stroke"/>${hz}`;
+  }
+  // 古い島：地形（雪の地域（北西）・山・川・海岸）
+  let s = `<path d="${ISLAND}" fill="var(--land)" stroke="var(--coast)" stroke-width="1.5"/>`;
   s += '<path d="M40,84 C60,46 110,26 150,22 C150,60 120,110 70,140 C40,140 26,116 40,84Z" fill="var(--gsnow)" opacity=".7"/>';
   s += [[150, 60], [176, 46], [205, 62], [232, 52], [262, 70], [118, 86], [278, 104], [196, 96]].map(([x, y]) => `<path d="M${x - 11},${y + 9} L${x},${y - 9} L${x + 11},${y + 9}Z" fill="var(--gmount)"/>`).join('');
   s += '<path d="M130,44 C150,90 190,120 210,180 C218,214 196,238 186,262 C196,300 208,320 214,338 C218,356 224,370 228,386" fill="none" stroke="var(--griver)" stroke-width="3" stroke-linecap="round" opacity=".8"/><path d="M246,96 C236,130 222,156 210,180" fill="none" stroke="var(--griver)" stroke-width="2.4" stroke-linecap="round" opacity=".8"/>';
   s += '<text x="74" y="72" class="gland">雪の地域</text><text x="222" y="78" class="gland">山</text><text x="302" y="312" class="gland">海岸</text><text x="118" y="236" class="gland">平野</text>';
+  return s;
+}
+const baseKeyOf = (g) => `${VIEW.key}|${Gm.isJapan(g) && g.era >= 2 ? 'hz' : ''}`;
+function baseSvg(g) {
+  VIEW.base = baseKeyOf(g);
+  return `<svg class="gmap gbase" data-base viewBox="0 0 ${VIEW.W} ${VIEW.H}" aria-hidden="true"><g data-basetf transform="${baseTf()}">${baseInner(g)}</g></svg>`;
+}
+function mapHtml(g) {
+  ensureView(g);
+  return `<div class="gmapwrap" data-mapwrap>${baseSvg(g)}<svg class="gmap gtop" data-top viewBox="0 0 ${VIEW.W} ${VIEW.H}" role="img" aria-label="${Gm.isJapan(g) ? '日本列島の地図' : '島の地図'}">${topInner(g)}</svg></div>
+    <div class="gzoombtns" data-zoombtns><button class="btn small" data-zoom="all">全体</button><button class="btn small" data-zoom="start">始めた町</button></div>`;
+}
+// 表示の細かさ（1.6.0）：縮めたときは「大」の町の名前だけ。中・小の町・水力の地点は拡大すると出す。東京の区は町の中まで拡大したときだけ
+// （それより縮めたときは、いちばん目立つ区に「東京」とだけ出す）。建設モードで光る地点・選んだ地点はいつも出す
+const NAME_W = { 3: Infinity, 2: 1000, 1: 320, hydro: 220, ward: 40 };
+const DOT_GAP = 18; // 画面の上でこれより近い地点は、目立つ方だけを絵で描き、ほかは小さな点にする
+function topInner(g) {
+  const nodes = Gm.nodesOf(g);
+  const japan = Gm.isJapan(g);
+  const t = g.t;
+  const cand = B ? candidates(g, learningNow()) : null;
+  const selId = sel?.kind === 'node' ? sel.id : null;
+  const selLine = sel?.kind === 'line' ? sel.id : null;
+  const P = new Map(nodes.map((n) => [n.id, at(n)]));
+  const W = VIEW.W, H = VIEW.H;
+  const onScreen = (p, m = 40) => p.x > -m && p.x < W + m && p.y > -m && p.y < H + m;
+  let s = Art.MAP_DEFS;
+  // 今の 50 Hz と 60 Hz の境目（参考）の文字
+  if (japan && g.era >= 2) {
+    const mid = at({ x: JAPAN_HZ_LINE[3][0], y: JAPAN_HZ_LINE[3][1] });
+    if (onScreen(mid, 0)) s += `<text x="${(mid.x + 6).toFixed(1)}" y="${(mid.y - 6).toFixed(1)}" class="ghzlabel">今の境目（参考）</text>`;
+  }
   // 線（下の色は使用率・直流・止まっている）
   let flows = '';
   for (const l of g.lines) {
-    const a = N(l.a), b = N(l.b);
+    const a = P.get(l.a), b = P.get(l.b);
+    if (!a || !b) continue;
+    if (Math.max(a.x, b.x) < -40 || Math.min(a.x, b.x) > W + 40 || Math.max(a.y, b.y) < -40 || Math.min(a.y, b.y) > H + 40) continue;
     const K = Gm.LINES[l.kind];
-    const P = linePath(a, b, l.route, K.dc);
+    const L2 = linePath(a, b, l.route, K.dc);
     const building = l.readyAt > t;
     const down = !building && Gm.lineCircuits(l, t) <= 0;
     const u = g.last?.lines[l.id]?.util || 0;
@@ -784,38 +884,90 @@ function mapSvg(g) {
     const wdt = K.dc ? 2 : K.kv >= 66 ? 3.6 : K.kv >= 11 ? 2.8 : 2;
     const label = building ? `${K.short} 工事 あと${hoursText(l.readyAt - t)}` : `${K.short}${l.n > 1 ? `×${l.n}` : ''}`;
     const mk = markOf(l.id);
-    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${P.d}" fill="none" stroke="transparent" stroke-width="22"/>${selLine === l.id ? `<path d="${P.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${mk === 'glow' ? `<path d="${P.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : ''}<path d="${P.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : down ? 'stroke-dasharray="7 5"' : ''}/>
-      <text x="${P.lx}" y="${P.ly - 4}" class="glabel${building ? ' gwork' : ''}">${label}</text>${building ? cone(P.lx, P.ly + 8, mk === 'work') : ''}</g>`;
-    flows += flowPath(g, l, a, b, P, mk === 'glow');
+    const showLabel = L2.len > 70 || selLine === l.id;
+    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${L2.d}" fill="none" stroke="transparent" stroke-width="22"/>${selLine === l.id ? `<path d="${L2.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${mk === 'glow' ? `<path d="${L2.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : ''}<path d="${L2.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : down ? 'stroke-dasharray="7 5"' : ''}/>
+      ${showLabel ? `<text x="${L2.lx.toFixed(1)}" y="${(L2.ly - 4).toFixed(1)}" class="glabel${building ? ' gwork' : ''}">${label}</text>` : ''}${building && showLabel ? cone(L2.lx, L2.ly + 8, mk === 'work') : ''}</g>`;
+    flows += flowPath(g, l, a, b, L2, mk === 'glow');
   }
   s += `<g class="gflows${B ? ' gdim' : ''}" aria-hidden="true">${flows}</g>`;
   // 建設モードの仮の線（点線）
   if (B?.kind === 'line' && B.from && B.to) {
-    const P = linePath(N(B.from), N(B.to), B.route, Gm.LINES[B.lk].dc);
-    s += `<path d="${P.d}" class="gtemp" fill="none"/>`;
+    const L2 = linePath(P.get(B.from), P.get(B.to), B.route, Gm.LINES[B.lk].dc);
+    s += `<path d="${L2.d}" class="gtemp" fill="none"/>`;
   }
-  // 地点
-  for (const n of nodes) {
-    const { x, y } = at(n);
-    const plants = g.plants.filter((p) => p.site === n.id);
-    const subs = g.subs.filter((v) => v.town === n.id);
-    const inc = g.incidents.some((i) => i.town === n.id || plants.some((p) => p.id === i.plant) || subs.some((v) => v.id === i.sub));
-    // 1.5.3：町は家並み（灯ると窓が光り、まわりに光の輪）、用地は菱形。発電所・変電所は種類のアイコンを横に出し、短い線でつなぐ（gridart.js）
-    let body = n.town ? Art.townSvg(x, y, Art.townLook(g, n)) : `<path d="M${x},${y - 9} L${x + 9},${y} L${x},${y + 9} L${x - 9},${y}Z" fill="var(--card)" stroke="var(--muted)" stroke-width="1.3" ${plants.length ? '' : 'stroke-dasharray="2 3"'}/>`;
-    body += Art.assetsSvg(g, n, x, y);
-    // 工事中の発電所・変圧器：残りの時間を小さく添える
-    const work = [...plants, ...subs].filter((v) => v.readyAt > t).map((v) => v.readyAt - t);
-    if (work.length) body += `<text x="${x}" y="${y - 25}" class="glabel gwork">工事 あと${hoursText(Math.min(...work))}</text>${cone(x + 14, y + 13, markOf(n.id) === 'work')}`;
-    if (markOf(n.id) === 'done') body = `<g class="gbounce">${body}</g>`;
-    const name = n.name.length > 6 ? [n.name.slice(0, Math.ceil(n.name.length / 2)), n.name.slice(Math.ceil(n.name.length / 2))] : [n.name];
+  // 地点：目立つ順に置き、近すぎるものは点にする。文字は重ならないものだけ
+  const has = (n) => g.plants.some((p) => p.site === n.id) || g.subs.some((v) => v.town === n.id) || g.loads.some((l) => l.town === n.id);
+  const start = Gm.startId(g);
+  const prio = (n) => (selId === n.id ? 4000 : 0) + (cand?.get(n.id) ? 2000 : 0) + (has(n) ? 600 : 0) + (n.id === start ? 300 : 0) + (Gm.nodeOpen(g, n) ? 100 : 0) + (n.town ? (n.size || 2) * 30 : 10);
+  const vis = nodes.filter((n) => onScreen(P.get(n.id))).sort((a, b) => prio(b) - prio(a));
+  const placed = [], labels = [];
+  let wardNamed = false;
+  const out = [];
+  for (const n of vis) {
+    const { x, y } = P.get(n.id);
     const c = cand?.get(n.id);
-    const mode = !B ? (selId === n.id ? ' sel' : '') : c === 'sel' ? ' sel' : c ? ' gcan' : ' gdim';
-    const ring = !B ? (selId === n.id ? `<circle cx="${x}" cy="${y}" r="17" class="gselring"/>` : '') : c === 'sel' ? `<circle cx="${x}" cy="${y}" r="17" class="gselring"/>` : c ? `<circle cx="${x}" cy="${y}" r="16" class="gpulse"/><circle cx="${x}" cy="${y}" r="16" class="gring"/>` : '';
-    s += `<g class="gnode${mode}" data-node="${n.id}"><circle cx="${x}" cy="${y}" r="23" fill="transparent"/>${ring}${body}
-      <text y="${y + 23}" class="gname">${name.map((v, i) => `<tspan x="${x}" dy="${i ? 9.5 : 0}">${A.esc(v)}</tspan>`).join('')}</text>
-      ${inc ? `<circle cx="${x + 12}" cy="${y + 8}" r="6" fill="var(--ng)"/><text x="${x + 12}" y="${y + 11}" class="gbang">!</text>` : ''}</g>`;
+    const force = selId === n.id || !!c;
+    const near = placed.some((q) => Math.hypot(q.x - x, q.y - y) < DOT_GAP);
+    const full = force || !near;
+    if (full) placed.push({ x, y });
+    const open = Gm.nodeOpen(g, n);
+    // 名前
+    let name = null;
+    if (full) {
+      const ward = japan && n.area === '東京市内';
+      const limit = !japan ? Infinity : ward ? NAME_W.ward : n.town ? NAME_W[n.size || 2] : has(n) ? NAME_W.hydro * 3 : NAME_W.hydro;
+      if (VIEW.w <= limit || force) name = n.name;
+      else if (ward && !wardNamed) name = '東京';
+      if (name === '東京') wardNamed = true;
+    }
+    let lines = name ? Mn.splitName(name) : [];
+    let pos = 'b';
+    if (lines.length) {
+      // 名前の置き場所：下 → 上 → 右 → 左。どれもほかの名前と重なるなら出さない（選んだ地点・候補は下に出す）
+      const w = Math.max(...lines.map((v) => v.length)) * 9.4 + 4, h = lines.length * 10.5;
+      const rects = { b: [x - w / 2, y + 14], t: [x - w / 2, y - 26 - h], r: [x + 13, y - h / 2], l: [x - 13 - w, y - h / 2] };
+      const hit = ([x0, y0]) => labels.some((q) => x0 < q.x1 && x0 + w > q.x0 && y0 < q.y1 && y0 + h > q.y0);
+      pos = force ? 'b' : ['b', 't', 'r', 'l'].find((k) => !hit(rects[k])) || null;
+      if (!pos) lines = [];
+      else labels.push({ x0: rects[pos][0], y0: rects[pos][1], x1: rects[pos][0] + w, y1: rects[pos][1] + h });
+    }
+    out.push(nodeSvg(g, n, x, y, { full, c, selId, lines, open, pos }));
   }
-  return `<svg class="gmap" viewBox="${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="島の地図">${s}</svg>`;
+  // 目立つものを上に重ねる（描く順は逆）
+  s += out.reverse().join('');
+  return s;
+}
+// 地点1つの絵。full：絵で描く／点で描く。c：建設モードの候補（'can'・'sel'）。lines：名前（1〜2行）。open：開いている地点か
+function nodeSvg(g, n, x, y, { full, c, selId, lines, open, pos = 'b' }) {
+  const t = g.t;
+  const mode = !B ? (selId === n.id ? ' sel' : '') : c === 'sel' ? ' sel' : c ? ' gcan' : ' gdim';
+  const kind = n.town ? 'gtownn' : n.game ? 'gsite ggame' : 'gsite';
+  const cls = `gnode ${kind}${mode}${open ? '' : ' gclosed'}${full ? '' : ' gdot'}`;
+  const plants = g.plants.filter((p) => p.site === n.id);
+  const subs = g.subs.filter((v) => v.town === n.id);
+  const inc = g.incidents.some((i) => i.town === n.id || plants.some((p) => p.id === i.plant) || subs.some((v) => v.id === i.sub));
+  const f = (v) => v.toFixed(1);
+  if (!full) {
+    // 点：町は灯り具合の色、用地は小さな菱形
+    const look = n.town ? Art.townLook(g, n) : null;
+    const dot = n.town ? `<circle cx="${f(x)}" cy="${f(y)}" r="3.6" class="gdotc t-${look.state}"/>` : `<path d="M${f(x)},${f(y - 3.6)} L${f(x + 3.6)},${f(y)} L${f(x)},${f(y + 3.6)} L${f(x - 3.6)},${f(y)}Z" class="gdotc s${plants.length ? ' has' : ''}"/>`;
+    return `<g class="${cls}" data-node="${n.id}"><circle cx="${f(x)}" cy="${f(y)}" r="9" fill="transparent"/>${dot}${inc ? `<circle cx="${f(x + 4)}" cy="${f(y - 4)}" r="3" fill="var(--ng)"/>` : ''}</g>`;
+  }
+  // 1.5.3：町は家並み（灯ると窓が光り、まわりに光の輪）、用地は菱形。発電所・変電所は種類のアイコンを横に出し、短い線でつなぐ（gridart.js）
+  let body = n.town ? Art.townSvg(x, y, Art.townLook(g, n)) : `<path d="M${f(x)},${f(y - 9)} L${f(x + 9)},${f(y)} L${f(x)},${f(y + 9)} L${f(x - 9)},${f(y)}Z" class="gsitebody${plants.length ? ' has' : ''}"/>`;
+  body += Art.assetsSvg(g, n, x, y, Art.iconSide(Gm.nodesOf(g), n.id));
+  // 工事中の発電所・変圧器：残りの時間を小さく添える
+  const work = [...plants, ...subs].filter((v) => v.readyAt > t).map((v) => v.readyAt - t);
+  if (work.length) body += `<text x="${f(x)}" y="${f(y - 25)}" class="glabel gwork">工事 あと${hoursText(Math.min(...work))}</text>${cone(x + 14, y + 13, markOf(n.id) === 'work')}`;
+  if (markOf(n.id) === 'done') body = `<g class="gbounce">${body}</g>`;
+  const ring = !B ? (selId === n.id ? `<circle cx="${f(x)}" cy="${f(y)}" r="17" class="gselring"/>` : '') : c === 'sel' ? `<circle cx="${f(x)}" cy="${f(y)}" r="17" class="gselring"/>` : c ? `<circle cx="${f(x)}" cy="${f(y)}" r="16" class="gpulse"/><circle cx="${f(x)}" cy="${f(y)}" r="16" class="gring"/>` : '';
+  // 名前（pos：b＝下・t＝上・r＝右・l＝左）
+  const nh = lines.length * 10.5;
+  const [tx, ty, anc] = { b: [x, y + 23, ''], t: [x, y - 17 - nh, ''], r: [x + 13, y + 3.5 - (nh - 10.5) / 2, ' start'], l: [x - 13, y + 3.5 - (nh - 10.5) / 2, ' end'] }[pos] || [x, y + 23, ''];
+  const name = lines.length ? `<text y="${f(ty)}" class="gname${anc ? ` a${anc.trim()}` : ''}">${lines.map((v, i) => `<tspan x="${f(tx)}" dy="${i ? 10.5 : 0}">${A.esc(v)}</tspan>`).join('')}</text>` : '';
+  return `<g class="${cls}" data-node="${n.id}"><circle cx="${f(x)}" cy="${f(y)}" r="23" fill="transparent"/>${ring}${body}
+      ${name}
+      ${inc ? `<circle cx="${f(x + 12)}" cy="${f(y + 8)}" r="6" fill="var(--ng)"/><text x="${f(x + 12)}" y="${f(y + 11)}" class="gbang">!</text>` : ''}</g>`;
 }
 // 電気の流れ（黄色い点線）：流れている線にだけ重ね、流れる向き（last.lines の to）に動かす。速さは使用率で3段階
 // 描き直しても動きが途切れないよう、描いたあとに syncFlows で動きの起点を文書の時計の0にそろえる（同じ段なら位相が同じになる）
@@ -842,37 +994,200 @@ function syncFlows() {
   // 1.5.3：町の灯り・煙・水・水車・点滅も、描き直しで動きがやり直しにならないよう位相をそろえる
   for (const el of document.querySelectorAll('.gmap .gsync')) for (const a of el.getAnimations?.() || []) if ('startTime' in a) a.startTime = 0;
 }
+// 描き直し：上の層は毎回、下の層は系統・時代が変わったときだけ（拡大・移動は transform だけ）
 function drawMap() {
-  const box = document.querySelector('[data-mapbox]');
-  if (!box) return;
-  box.innerHTML = mapSvg(G());
+  const wrap = document.querySelector('[data-mapwrap]');
+  if (!wrap) return;
+  const g = G();
+  ensureView(g);
+  if (VIEW.base !== baseKeyOf(g)) wrap.querySelector('[data-base]').outerHTML = baseSvg(g);
+  const base = wrap.querySelector('[data-base]');
+  base.setAttribute('viewBox', `0 0 ${VIEW.W} ${VIEW.H}`);
+  base.querySelector('[data-basetf]').setAttribute('transform', baseTf());
+  const top = wrap.querySelector('[data-top]');
+  top.setAttribute('viewBox', `0 0 ${VIEW.W} ${VIEW.H}`);
+  top.innerHTML = topInner(g);
   syncFlows();
 }
+// 地図が動いたあと：地図・メニュー・カード・建設の帯を描き直す
+function afterMove() {
+  drawMap();
+  drawMenu();
+  drawDetail(true);
+  if (B) {
+    document.querySelector('[data-bbar]').innerHTML = buildBarHtml(G());
+    bindBuildBar();
+    drawBuildCard();
+  }
+  tutFollow();
+}
 
-// 地図を押す：描き直しで要素が入れ替わっても取りこぼさないよう、押した場所（pointerdown）の地点・線を覚えて、離したときに動かす
-let press = null;
+// 地図を押す・動かす（1.6.0）：1本指で移動、2本指で拡大・縮小、空いたところを2回押すと拡大（PC はホイールでも）。
+// 押すのと動かすのは 8px 動いたかどうかで分ける。押したときは、押した場所（pointerdown）の地点・線を覚えて、離したときに動かす
+const MOVE_PX = 8;
+const GS = { pts: new Map(), start: null, moved: false, pinch: null, lastTap: null, tf: null };
+let mapRO = null;
 function bindMap() {
   const mid = document.querySelector('[data-mid]');
   const box = document.querySelector('[data-mapbox]');
+  const wrap = () => document.querySelector('[data-mapwrap]');
+  const rel = (e) => {
+    const r = box.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const setTf = (tx, ty, s) => {
+    GS.tf = { tx, ty, s };
+    const w = wrap();
+    if (w) w.style.transform = `translate(${tx}px,${ty}px) scale(${s})`;
+  };
+  // 動かした分を VIEW に移して描き直す（画面の点 p' ＝ s・p ＋ t）
+  const commit = () => {
+    const tf = GS.tf;
+    GS.tf = null;
+    const w = wrap();
+    if (w) w.style.transform = '';
+    document.querySelector('.gscreen')?.classList.remove('gmoving');
+    if (!tf) return;
+    const k0 = scaleK();
+    VIEW.x += -tf.tx / tf.s / k0;
+    VIEW.y += -tf.ty / tf.s / k0;
+    VIEW.w /= tf.s;
+    clampView(G());
+    afterMove();
+  };
   box.addEventListener('pointerdown', (e) => {
-    const el = e.target.closest('[data-node],[data-line]');
-    press = { x: e.clientX, y: e.clientY, node: el?.dataset.node || null, line: el?.dataset.line || null, id: e.pointerId };
+    if (e.button && e.button !== 0) return;
+    const p = rel(e);
+    GS.pts.set(e.pointerId, p);
+    if (GS.pts.size === 1) {
+      const el = e.target.closest('[data-node],[data-line]');
+      GS.start = { ...p, id: e.pointerId, node: el?.dataset.node || null, line: el?.dataset.line || null, at: Date.now(), base: { tx: 0, ty: 0, s: 1 } };
+      GS.moved = false;
+      GS.pinch = null;
+    } else if (GS.pts.size === 2) {
+      const [a, b] = [...GS.pts.values()];
+      GS.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, m: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, base: GS.tf || { tx: 0, ty: 0, s: 1 } };
+      GS.moved = true;
+    }
+    box.setPointerCapture?.(e.pointerId);
   });
-  box.addEventListener('pointerup', (e) => {
-    const p = press;
-    press = null;
-    if (!p || p.id !== e.pointerId || Math.hypot(e.clientX - p.x, e.clientY - p.y) > 12) return;
-    mapTap(p.node, p.line);
+  box.addEventListener('pointermove', (e) => {
+    if (!GS.pts.has(e.pointerId)) return;
+    const p = rel(e);
+    GS.pts.set(e.pointerId, p);
+    if (GS.pinch && GS.pts.size >= 2) {
+      const [a, b] = [...GS.pts.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y) || 1, m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const P0 = GS.pinch.base, k = d / GS.pinch.d;
+      // 指の真ん中の点が、指の下に残るように
+      const s = P0.s * k;
+      setTf(m.x - k * (GS.pinch.m.x - P0.tx), m.y - k * (GS.pinch.m.y - P0.ty), s);
+      document.querySelector('.gscreen')?.classList.add('gmoving');
+      return;
+    }
+    const st = GS.start;
+    if (!st || st.id !== e.pointerId || GS.pts.size !== 1) return;
+    const dx = p.x - st.x, dy = p.y - st.y;
+    if (!GS.moved && Math.hypot(dx, dy) <= MOVE_PX) return;
+    GS.moved = true;
+    document.querySelector('.gscreen')?.classList.add('gmoving');
+    setTf(st.base.tx + dx, st.base.ty + dy, st.base.s);
   });
-  box.addEventListener('pointercancel', () => (press = null));
+  const end = (e) => {
+    if (!GS.pts.has(e.pointerId)) return;
+    GS.pts.delete(e.pointerId);
+    if (GS.pts.size > 0) {
+      // 2本指の片方を離した：残りの指で続けて動かせるように、いまの形を起点にする
+      if (GS.pinch) {
+        GS.pinch = null;
+        const [q] = [...GS.pts.values()];
+        GS.start = { x: q.x, y: q.y, id: [...GS.pts.keys()][0], node: null, line: null, base: GS.tf || { tx: 0, ty: 0, s: 1 } };
+      }
+      return;
+    }
+    const st = GS.start;
+    GS.start = null;
+    if (GS.moved) {
+      GS.moved = false;
+      GS.pinch = null;
+      if (GS.tf && GS.tf.s === 1 && !GS.tf.tx && !GS.tf.ty) GS.tf = null;
+      return commit();
+    }
+    if (!st || e.type === 'pointercancel') return;
+    // 押した：空いたところを2回続けて押すと拡大
+    const p = rel(e);
+    const now = Date.now();
+    if (!st.node && !st.line) {
+      const lt = GS.lastTap;
+      if (lt && now - lt.at < 320 && Math.hypot(p.x - lt.x, p.y - lt.y) < 30) {
+        GS.lastTap = null;
+        return zoomAt(p.x, p.y, 2);
+      }
+      GS.lastTap = { ...p, at: now };
+    } else GS.lastTap = null;
+    mapTap(st.node, st.line);
+  };
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+  box.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const p = rel(e);
+    zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.0018));
+  }, { passive: false });
   mid.addEventListener('contextmenu', (e) => e.target.closest('[data-mapbox]') && e.preventDefault());
+  // 隅のボタン：全体・始めた町
+  box.querySelectorAll('[data-zoom]').forEach((b) => {
+    b.addEventListener('pointerdown', (e) => e.stopPropagation());
+    b.addEventListener('pointerup', (e) => e.stopPropagation());
+    b.onclick = () => {
+      if (b.dataset.zoom === 'all') viewAll(G());
+      else viewStart(G());
+      afterMove();
+      tutEv(`zoom:${b.dataset.zoom}`);
+    };
+  });
+  // 画面の大きさが変わったら、真ん中と縮尺を残して描き直す
+  mapRO?.disconnect();
+  if (window.ResizeObserver) {
+    mapRO = new ResizeObserver(() => {
+      if (!box.isConnected || !box.clientWidth) return;
+      if (box.clientWidth === VIEW.W && box.clientHeight === VIEW.H) return;
+      const cx = VIEW.x + VIEW.w / 2, cy = VIEW.y + viewH() / 2;
+      VIEW.W = box.clientWidth;
+      VIEW.H = box.clientHeight;
+      VIEW.x = cx - VIEW.w / 2;
+      VIEW.y = cy - viewH() / 2;
+      clampView(G());
+      afterMove();
+    });
+    mapRO.observe(box);
+  }
+}
+// 画面の点 (px, py) を中心に s 倍
+function zoomAt(px, py, s) {
+  const g = G();
+  const k0 = scaleK();
+  const mx = VIEW.x + px / k0, my = VIEW.y + py / k0;
+  VIEW.w /= s;
+  clampView(g);
+  const k1 = scaleK();
+  VIEW.x = mx - px / k1;
+  VIEW.y = my - py / k1;
+  clampView(g);
+  afterMove();
+  tutEv('zoom');
 }
 // 地点・線を押すとメニュー。同じものをもう一度押す・空いたところを押すと閉じる。パネルが開いていれば、まず閉じる
+// 1.6.0：まだ開いていない地点は「◯◯から」と出す
 function mapTap(node, line) {
   if (B) return node ? buildTap(node) : null;
   if (panel) {
     setPanel(null);
     if (!node && !line) return;
+  }
+  if (node && !Gm.nodeOpen(G(), node)) {
+    const n = Gm.nodeOf(G(), node);
+    return A.toast(`${n.name}：${eraName(Gm.openEra(G(), n))}から（まだ開いていない）`);
   }
   if (node) return sel?.kind === 'node' && sel.id === node ? closeSel() : openSel('node', node);
   if (line) return sel?.kind === 'line' && sel.id === line ? closeSel() : openSel('line', line);
@@ -899,7 +1214,7 @@ const TYPE_ICON = {
 const typeIcon = (c) => (c.b.startsWith('rm:') ? MI_ICON.rm : c.kind === 'line' ? TYPE_ICON.line : c.kind === 'sub' ? TYPE_ICON.sub : Gm.PLANTS[c.key].coal ? TYPE_ICON.coal : TYPE_ICON.hydro);
 // 地図の座標 → メニューの層（.gmid）の中の座標。地図は動かないので getScreenCTM を1回見るだけ
 function toBox(x, y) {
-  const svg = document.querySelector('[data-mapbox] .gmap');
+  const svg = document.querySelector('[data-top]');
   const mid = document.querySelector('[data-mid]');
   const m = svg?.getScreenCTM();
   if (!m || !mid) return { x, y };

@@ -17,7 +17,7 @@ export function townLook(g, n) {
   const loads = g.loads.filter((l) => l.town === n.id);
   const kw = loads.reduce((a, l) => a + l.kw, 0);
   const tier = townTier(kw);
-  const open = n.era <= g.era;
+  const open = Gm.townActive(g, n);
   if (!loads.length) return { tier, state: 'none', lit: 0, open, kw };
   const st = g.last?.towns[n.id];
   if (!st || st.d <= 0) return { tier, state: 'off', lit: 0, open, kw };
@@ -104,6 +104,27 @@ export function assetGroups(g, nodeId) {
 }
 // アイコンを置く場所（地点の中心からのずれ）。左上 → 右上 → 左 → 右 → 左下 → 右下
 export const SLOTS = [[-27, -15], [27, -15], [-31, 7], [31, 7], [-25, 26], [25, 26]];
+// 1.6.0：アイコンを出す向きを地点ごとに決める（いちばん近い地点と反対の側から並べる。近い地点どうしは反対の向きになる）
+// 戻り値：-1＝左から（右に近い地点がある）／1＝右から
+const SIDE = new WeakMap();
+export function iconSide(nodes, id) {
+  if (!SIDE.has(nodes)) {
+    const m = new Map();
+    for (const n of nodes) {
+      let best = null, bd = Infinity;
+      for (const o of nodes) {
+        if (o === n) continue;
+        const d = Math.hypot(o.x - n.x, o.y - n.y);
+        if (d < bd) (bd = d), (best = o);
+      }
+      m.set(n.id, best && best.x > n.x ? -1 : 1);
+    }
+    SIDE.set(nodes, m);
+  }
+  return SIDE.get(nodes).get(id) ?? -1;
+}
+// 向きに合わせたアイコンの置き場所（side＝-1 なら今までどおり左から、1 なら左右を入れ替えて右から）
+export const slotsFor = (side) => (side === 1 ? SLOTS.map(([x, y]) => [-x, y]) : SLOTS);
 export const ICON_SCALE = { 1: 0.72, 2: 0.9, 3: 1.1 };
 // 絵の形（-10〜10 の箱。下端は y=8）
 const SHAPE = {
@@ -115,8 +136,9 @@ const SHAPE = {
 };
 // 足場（工事中）
 const SCAFFOLD = '<path class="gi-sc" d="M-8 9V-8M0 9V-8M8 9V-8M-8-5h16M-8 1h16M-8 7h16M-8-5l8 6M0 1l8 6"/>';
-export function assetIcon(grp, x, y, slot) {
-  const [dx, dy] = SLOTS[slot % SLOTS.length];
+export function assetIcon(grp, x, y, slot, side = -1) {
+  const S = slotsFor(side);
+  const [dx, dy] = S[slot % S.length];
   const cx = x + dx, cy = y + dy;
   const s = ICON_SCALE[grp.tier];
   const r = 11.5;
@@ -128,6 +150,6 @@ export function assetIcon(grp, x, y, slot) {
   return `${conn}<g class="gasset k-${grp.icon} s-${grp.state}" data-asset="${grp.type}" transform="translate(${f1(cx)},${f1(cy)}) scale(${s})"><circle r="${r}" class="gi-bg${grp.state === 'down' ? ' gblink gsync' : ''}"/>${body}${count}</g>`;
 }
 // 地点のアイコンをまとめて（町はアイコンが家並みの左右に、用地は菱形の左右に並ぶ）
-export function assetsSvg(g, n, x, y) {
-  return assetGroups(g, n.id).map((grp, i) => assetIcon(grp, x, y, i)).join('');
+export function assetsSvg(g, n, x, y, side = -1) {
+  return assetGroups(g, n.id).map((grp, i) => assetIcon(grp, x, y, i, side)).join('');
 }

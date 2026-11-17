@@ -34,16 +34,18 @@ export function defaultOpts() {
     speed: 1,
   };
 }
-export function newDevState(nowMs, terrain = 'standard') {
-  return { v: 1, grid: freshGrid(nowMs, terrain), opts: defaultOpts(), money: [] };
+// 1.6.0：開発者モード・デモも、新しく始めるときは日本列島の東京から
+export function newDevState(nowMs, terrain = 'japan', start = null) {
+  return { v: 1, grid: freshGrid(nowMs, terrain, undefined, start), opts: defaultOpts(), money: [] };
 }
-export function freshGrid(nowMs, terrain = 'standard', seed = (nowMs % 2147483647) | 0) {
-  return Gm.newGrid(seed, nowMs, { terrain });
+// terrain：'japan'（start＝始める町）か、古い島の地形（standard・mountain・coast）
+export function freshGrid(nowMs, terrain = 'japan', seed = (nowMs % 2147483647) | 0, start = null) {
+  return Gm.newGrid(seed, nowMs, { terrain, start });
 }
 // kv から読んだ値を整える（古い形・壊れた形でも動くように）
 export function normalize(state, nowMs) {
   if (!state || !state.grid) return newDevState(nowMs);
-  return { v: 1, grid: state.grid, opts: { ...defaultOpts(), ...(state.opts || {}) }, money: Array.isArray(state.money) ? state.money : [] };
+  return { v: 1, grid: Gm.upgrade(state.grid), opts: { ...defaultOpts(), ...(state.opts || {}) }, money: Array.isArray(state.money) ? state.money : [] };
 }
 
 const all = (o, v) => Object.fromEntries(Object.keys(o).map((k) => [k, v]));

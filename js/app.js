@@ -2,6 +2,7 @@
 import * as db from './db.js';
 import * as L from './logic.js';
 import * as GU from './gridui.js';
+import { upgrade as upgradeGrid } from './grid.js';
 
 const app = document.getElementById('app');
 const banner = document.getElementById('banner');
@@ -1609,7 +1610,7 @@ async function load() {
   S.cards = all.cardData;
   S.gacha = [...all.gachaLog].sort((a, b) => a.at.localeCompare(b.at));
   S.collection = { titles: { ...(all.collection?.titles || {}) }, awakened: { ...(all.collection?.awakened || {}) } };
-  S.grid = all.grid || null;
+  S.grid = upgradeGrid(all.grid || null); // 1.6.0：古い記録の島の周波数を、交流の発電機に配る
   S.preview = null;
   applyTheme();
 }

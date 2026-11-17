@@ -521,7 +521,7 @@ button.tile:active { border-color: var(--primary); }
 .gmap { display: block; width: 100%; height: auto; background: var(--sea); touch-action: manipulation; }
 .gmap .gnode, .gmap .gline { cursor: pointer; }
 .gmap text { font-family: inherit; }
-.gmap .gname { font-size: 8.5px; font-weight: 600; text-anchor: middle; fill: var(--text); paint-order: stroke; stroke: var(--land); stroke-width: 3.5px; stroke-linejoin: round; }
+.gmap .gname { font-size: 9px; font-weight: 600; text-anchor: middle; fill: var(--text); paint-order: stroke; stroke: var(--land); stroke-width: 3.5px; stroke-linejoin: round; }
 .gmap .glabel { font-size: 7px; text-anchor: middle; fill: var(--muted); paint-order: stroke; stroke: var(--land); stroke-width: 3px; }
 .gmap .gland { font-size: 8px; letter-spacing: 2px; text-anchor: middle; fill: var(--muted); opacity: .7; }
 .gmap .gmark { font-size: 7px; text-anchor: middle; fill: var(--text); }
@@ -618,8 +618,33 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gscreen .gdevband { margin: 6px 8px 0; flex: none; }
 .btn.grebuild { flex: none; display: block; width: auto; margin: 6px 8px 0; min-height: 44px; }
 .gmid { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--sea); }
-.gmapbox { position: absolute; inset: 0; } /* 1.5.2：パネル・カードを開いても地図は縮めない・動かさない */
+.gmapbox { position: absolute; inset: 0; touch-action: none; } /* 1.5.2：パネル・カードを開いても地図は縮めない・動かさない。1.6.0：指で拡大・移動（ページは動かさない） */
 .gmapbox .gmap { width: 100%; height: 100%; }
+/* 1.6.0 拡大・移動：下の層（海岸線）と上の層（線・地点）。動かしている間は CSS の transform だけで動かす */
+.gmapwrap { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform; }
+.gmapwrap .gmap { position: absolute; inset: 0; }
+.gmapwrap .gbase { pointer-events: none; }
+.gmapwrap .gtop { background: transparent; }
+.gmap .gcoastl { fill: var(--land); stroke: var(--coast); stroke-width: 1.2; stroke-linejoin: round; }
+.gmap .ghzline { fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 5 5; opacity: .55; }
+.gmap .ghzlabel { font-size: 8px; fill: var(--muted); opacity: .8; paint-order: stroke; stroke: var(--sea); stroke-width: 3px; }
+.gmoving .gmenu, .gmoving .gmlines { visibility: hidden; }
+.gzoombtns { position: absolute; right: 8px; bottom: 8px; z-index: 1; display: flex; gap: 6px; }
+.gzoombtns .btn { margin: 0; min-height: 44px; min-width: 44px; padding: 4px 10px; background: var(--card); opacity: .92; box-shadow: 0 1px 6px rgba(0, 0, 0, .15); }
+.building .gzoombtns, .gpanel.open ~ .gzoombtns { visibility: hidden; }
+/* 地点：絵で描くもの・点で描くもの（近すぎて重なるとき）・まだ開いていないもの（薄く）。ゲームの地点（史実ではない水力の地点）は点線の灰色 */
+.gmap .gsitebody { fill: var(--card); stroke: var(--ghydro); stroke-width: 1.3; stroke-dasharray: 2 3; }
+.gmap .gsitebody.has { stroke-dasharray: none; }
+.gmap .ggame .gsitebody { stroke: var(--muted); }
+.gmap .gdotc { fill: var(--card); stroke: var(--muted); stroke-width: 1.2; }
+.gmap .gdotc.t-lit, .gmap .gdotc.t-part { fill: var(--gwinon); stroke: var(--gedge); }
+.gmap .gdotc.t-dark { fill: var(--gdark); }
+.gmap .gdotc.s { stroke: var(--ghydro); }
+.gmap .gdotc.s.has { fill: var(--ghydro); }
+.gmap .ggame .gdotc.s { stroke: var(--muted); }
+.gmap .gnode.gclosed { opacity: .32; }
+.gmap .gnode.gclosed .gname { font-weight: 400; }
+.gmap .gname.astart { text-anchor: start; } .gmap .gname.aend { text-anchor: end; }
 .gdock { flex: none; display: flex; background: var(--card); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
 .gdbtn { position: relative; flex: 1; min-width: 0; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; background: none; border: 0; color: var(--muted); font-size: 0.72rem; font-weight: 600; padding: 4px 0; line-height: 1.3; }
 .gdbtn svg { width: 24px; height: 24px; }

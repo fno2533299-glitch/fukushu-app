@@ -2,6 +2,8 @@
 // 仕様：要件定義書 4.11、設計図 1.11。数値の正本は 試作/系統ゲーム_設計_v1.md
 // 単位：電力 kW、電力量 kWh（1刻み＝ゲームの1時間）、お金は収益（円）。学習通貨の支出は呼び出し側が台帳に書く
 import * as L from './logic.js';
+import { JAPAN_NODES } from './japan.js';
+import * as J from './gridjapan.js';
 
 // ---- 時間 ----
 export const HOUR_MS = 150000; // ゲームの1時間＝現実の2.5分（1日＝1時間）
@@ -42,11 +44,14 @@ export const POND_HOURS = 6; // 池の大きさ＝出力の6時間分。1日に�
 // ---- 送電・配電（設計 4章）。cap：1回線で送れる量 kW、r：Ω/km、cost：学習通貨/km ----
 export const LINES = {
   dc200: { name: '直流の配電 200 V', short: '直流 200 V', kv: 0.2, cap: 50, r: 0.1, cost: 100, era: 1, dc: true, gates: ['dc'], perf: 'dc' },
-  ac3: { name: '高圧配電 3.3 kV', short: '3.3 kV', kv: 3.3, cap: 1000, r: 0.3, cost: 200, era: 2, gates: ['dist'], perf: 'dist' },
-  ac11: { name: '送電 11 kV', short: '11 kV', kv: 11, cap: 3000, r: 0.3, cost: 400, era: 2, hv: true, gates: ['line'], perf: 'line' },
-  ac22: { name: '送電 22 kV', short: '22 kV', kv: 22, cap: 6000, r: 0.2, cost: 600, era: 2, hv: true, gates: ['line'], perf: 'line' },
-  ac66: { name: '送電 66 kV', short: '66 kV', kv: 66, cap: 30000, r: 0.1, cost: 1500, era: 2, level: 5, hv: true, gates: ['line'], perf: 'line' },
-  ac154: { name: '送電 154 kV', short: '154 kV', kv: 154, cap: 150000, r: 0.05, cost: 4000, era: 4, hv: true, gates: ['line'], perf: 'line', blueprint: 'line154' },
+  // 1.6.0：距離が実寸（日本列島）になったので、km あたりの建設費を下げた（史実の主な線が、その時代の大きな発電所1つ分くらい）
+  ac3: { name: '高圧配電 3.3 kV', short: '3.3 kV', kv: 3.3, cap: 1000, r: 0.3, cost: 150, era: 2, gates: ['dist'], perf: 'dist' },
+  ac11: { name: '送電 11 kV', short: '11 kV', kv: 11, cap: 3000, r: 0.3, cost: 250, era: 2, hv: true, gates: ['line'], perf: 'line' },
+  ac22: { name: '送電 22 kV', short: '22 kV', kv: 22, cap: 6000, r: 0.2, cost: 350, era: 2, hv: true, gates: ['line'], perf: 'line' },
+  ac66: { name: '送電 66 kV', short: '66 kV', kv: 66, cap: 30000, r: 0.1, cost: 800, era: 2, level: 5, hv: true, gates: ['line'], perf: 'line' },
+  // 1.6.0：大正の 110 kV（猪苗代の 115 kV を表す）。55 kV（駒橋）・77 kV（谷村）は 66 kV で表す
+  ac110: { name: '送電 110 kV', short: '110 kV', kv: 110, cap: 70000, r: 0.07, cost: 1000, era: 3, hv: true, gates: ['line'], perf: 'line' },
+  ac154: { name: '送電 154 kV', short: '154 kV', kv: 154, cap: 150000, r: 0.05, cost: 1200, era: 4, hv: true, gates: ['line'], perf: 'line', blueprint: 'line154' },
 };
 export const MAX_CIRCUITS = 4;
 // 建設のときに足せる対策（費用 +20% ずつ）
@@ -224,12 +229,46 @@ export const TERRAINS = {
     nodes: scaleKm(STANDARD.nodes, (n) => (n.hydro ? n.km.map((v) => v * 1.5) : n.km)).map((n) => (n.town && !n.tags.includes('coast') && n.id !== 'T4' && n.id !== 'T6' ? { ...n, tags: [...n.tags, 'coast'] } : n)),
   },
 };
+// 1.6.0 日本列島：実在の地名と史実の地点（app/js/japan.js。ツール/日本列島/ で作る）。地点は緯度・経度を持ち、距離は大円距離
+// 古い島（標準・山がち・海辺）は、古い記録を読むためだけに残す（新しく始めるのは日本列島）
+TERRAINS.japan = { name: '日本列島', desc: '実在の地名と史実の地点。始めた町のまわりから、時代とともに建てられる範囲が広がる', nodes: JAPAN_NODES, map: 'japan' };
+export const OLD_TERRAINS = ['standard', 'mountain', 'coast'];
+export const isJapan = (G) => G.terrain === 'japan';
 export const nodesOf = (G) => (TERRAINS[G.terrain] || STANDARD).nodes;
-export const nodeOf = (G, id) => nodesOf(G).find((n) => n.id === id);
+const IDX = new Map();
+export const nodeOf = (G, id) => {
+  const key = G.terrain in TERRAINS ? G.terrain : 'standard';
+  if (!IDX.has(key)) IDX.set(key, new Map(nodesOf(G).map((n) => [n.id, n])));
+  return IDX.get(key).get(id);
+};
+// 2点の緯度・経度から大円距離（km）
+const R_EARTH = 6371;
+export function greatCircleKm(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180;
+  const h = Math.sin(((lat2 - lat1) * r) / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lon2 - lon1) * r) / 2) ** 2;
+  return 2 * R_EARTH * Math.asin(Math.min(1, Math.sqrt(h)));
+}
 export function distKm(G, a, b) {
   const A = nodeOf(G, a), B = nodeOf(G, b);
+  if (A.lat != null && B.lat != null) return Math.max(0.3, greatCircleKm(A.lat, A.lon, B.lat, B.lon));
   return Math.max(0.3, Math.hypot(A.km[0] - B.km[0], A.km[1] - B.km[1]));
 }
+// 始めた町（古い島は中央の町）
+export const startId = (G) => G.start || (isJapan(G) ? J.TOKYO : 'T1');
+// 地点が開く時代（1.6.0。日本列島はエリアごと・水力は史実の年まで）。古い島は今までどおり、どの地点にも最初から建てられる
+export function openEra(G, n) {
+  if (typeof n === 'string') n = nodeOf(G, n);
+  if (!n) return 99;
+  if (isJapan(G)) return J.nodeOpenEra(startId(G), n);
+  return 1;
+}
+export const nodeOpen = (G, n) => openEra(G, n) <= G.era;
+// 申し込みが届く町か（日本列島は開いている町。古い島は町の era）
+export function townActive(G, n) {
+  if (typeof n === 'string') n = nodeOf(G, n);
+  return isJapan(G) ? nodeOpen(G, n) : (n.era || 1) <= G.era;
+}
+const closedWhy = (G, n) => `${n.name}は、まだ開いていない（${ERAS[openEra(G, n) - 1]?.name || '先の時代'}から）`;
 // ルート：まっすぐ（両端の地域の危険をすべて受ける）／回り道（距離 1.3 倍。雷と塩害を避ける。両端が雪なら雪は残る）
 export function routeInfo(G, a, b, route) {
   const A = nodeOf(G, a), B = nodeOf(G, b);
@@ -240,23 +279,38 @@ export function routeInfo(G, a, b, route) {
 }
 
 // ---- 最初の状態（設計 12章） ----
-export function newGrid(seed = 1, nowMs = 0, { terrain = 'standard', islandNo = 1, perfMax = {}, past = [] } = {}) {
+// terrain：'japan'（1.6.0 から新しく始めるのはこれ。start＝始める町）。古い島（standard など）はテストと古い記録のため
+export function newGrid(seed = 1, nowMs = 0, { terrain = 'standard', start = null, islandNo = 1, perfMax = {}, past = [] } = {}) {
+  const home = terrain === 'japan' ? start || J.TOKYO : 'T1';
   const G = {
-    v: 1, islandNo, terrain, seed, rng: seed | 0,
+    v: 2, islandNo, terrain, seed, rng: seed | 0,
+    ...(terrain === 'japan' ? { start: home } : {}),
     t: 6, realAt: nowMs, era: 1, hz: null,
     yen: 10000, loanUntil: 0, negHours: 0, rebuild: false,
     reserve: 0.1, fuelPlan: 'contract', maint: 'normal',
     fuel: { base: 1, contract: 1, spot: 0.85 },
     priority: ['P1'], nextId: 2,
-    plants: [{ id: 'P1', type: 'dcCoal', kw: 25, site: 'T1', cost: 3000, proto: false, builtAt: 0, readyAt: 0, on: false, onAt: null, downUntil: 0, idle: false, store: 0, hold: 0, done: true }],
+    plants: [{ id: 'P1', type: 'dcCoal', kw: 25, site: home, cost: 3000, proto: false, builtAt: 0, readyAt: 0, on: false, onAt: null, downUntil: 0, idle: false, store: 0, hold: 0, done: true }],
     lines: [], subs: [],
-    loads: [{ id: 'L1', town: 'T1', type: 'lamp', kw: 20, cap: false }],
+    loads: [{ id: 'L1', town: home, type: 'lamp', kw: 20, cap: false }],
     apps: [], rep: {}, black: {},
     events: [], incidents: [], reports: [], cool: {}, buffs: {},
     perfMax: { ...perfMax },
     hist: [], last: null, lossRatio: 0.03,
     acc: newAcc(), yr: newYear(0), years: [], best: null, past,
   };
+  return G;
+}
+// 日本列島で新しく始める（1.6.0）
+export const newJapan = (seed, nowMs, start = J.TOKYO, o = {}) => newGrid(seed, nowMs, { ...o, terrain: 'japan', start });
+// 古い記録を今の形に直す（読み込んだとき）。1.6.0：周波数は系統ごと → 島の周波数（G.hz）を交流の発電機に配る
+// 古い島では G.hz を島の決まりとして残す（まだ周波数のない網に建てるときも、その周波数になる）
+export function upgrade(G) {
+  if (!G) return G;
+  if ((G.v || 1) < 2) {
+    for (const p of G.plants || []) if (PLANTS[p.type]?.ac && !p.hz && G.hz) p.hz = G.hz;
+    G.v = 2;
+  }
   return G;
 }
 const newAcc = () => ({ hours: 0, rev: 0, fuel: 0, maint: 0, repair: 0, loan: 0, unserved: 0, shedH: 0, blackH: 0, badH: 0, fails: 0, apps: 0, notes: [] });
@@ -446,6 +500,9 @@ export function freqOutcome(units, dP, load, f0) {
 // 1つの網の1時間分。dem：node → { f（予測）, a（実際）, q（実際の無効電力） }。o.dry：状態を変えない（見込みの計算）
 function runNet(G, lc, t, net, dem, fc, o) {
   const res = { out: new Map(), served: new Map(), flows: new Map(), loss: 0, waste: 0, x: 0, over: false, shed: 0, black: false, noGen: false, tripped: [], cap: 0, load: 0, f: 0 };
+  // 1.6.0：周波数は網ごと（発電機の周波数。古い島は島の周波数）
+  const f0 = net.dc ? 0 : net.plants.find((p) => p.hz)?.hz || G.hz || 50;
+  res.hz = net.dc ? 0 : f0;
   const towns = net.nodes.filter((n) => dem.has(n));
   const A = towns.reduce((s, n) => s + dem.get(n).a, 0);
   const F = towns.reduce((s, n) => s + dem.get(n).f, 0);
@@ -578,7 +635,6 @@ function runNet(G, lc, t, net, dem, fc, o) {
     ratio = Math.max(0, 1 - res.dim); // 足りない分は交流の網が受け持つ。どこからも来なければ、電圧の低下になる（solve）
   } else if (dP > 0) {
     for (const u of alive) u.head = Math.max(0, u.cap - out.get(u.p.id));
-    const f0 = G.hz || 50;
     const fo = freqOutcome(alive, dP, A, f0);
     res.x = -fo.x;
     res.x0 = fo.x0;
@@ -602,7 +658,6 @@ function runNet(G, lc, t, net, dem, fc, o) {
   } else {
     // 余り：出力を下げる（優先順位の低い順）。下げきれない分は蒸気を逃がす・水を流す。それでも余れば周波数が上がりすぎる
     let sur = -dP;
-    const f0 = G.hz || 50;
     const room = alive.reduce((s, u) => s + (out.get(u.p.id) - Math.min(u.min, u.cap)), 0);
     const K = alive.reduce((a, u) => a + u.kw / (DROOP * f0), 0) + KL * A;
     res.x = Math.min(sur, room) / Math.max(K, 1e-9);
@@ -921,10 +976,10 @@ function daily(G, lc) {
   G.yr.profit -= m;
   // 接続の申し込み：受けた需要＋保留中が D_max を下回ると届く。停電の少ない町ほど届きやすい
   const used = G.loads.reduce((a, l) => a + l.kw, 0) + G.apps.reduce((a, l) => a + l.kw, 0);
-  const towns = nodesOf(G).filter((n) => n.town && n.era <= G.era);
+  const towns = nodesOf(G).filter((n) => n.town && townActive(G, n));
   const repAvg = towns.reduce((a, n) => a + (G.rep[n.id] ?? 1), 0) / towns.length;
   if (used < lc.dmax - 1 && G.apps.length < 5 && roll(0.6 * repAvg)) {
-    const town = pickWeighted(G, towns.map((n) => [n.id, (G.rep[n.id] ?? 1) * (n.id === 'T1' ? 2 : 1)]));
+    const town = pickWeighted(G, towns.map((n) => [n.id, (G.rep[n.id] ?? 1) * appWeight(G, n)]));
     const type = pickWeighted(G, Object.entries(LOAD_MIX[Math.min(G.era, 4)]));
     const raw = lc.dmax * (0.05 + 0.15 * rnd(G));
     const kw = Math.max(1, Math.min(raw, lc.dmax - used));
@@ -951,6 +1006,13 @@ function daily(G, lc) {
   if (fac && roll(0.02)) raise(G, lc, 'motor', { town: fac.town, what: `${nodeOf(G, fac.town).name}で、工場のモータが回り始めるたびに電灯がちらつく。`, cool: month });
   // 年の変わり目：スコアを残す
   if (day > 0 && day % YEAR_DAYS === 0) closeYear(G);
+}
+// 申し込みの届きやすさ。古い島：中央の町が2倍。日本列島（1.6.0）：町の大きさ（大・中・小）で 3:2:1、
+// まだ線も需要もない町は 0.3 倍（町が多いので、遠い町の申し込みばかりで保留が埋まらないように）
+export function appWeight(G, n) {
+  if (!isJapan(G)) return n.id === 'T1' ? 2 : 1;
+  const reached = n.id === startId(G) || G.loads.some((l) => l.town === n.id) || G.lines.some((l) => l.a === n.id || l.b === n.id);
+  return (n.size || 1) * (reached ? 1 : 0.3);
 }
 function closeYear(G) {
   const y = { ...G.yr, okRate: G.yr.hours ? G.yr.okH / G.yr.hours : 1 };
@@ -1083,8 +1145,8 @@ export function step(G, lc) {
 
   // お金と記録
   const quality = new Map();
-  let fuel = 0, loss = 0, worst = 0, anyShed = false, anyBlack = false, anyBad = false;
-  const last = { t, plants: {}, lines: {}, subs: {}, towns: {}, x: 0, demand: 0, served: 0, loss: 0, cap: 0, K: 0 };
+  let fuel = 0, loss = 0, worst = 0, anyShed = false, anyBlack = false, anyBad = false, hzLoad = -1;
+  const last = { t, plants: {}, lines: {}, subs: {}, towns: {}, x: 0, hz: 0, demand: 0, served: 0, loss: 0, cap: 0, K: 0 };
   const gen = { dc: 0, coal: 0, hydro: 0 };
   const price = fuelPrice(G, t) * (1 - 0.05 * (lc.perf.econ || 0));
   for (const r of sol.results) {
@@ -1094,7 +1156,11 @@ export function step(G, lc) {
     if (bad && r.load > 0) anyBad = true;
     if (r.shed > 0) anyShed = true;
     if (r.black) anyBlack = true;
-    if (!net.dc && Math.abs(r.x) > Math.abs(worst)) worst = r.x;
+    // 上の帯の周波数：いちばん乱れている網（同じなら需要の大きい網）。網ごとに 50 Hz／60 Hz が違うことがある（1.6.0）
+    if (!net.dc && net.plants.length) {
+      const ax = Math.abs(r.x), aw = Math.abs(worst);
+      if (ax > aw + 1e-12 || (ax >= aw - 1e-12 && r.load > hzLoad)) (worst = r.x), (last.hz = r.hz), (hzLoad = r.load);
+    }
     if (!net.dc && r.K) last.K = Math.max(last.K, r.K);
     for (const p of net.plants) {
       const o = r.out.get(p.id) || 0;
@@ -1188,12 +1254,26 @@ export function applyLearning(G, lc) {
   // 性能の上乗せは、これまでの最大値を残す（下がらない）
   for (const k of Object.keys(lc.perf)) G.perfMax[k] = Math.max(G.perfMax[k] || 0, lc.perf[k]);
   if (lc.era > G.era) {
+    const before = G.era;
     G.era = lc.era;
     G.eraUp = lc.era;
     const E = ERAS[lc.era - 1];
     note(G, `時代が ${E.name} に進んだ`);
-    addReport(G, { title: `時代が進んだ：${E.name}（${E.year}）`, what: '新しい設備と需要が登場する。', units: [] });
+    const opened = openedAreas(G, before, lc.era);
+    if (opened.length) note(G, `${opened.join('・')}が開いた`);
+    addReport(G, { title: `時代が進んだ：${E.name}（${E.year}）`, what: `新しい設備と需要が登場する。${opened.length ? `建てられる範囲が広がった（${opened.join('・')}）。` : ''}`, units: [] });
   }
+}
+// 時代 from → to で新しく開いたエリア（日本列島。エリアの町か水力の地点のどれかが開いたら）
+export function openedAreas(G, from, to) {
+  if (!isJapan(G)) return [];
+  const out = [];
+  for (const area of J.AREAS) {
+    const ns = nodesOf(G).filter((n) => n.area === area);
+    const was = ns.some((n) => openEra(G, n) <= from), now = ns.some((n) => openEra(G, n) <= to);
+    if (now && !was) out.push(area);
+  }
+  return out;
 }
 // 開いている間に期限（ゲームの1日）が来た事故を、標準の被害で片づける
 export function expireIncidents(G) {
@@ -1247,13 +1327,34 @@ export function siteAllows(G, type, siteId) {
   return !!n.hydro && !!n.pond;
 }
 // 発電所の見積もり。{ ok, cost, hours, proto, why }
-export function quotePlant(G, lc, { type, kw, site }) {
+// 交流の網（線でつながった地点。工事中・止まっている線も含む）の地点の集まり
+export function acComponent(G, id) {
+  const adj = new Map();
+  for (const l of G.lines) {
+    if (LINES[l.kind].dc) continue;
+    (adj.get(l.a) || adj.set(l.a, []).get(l.a)).push(l.b);
+    (adj.get(l.b) || adj.set(l.b, []).get(l.b)).push(l.a);
+  }
+  const seen = new Set([id]);
+  const stack = [id];
+  while (stack.length) for (const m of adj.get(stack.pop()) || []) if (!seen.has(m)) seen.add(m), stack.push(m);
+  return seen;
+}
+// その地点の交流の網の周波数（1.6.0：系統ごと）。網の中の交流の発電機の周波数。なければ古い島の周波数（G.hz）、それもなければ null
+export function netHz(G, id) {
+  const c = acComponent(G, id);
+  return G.plants.find((p) => PLANTS[p.type].ac && p.hz && c.has(p.site))?.hz || G.hz || null;
+}
+export const HZ_WHY = '周波数が違う網どうしはつなげない（周波数変換所ができるのは 1965 年の佐久間から）';
+export const SEA_WHY = '海をこえて島どうしをつなぐ線は、まだ作れない（1945 年の九州と本州の連系から）';
+export function quotePlant(G, lc, { type, kw, site, hz = null }) {
   const D = PLANTS[type];
   const size = D.sizes.find((s) => s[0] === kw);
   if (!size) return { ok: false, why: '大きさが選べない' };
   const st = eraStatus(lc, Math.max(D.era, size[2]?.era || 0));
   if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
   if (!siteAllows(G, type, site)) return { ok: false, why: 'この場所には建てられない' };
+  if (!nodeOpen(G, site)) return { ok: false, why: closedWhy(G, nodeOf(G, site)), closed: true };
   const miss = missing(lc, D.gates);
   if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
   const bp = D.blueprint || size[2]?.blueprint;
@@ -1263,17 +1364,20 @@ export function quotePlant(G, lc, { type, kw, site }) {
     const used = G.plants.filter((p) => p.site === site).reduce((a, p) => a + p.kw, 0);
     if (used + kw > node.hydro) return { ok: false, why: `この川で使える水は ${fmtKw(node.hydro)} まで（いま ${fmtKw(used)}）` };
   }
-  if (D.ac && !G.hz) return { ok: false, why: '先に周波数（50 Hz／60 Hz）を決める', hz: true };
+  // 交流の発電機：まだ周波数のない網に初めて建てるときは、50 Hz／60 Hz を選ぶ（hz）。ある網なら、その周波数になる
+  const netF = D.ac ? netHz(G, site) : null;
+  if (D.ac && !netF && hz !== 50 && hz !== 60) return { ok: false, why: '先に周波数（50 Hz／60 Hz）を決める', hz: true };
   const proto = st === 'proto';
   let cost = size[1] * (proto ? 3 : 1);
   if (!D.ac && G.buffs.dcDiscount) cost *= 0.8;
-  return { ok: true, cost: Math.round(cost), hours: buildHours(D.build, lc, D.perf), proto };
+  return { ok: true, cost: Math.round(cost), hours: buildHours(D.build, lc, D.perf), proto, ...(D.ac ? { hz: netF || hz, newHz: !netF } : {}) };
 }
 export function buildPlant(G, lc, spec) {
   const q = quotePlant(G, lc, spec);
   if (!q.ok) return q;
   if (!PLANTS[spec.type].ac) G.buffs.dcDiscount = false;
   const p = { id: `P${G.nextId++}`, type: spec.type, kw: spec.kw, site: spec.site, cost: q.cost, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, on: false, onAt: null, downUntil: 0, idle: false, store: 0, hold: 0, done: false };
+  if (q.hz) p.hz = q.hz; // 交流の発電機の周波数（網が分かれたり、つながったりしても変えない）
   G.plants.push(p);
   // 燃料のいらない水力は、優先順位の先頭に入れる（あとで並べ替えられる）
   if (PLANTS[spec.type].coal) G.priority.push(p.id);
@@ -1299,6 +1403,12 @@ export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {} }) {
   const st = eraStatus(lc, K.era, K.level);
   if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
   if (K.dc && !(nodeOf(G, a).town && nodeOf(G, b).town)) return { ok: false, why: '直流の配電線は、町と町の間だけ' };
+  for (const id of [a, b]) if (!nodeOpen(G, id)) return { ok: false, why: closedWhy(G, nodeOf(G, id)), closed: true };
+  if (nodeOf(G, a).island && nodeOf(G, a).island !== nodeOf(G, b).island) return { ok: false, why: SEA_WHY, sea: true };
+  if (!K.dc) {
+    const ha = netHz(G, a), hb = netHz(G, b);
+    if (ha && hb && ha !== hb) return { ok: false, why: `${HZ_WHY}。${nodeOf(G, a).name}は ${ha} Hz、${nodeOf(G, b).name}は ${hb} Hz`, hzDiff: true };
+  }
   const gates = [...K.gates, ...Object.keys(opts).filter((o) => opts[o]).flatMap((o) => LINE_OPTS[o].gates)];
   const miss = [...new Set(missing(lc, gates))];
   if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
@@ -1342,6 +1452,7 @@ export function addCircuit(G, lc, id) {
 }
 export function quoteSub(G, lc, { town, mva }) {
   if (!nodeOf(G, town)?.town || !SUB_SIZES.includes(mva)) return { ok: false, why: '町と容量を選ぶ' };
+  if (!nodeOpen(G, town)) return { ok: false, why: closedWhy(G, nodeOf(G, town)), closed: true };
   const st = eraStatus(lc, TR.era);
   if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
   const miss = missing(lc, TR.gates);
@@ -1430,9 +1541,15 @@ export function rebuildSell(G, items) {
   return back;
 }
 // 新しい島：明治の小さな島からやり直す。性能の上乗せ・前の島の記録は残す（時代と設計図は学習の記録から決まる）
-export function newIsland(G, terrain, nowMs, seed = (G.seed * 31 + 7) | 0) {
-  const past = [...(G.past || []), { islandNo: G.islandNo, terrain: G.terrain, hours: G.t, years: G.years, best: G.best, last: G.yr, peak: G.loads.reduce((a, l) => a + l.kw, 0) }].slice(-10);
-  return newGrid(seed, nowMs, { terrain, islandNo: G.islandNo + 1, perfMax: G.perfMax, past });
+// 1.6.0：「別の地方から始める」＝terrain 'japan' と始める町（start）。古い島の地形も選べる（開発者モード）
+export function newIsland(G, terrain, nowMs, seed = (G.seed * 31 + 7) | 0, start = null) {
+  const past = [...(G.past || []), { islandNo: G.islandNo, terrain: G.terrain, start: G.start || null, hours: G.t, years: G.years, best: G.best, last: G.yr, peak: G.loads.reduce((a, l) => a + l.kw, 0) }].slice(-10);
+  return newGrid(seed, nowMs, { terrain, start, islandNo: G.islandNo + 1, perfMax: G.perfMax, past });
+}
+// 系統の名前（経営のパネル・開発者モード）：日本列島は始めた町、古い島は地形
+export function placeName(G) {
+  if (isJapan(G)) return `日本列島（${J.startOf(startId(G))?.label || nodeOf(G, startId(G))?.name || ''}から）`;
+  return TERRAINS[G.terrain]?.name || '';
 }
 
 // 画面用：いまの需給のまとめ
