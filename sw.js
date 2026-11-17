@@ -1,6 +1,6 @@
 // オフライン用：アプリ本体をすべて端末に保存し、以後は保存したものから表示する
 // アプリを更新したら CACHE の番号を上げる（index.html の APP_VERSION も合わせる）
-const CACHE = 'fukushu-1.6.1';
+const CACHE = 'fukushu-1.6.2';
 const FILES = [
   './',
   './index.html',
@@ -16,6 +16,7 @@ const FILES = [
   './js/gridimg.js',
   './js/gridart.js',
   './js/japan.js',
+  './js/japan_terrain.js',
   './js/gridjapan.js',
   // GRID_IMAGES_BEGIN（ツール/系統画像/make_grid_images.py が書き換える）
   './img/grid/G01.webp',

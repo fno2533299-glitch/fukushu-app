@@ -9,6 +9,7 @@ import * as Mn from './gridmenu.js';
 import { GRID_IMAGES } from './gridimg.js';
 import * as Art from './gridart.js';
 import { JAPAN_COAST, JAPAN_BOUNDS, JAPAN_HZ_LINE } from './japan.js';
+import { JAPAN_TERRAIN, JAPAN_RIVERS, JAPAN_PREF_LINES, JAPAN_PREFS } from './japan_terrain.js';
 import * as J from './gridjapan.js';
 
 let A = null; // app.js から渡される部品（S・db・show・on・esc・toast など）
@@ -541,6 +542,16 @@ function chipTap(c) {
 // ---- 1.5.3 小さなグラフ：上の帯の下（札の下）に高さ 40px。直近24時間の需要（線）・届いた量（緑の点線）・電源ごとの出力（積み上げ）、
 // いまの時刻の印、予備力の残り。押すと需給。経営のパネルでオン・オフ（初期値はオン。開発者モード・デモではその系統の設定に）
 const miniOn = () => (DEV.on ? DEV.state.opts.mini !== false : A.S.settings.gridMini !== false);
+// 1.6.2 地形（山地・平野の塗り分け・川・県境）を出すか。経営のパネルでオン・オフ（初期値はオン。開発者モード・デモ・チュートリアルはその系統の設定）
+const terrainOn = () => (DEV.on ? DEV.state.opts.terrain !== false : A.S.settings.gridTerrain !== false);
+async function setTerrain(on) {
+  if (DEV.on) {
+    DEV.state.opts.terrain = on;
+    return save();
+  }
+  A.S.settings.gridTerrain = on;
+  return A.db.putKV('settings', A.S.settings);
+}
 async function setMini(on) {
   if (DEV.on) {
     DEV.state.opts.mini = on;
@@ -852,7 +863,14 @@ const baseTf = () => `matrix(${scaleK()} 0 0 ${scaleK()} ${(-VIEW.x * scaleK()).
 function baseInner(g) {
   if (Gm.isJapan(g)) {
     const hz = g.era >= 2 ? `<path d="M${JAPAN_HZ_LINE.map((p) => p.join(',')).join(' L')}" class="ghzline" vector-effect="non-scaling-stroke"/>` : '';
-    return `<path d="${JAPAN_COAST}" class="gcoastl" vector-effect="non-scaling-stroke"/>${hz}`;
+    if (!terrainOn()) return `<path d="${JAPAN_COAST}" class="gcoastl" vector-effect="non-scaling-stroke"/>${hz}`;
+    // 1.6.2 地形：陸の色 → 丘陵・山地・高い山の面を重ねて塗る（海岸線の形で切り抜く）→ 海岸線 → 県境 → 川 → 周波数の境目。線・地点は上の層
+    return `<defs><path id="gjcoast" d="${JAPAN_COAST}"/><clipPath id="gjclip"><use href="#gjcoast"/></clipPath></defs>
+      <use href="#gjcoast" class="gcoastf"/>
+      <g clip-path="url(#gjclip)"><path d="${JAPAN_TERRAIN.hill}" class="gter t1"/><path d="${JAPAN_TERRAIN.mount}" class="gter t2"/><path d="${JAPAN_TERRAIN.high}" class="gter t3"/></g>
+      <use href="#gjcoast" class="gcoasts" vector-effect="non-scaling-stroke"/>
+      <path d="${JAPAN_PREF_LINES}" class="gprefl" vector-effect="non-scaling-stroke"/>
+      <path d="${JAPAN_RIVERS}" class="griverl" vector-effect="non-scaling-stroke"/>${hz}`;
   }
   // 古い島：地形（雪の地域（北西）・山・川・海岸）
   let s = `<path d="${ISLAND}" fill="var(--land)" stroke="var(--coast)" stroke-width="1.5"/>`;
@@ -862,7 +880,7 @@ function baseInner(g) {
   s += '<text x="74" y="72" class="gland">雪の地域</text><text x="222" y="78" class="gland">山</text><text x="302" y="312" class="gland">海岸</text><text x="118" y="236" class="gland">平野</text>';
   return s;
 }
-const baseKeyOf = (g) => `${VIEW.key}|${Gm.isJapan(g) && g.era >= 2 ? 'hz' : ''}`;
+const baseKeyOf = (g) => `${VIEW.key}|${Gm.isJapan(g) && g.era >= 2 ? 'hz' : ''}|${Gm.isJapan(g) && terrainOn() ? 'ter' : ''}`;
 function baseSvg(g) {
   VIEW.base = baseKeyOf(g);
   return `<svg class="gmap gbase" data-base viewBox="0 0 ${VIEW.W} ${VIEW.H}" aria-hidden="true"><g data-basetf transform="${baseTf()}">${baseInner(g)}</g></svg>`;
@@ -870,7 +888,13 @@ function baseSvg(g) {
 function mapHtml(g) {
   ensureView(g);
   return `<div class="gmapwrap" data-mapwrap>${baseSvg(g)}<svg class="gmap gtop" data-top viewBox="0 0 ${VIEW.W} ${VIEW.H}" role="img" aria-label="${Gm.isJapan(g) ? '日本列島の地図' : '島の地図'}">${topInner(g)}</svg></div>
-    <div class="gzoombtns" data-zoombtns><button class="btn small" data-zoom="all">全体</button><button class="btn small" data-zoom="start">始めた町</button></div>`;
+    <div class="gzoombtns" data-zoombtns><button class="btn small" data-zoom="all">全体</button><button class="btn small" data-zoom="start">始めた町</button></div>${Gm.isJapan(g) && terrainOn() ? terrainKeyHtml() : ''}`;
+}
+// 1.6.2 地形の凡例：地図の左下の小さなボタン。押すと色見本が開く（開いたかどうかは画面を開いている間だけ覚える）
+let keyOpen = false;
+function terrainKeyHtml() {
+  const sw = (cls, name) => `<span><i class="${cls}"></i>${name}</span>`;
+  return `<div class="gterkey${keyOpen ? ' open' : ''}" data-terkey><button class="btn small" data-terkeybtn aria-expanded="${keyOpen}">凡例</button>${keyOpen ? `<div class="gterbox">${sw('k0', '平野')}${sw('k1', '丘陵 100 m〜')}${sw('k2', '山地 500 m〜')}${sw('k3', '高い山 1,500 m〜')}${sw('kr', '川')}${sw('kp', '県境')}</div>` : ''}</div>`;
 }
 // 表示の細かさ（1.6.0）：縮めたときは「大」の町の名前だけ。中・小の町・水力の地点は拡大すると出す。東京の区は町の中まで拡大したときだけ
 // （それより縮めたときは、いちばん目立つ区に「東京」とだけ出す）。建設モードで光る地点・選んだ地点はいつも出す
@@ -957,6 +981,19 @@ function topInner(g) {
       else labels.push({ x0: rects[pos][0], y0: rects[pos][1], x1: rects[pos][0] + w, y1: rects[pos][1] + h });
     }
     out.push(nodeSvg(g, n, x, y, { full, c, selId, lines, open, pos }));
+  }
+  // 1.6.2 県名：引いて見たとき（幅 300 km 以上）だけ、県の真ん中あたりに小さく薄く。地点の名前・絵と重なるときは省く
+  if (japan && terrainOn() && VIEW.w >= 300) {
+    for (const p of JAPAN_PREFS) {
+      const q = at(p);
+      if (!onScreen(q, -10)) continue;
+      const w = p.name.length * 8 + 4, h = 10;
+      const x0 = q.x - w / 2, y0 = q.y - h / 2;
+      if (labels.some((r) => x0 < r.x1 && x0 + w > r.x0 && y0 < r.y1 && y0 + h > r.y0)) continue;
+      if (placed.some((r) => r.x > x0 - 10 && r.x < x0 + w + 10 && r.y > y0 - 10 && r.y < y0 + h + 10)) continue;
+      labels.push({ x0, y0, x1: x0 + w, y1: y0 + h });
+      s += `<text x="${q.x.toFixed(1)}" y="${(q.y + 3.5).toFixed(1)}" class="gpref">${A.esc(p.name)}</text>`;
+    }
   }
   // 目立つものを上に重ねる（描く順は逆）
   s += out.reverse().join('');
@@ -1171,6 +1208,19 @@ function bindMap() {
       tutEv(`zoom:${b.dataset.zoom}`);
     };
   });
+  // 1.6.2 地形の凡例（押すと開く・閉じる）
+  const bindKey = () => {
+    const k = box.querySelector('[data-terkey]');
+    if (!k) return;
+    k.addEventListener('pointerdown', (e) => e.stopPropagation());
+    k.addEventListener('pointerup', (e) => e.stopPropagation());
+    k.querySelector('[data-terkeybtn]').onclick = () => {
+      keyOpen = !keyOpen;
+      k.outerHTML = terrainKeyHtml();
+      bindKey();
+    };
+  };
+  bindKey();
   // 画面の大きさが変わったら、真ん中と縮尺を残して描き直す
   mapRO?.disconnect();
   if (window.ResizeObserver) {
@@ -1819,7 +1869,7 @@ function sourcesSheet() {
     `<h2>出典の一覧</h2>
     <p class="small">史実の値は、出典で確かめたものだけを「確かめた」としています。Gemini の調査（G1・G2）だけのものは「未確認」です。ゲームのために決めた値（発電所の大きさ・費用・需要など）は史実ではありません。</p>
     <ul class="gsources">${J.SOURCES.map(([k, name, url]) => `<li><b>${k}</b> ${A.esc(name)}${url ? `<br><small>${A.esc(url)}</small>` : ''}</li>`).join('')}</ul>
-    <p class="small">地図：Natural Earth（1:10m。パブリックドメイン）。主な島だけを描いています。地点の位置はおおよそです。</p>`,
+    <p class="small">地図：Natural Earth（1:10m。海岸線・川・県境。パブリックドメイン）。主な島だけを描いています。県境は今のもの（明治の細かな違いは描き分けていません）。川は Natural Earth にある利根川・最上川・石狩川だけです。標高の塗り分け：NOAA ETOPO 2022（米国政府のデータ）。地形は見た目だけで、建てられる場所や費用には使っていません。地点の位置はおおよそです。</p>`,
   );
 }
 
@@ -2137,6 +2187,7 @@ function managePanel(g, lc) {
       <button class="btn" data-newisland>別の地方から始める</button>
       <h3>そのほか</h3>
       <label class="row"><input type="checkbox" data-minion ${miniOn() ? 'checked' : ''}><span>小さなグラフを出す<small>上の帯の下に、直近24時間の需要と電源の出力・予備力の残り（押すと需給）</small></span></label>
+      <label class="row"><input type="checkbox" data-terrainon ${terrainOn() ? 'checked' : ''}><span>地形を出す<small>日本列島の地図に、山地・平野の塗り分けと主な川・県境（見た目だけ。建てられる場所や費用は変わらない）</small></span></label>
       ${DEV.tut || DEV.demo ? '' : '<button class="btn gwide" data-tutagain>チュートリアルをもう一度</button>'}
       <p class="small">テーマ（シンプル／演出あり）は、ホームの「出題対象の設定」で変えられます。事故・出来事が起きたときの演出と収益の演出は、どちらのテーマでも出ます。演出ありでは、揺れ・光・音が少し強くなります（建設・時代が進んだとき・全域停電からの復旧にも音と光）。</p>
       ${versionHtml()}`,
@@ -2146,6 +2197,10 @@ function managePanel(g, lc) {
       onAll('[data-tutagain]', 'click', startTutorial);
       onAll('[data-minion]', 'change', async (e) => {
         await setMini(e.target.checked);
+        screen();
+      });
+      onAll('[data-terrainon]', 'change', async (e) => {
+        await setTerrain(e.target.checked);
         screen();
       });
       bindVersion(onAll);
@@ -2516,7 +2571,7 @@ window.addEventListener('resize', () => tutOn() && tutFollow());
 
 // ---- 開発者モード（1.5.1）：経営のパネルのバージョン番号を5回押すと入る。本番とは別の系統（kv「gridDev」）で動かす ----
 function versionHtml() {
-  return `<p class="note center">地図：Natural Earth（1:10m）。主な島だけを描いています（沖縄・小笠原・北方の島々は描いていません）。<button class="link" data-sources>出典の一覧</button></p>
+  return `<p class="note center">地図：Natural Earth（1:10m。海岸線・川・県境）、標高は NOAA ETOPO 2022。主な島だけを描いています（沖縄・小笠原・北方の島々は描いていません）。県境は今のもの。<button class="link" data-sources>出典の一覧</button></p>
     <p class="note center"><button class="link gver" data-ver>版 ${A.esc(window.APP_VERSION || '')}</button></p>`;
 }
 function bindVersion(onAll) {

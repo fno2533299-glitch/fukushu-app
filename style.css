@@ -632,6 +632,28 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gzoombtns { position: absolute; right: 8px; bottom: 8px; z-index: 1; display: flex; gap: 6px; }
 .gzoombtns .btn { margin: 0; min-height: 44px; min-width: 44px; padding: 4px 10px; background: var(--card); opacity: .92; box-shadow: 0 1px 6px rgba(0, 0, 0, .15); }
 .building .gzoombtns { visibility: hidden; }
+/* ---- 1.6.2 地形（見た目だけ）：陸の色に土の色を混ぜ、高いほど濃く。等高線の線は引かない。川は水色の細い線、県境は灰色の細かい点線 ---- */
+:root { --gtint: #9c8a5c; --gt1: #f2eee1; --gt2: #e5dcc4; --gt3: #d3c6a5; }
+@media (prefers-color-scheme: dark) { :root { --gtint: #b3a57e; --gt1: #34363a; --gt2: #3e3e3d; --gt3: #4a4842; } }
+@supports (color: color-mix(in srgb, red, blue)) {
+  :root { --gt1: color-mix(in srgb, var(--land), var(--gtint) 13%); --gt2: color-mix(in srgb, var(--land), var(--gtint) 27%); --gt3: color-mix(in srgb, var(--land), var(--gtint) 44%); }
+}
+.gmap .gcoastf { fill: var(--land); }
+.gmap .gcoasts { fill: none; stroke: var(--coast); stroke-width: 1.2; stroke-linejoin: round; }
+.gmap .gter { stroke: none; fill-rule: evenodd; }
+.gmap .gter.t1 { fill: var(--gt1); } .gmap .gter.t2 { fill: var(--gt2); } .gmap .gter.t3 { fill: var(--gt3); }
+.gmap .griverl { fill: none; stroke: var(--griver); stroke-width: 1.3; stroke-linejoin: round; stroke-linecap: round; }
+.gmap .gprefl { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 1 3; stroke-linecap: round; opacity: .5; }
+.gmap .gpref { font-size: 8px; text-anchor: middle; fill: var(--muted); opacity: .75; paint-order: stroke; stroke: var(--land); stroke-width: 2.5px; stroke-linejoin: round; }
+.gterkey { position: absolute; left: 8px; bottom: 8px; z-index: 1; display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 6px; }
+.gterkey .btn { margin: 0; min-height: 44px; min-width: 44px; padding: 4px 10px; background: var(--card); opacity: .92; box-shadow: 0 1px 6px rgba(0, 0, 0, .15); }
+.gterbox { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; border-radius: 10px; background: var(--card); opacity: .94; box-shadow: 0 1px 6px rgba(0, 0, 0, .15); font-size: 0.72rem; line-height: 1.3; }
+.gterbox span { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.gterbox i { display: inline-block; width: 16px; height: 11px; border-radius: 3px; border: 1px solid var(--line); }
+.gterbox i.k0 { background: var(--land); } .gterbox i.k1 { background: var(--gt1); } .gterbox i.k2 { background: var(--gt2); } .gterbox i.k3 { background: var(--gt3); }
+.gterbox i.kr { height: 0; border: 0; border-top: 2px solid var(--griver); border-radius: 0; }
+.gterbox i.kp { height: 0; border: 0; border-top: 2px dotted var(--muted); border-radius: 0; opacity: .7; }
+.building .gterkey { visibility: hidden; }
 /* 地点：絵で描くもの・点で描くもの（近すぎて重なるとき）・まだ開いていないもの（薄く）。ゲームの地点（史実ではない水力の地点）は点線の灰色 */
 .gmap .gsitebody { fill: var(--card); stroke: var(--ghydro); stroke-width: 1.3; stroke-dasharray: 2 3; }
 .gmap .gsitebody.has { stroke-dasharray: none; }
