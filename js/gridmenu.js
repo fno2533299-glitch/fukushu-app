@@ -251,6 +251,32 @@ export function finished(g, before) {
 }
 export const doneText = (g, f) => (f.kind === 'withdraw' ? Gm.withdrawText(g, f.x) : actText(g, { plant: 'donePlant', line: 'doneLine', sub: 'doneSub', opt: 'doneOpt' }[f.kind], f.x));
 
+// ---- 1.6.4 再現した史実の年表 ----
+// 史実と同じ区間を結んだとき、系統の保存データ（g.facts：[{ id, t, era }]）に残す。同じ史実は1回だけ。古い保存データは空から
+// 戻り値：新しく残したら true。チュートリアル・デモの系統では呼ばない（gridui.js）
+export function recordFact(g, fact) {
+  if (!fact?.id) return false;
+  g.facts ||= [];
+  if (g.facts.some((f) => f.id === fact.id)) return false;
+  g.facts.push({ id: fact.id, t: g.t, era: g.era });
+  return true;
+}
+// 年表の行：史実の年の順。[{ year, text, game }]（game：ゲームの中の年と時代）。知らない id（史実の一覧から外したもの）は出さない
+export function factTimeline(g) {
+  return (g.facts || [])
+    .map((f) => ({ f, d: J.LINE_FACTS.find((x) => x.id === f.id) }))
+    .filter((x) => x.d)
+    .sort((a, b) => a.d.year - b.d.year || a.f.t - b.f.t)
+    .map(({ f, d }) => ({ year: d.year, text: d.short, game: `${Gm.yearOf(f.t) + 1}年目・${Gm.ERAS[(f.era || 1) - 1]?.name || ''}`, conf: d.conf }));
+}
+// 1.6.4 昼と夜：地図の暗さ（0〜1）。18〜5時は夜、17時・6時は中間。見た目だけ（需要の形は変えない）
+export function nightOf(hour) {
+  const h = ((hour % 24) + 24) % 24;
+  return h >= 18 || h <= 5 ? 1 : h === 17 || h === 6 ? 0.5 : 0;
+}
+// 1.6.4 線の使用率の色：90% 超で注意（オレンジ）・100% 超で過負荷・120% 超で危険
+export const utilTier = (u) => (u > 1.2 ? 3 : u > 1 ? 2 : u > 0.9 ? 1 : 0);
+
 // ---- チュートリアル（案内の文字だけ。押す場所だけを明るくする） ----
 // 練習の島は本番とは別の系統（kv「gridTutorial」）。コインは練習用、学習は「直流の配電だけ1問正解」の扱い（灰色の種類を見せるため）
 // 1.6.0：練習の島を「練習の東京」に（日本列島の東京。日本橋（茅場町）から京橋・銀座へ）

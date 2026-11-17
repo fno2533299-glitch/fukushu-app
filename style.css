@@ -497,12 +497,14 @@ button.tile:active { border-color: var(--primary); }
   --gline: #2f6fdf; --gdc: #a8743a; --gcoal: #5a5f68; --ghydro: #2f9bd6;
   --glit: #ffe9a3; --gdark: #4a4e57; --gidle: #f1efe9; --gidleplant: #b9bcc2;
   --gsnow: #e7eef6; --gmount: #cfc9bb; --griver: #9cc7e8;
+  --gwarn: #e48a1c; --gh50: #14a39a; --gh60: #b452c8; --gglowc: #ffcf4a; --gglowd: #f08a2a; --gnight: rgba(10, 18, 46, .26);
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --gline: #7aa6f5; --gdc: #d2a063; --gcoal: #a9aeb7; --ghydro: #63bdec;
     --glit: #c9a43c; --gdark: #15171b; --gidle: #33373e; --gidleplant: #5c616a;
     --gsnow: #39414d; --gmount: #4b4a45; --griver: #3f6c8f;
+    --gwarn: #f2a24a; --gh50: #3cc8bd; --gh60: #d27ae4; --gglowc: #ffd866; --gglowd: #f6a04e; --gnight: rgba(0, 4, 18, .32);
   }
 }
 .gridcard .gchips { display: block; margin-top: 6px; }
@@ -1015,3 +1017,32 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .govlines { text-align: left; margin: 4px 0 10px; padding-left: 1.1em; font-size: 0.86rem; }
 .govlines li { margin: 3px 0; }
 .gfact { border-left: 3px solid var(--spark); padding-left: 8px; }
+
+/* ---- 1.6.4 地図の見た目（見た目だけ）：昼と夜・線の負荷と対策の印・発電所の稼働の光・50/60 Hz の色・建設モードの「周波数違い」 ---- */
+/* 夜の幕：海と陸（下の層・景色の層）の上、線・地点（上の層）の下。濃さは時刻で 0・0.5・1（gridmenu.js の nightOf）。早送りでもちらつかないよう、ゆっくり変える */
+.gmapwrap .gnight { position: absolute; left: -40%; top: -40%; width: 180%; height: 180%; background: var(--gnight); pointer-events: none; transition: opacity 3s linear; }
+@media (prefers-reduced-motion: reduce) { .gmapwrap .gnight { transition: none; } }
+.gcaut { color: var(--gwarn); }
+.gmap .ghzhalo { fill: none; stroke-linecap: round; opacity: .22; }
+.gmap .ghzhalo.h50, .gmap .ghztint.h50 { stroke: var(--gh50); }
+.gmap .ghzhalo.h60, .gmap .ghztint.h60 { stroke: var(--gh60); }
+.gmap .ghztint { fill: none; stroke-width: 2.4; opacity: .4; }
+.gmap .gopt { fill: none; stroke: var(--text); stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; }
+.gmap .gopt circle:not(.goptbg) { fill: var(--text); stroke: none; }
+.gmap .gopt .goptbg { fill: var(--card); stroke: var(--line); stroke-width: .8; opacity: .92; }
+.gmap .gopt.o-gw path { fill: color-mix(in srgb, var(--gline) 35%, transparent); }
+.gmap .goptdot { fill: var(--card); stroke: var(--text); stroke-width: 1.2; }
+.gmap .gglowp { fill: var(--gglowc); pointer-events: none; } /* 光彩：重い filter は使わず、濃さの違う2つの円 */
+.gmap .gglowp circle { fill-opacity: .35; } .gmap .gglowp circle + circle { fill-opacity: .55; }
+.gmap .gglowp.dry { fill: var(--gglowd); }
+.gmap .gnode.ghzno > :not(.ghztag) { opacity: .32; }
+.gmap .ghztag rect { fill: var(--card); stroke: var(--ng); stroke-width: .9; opacity: .95; }
+.gmap .ghztag text { font-size: 8.5px; fill: var(--ng); text-anchor: middle; font-weight: 600; }
+.gterbox i.ku0 { height: 0; border: 0; border-top: 3px solid var(--gline); border-radius: 0; }
+.gterbox i.ku1 { height: 0; border: 0; border-top: 3px solid var(--gwarn); border-radius: 0; }
+.gterbox i.ku2 { height: 0; border: 0; border-top: 3px solid var(--idk); border-radius: 0; }
+.gterbox i.ku3 { height: 0; border: 0; border-top: 3px solid var(--ng); border-radius: 0; }
+.gterbox i.kh50 { height: 0; border: 0; border-top: 5px solid var(--gh50); border-radius: 0; opacity: .5; }
+.gterbox i.kh60 { height: 0; border: 0; border-top: 5px solid var(--gh60); border-radius: 0; opacity: .5; }
+.gterbox { max-height: min(54vh, 380px); overflow-y: auto; }
+.gfacts li { margin: 3px 0; }

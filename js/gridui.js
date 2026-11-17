@@ -793,7 +793,7 @@ const MAP_PAD = 0.4;
 const mapVB = () => `${(-VIEW.W * MAP_PAD).toFixed(1)} ${(-VIEW.H * MAP_PAD).toFixed(1)} ${(VIEW.W * (1 + 2 * MAP_PAD)).toFixed(1)} ${(VIEW.H * (1 + 2 * MAP_PAD)).toFixed(1)}`;
 const viewH = () => (VIEW.w * VIEW.H) / VIEW.W;
 const at = (n) => ({ x: (n.x - VIEW.x) * scaleK(), y: (n.y - VIEW.y) * scaleK() });
-const utilColor = (u) => (u > 1.2 ? 'var(--ng)' : u > 1 ? 'var(--idk)' : 'var(--gline)');
+const utilColor = (u) => ['var(--gline)', 'var(--gwarn)', 'var(--idk)', 'var(--ng)'][Mn.utilTier(u)]; // 1.6.4：90% 超で注意（オレンジ）
 // 地図の範囲と拡大の限度（幅 4 km〜列島全体。古い島は 90〜島全体）
 function mapBounds(g) {
   if (Gm.isJapan(g)) {
@@ -912,13 +912,16 @@ function baseSvg(g) {
   VIEW.base = baseKeyOf(g);
   return `<svg class="gmap gbase" data-base viewBox="${mapVB()}" aria-hidden="true"><g data-basetf transform="${baseTf()}">${baseInner(g)}</g></svg>`;
 }
+// 1.6.4 昼と夜：夕方〜夜は海と陸（下の層・景色の層）に暗い幕を重ねる（上の層の町の灯り・線・地点は暗くしない）。
+// 暗さは時刻（gridmenu.js の nightOf）× 最大の濃さ（CSS の --gnight-a）。変わるときは CSS の transition で少しずつ
+const nightLevel = (g) => Mn.nightOf(g.t).toFixed(2);
 // 1.6.3 地球地図日本の出典：日本列島の地図を出している間は右上にいつも小さく出す（凡例・全体・始めた町のボタンと重ならない所）
 const ATTR_HTML = '<div class="gattr" aria-hidden="true">地球地図日本（国土地理院）を加工</div>';
 function mapHtml(g) {
   ensureView(g);
   const jp = Gm.isJapan(g);
   const sh = sceneInner(g);
-  return `<div class="gmapwrap" data-mapwrap>${baseSvg(g)}<svg class="gmap gscene" data-scene data-k="${sh ? sceneCache.key : ''}" viewBox="${mapVB()}" aria-hidden="true">${sh}</svg><svg class="gmap gtop" data-top viewBox="${mapVB()}" role="img" aria-label="${jp ? '日本列島の地図' : '島の地図'}">${topInner(g)}</svg></div>
+  return `<div class="gmapwrap" data-mapwrap>${baseSvg(g)}<svg class="gmap gscene" data-scene data-k="${sh ? sceneCache.key : ''}" viewBox="${mapVB()}" aria-hidden="true">${sh}</svg><div class="gnight" data-night style="opacity:${nightLevel(g)}" aria-hidden="true"></div><svg class="gmap gtop" data-top viewBox="${mapVB()}" role="img" aria-label="${jp ? '日本列島の地図' : '島の地図'}">${topInner(g)}</svg></div>
     <div class="gzoombtns" data-zoombtns><button class="btn small" data-zoom="all">全体</button><button class="btn small" data-zoom="start">始めた町</button></div>${jp && terrainOn() ? terrainKeyHtml() : ''}${jp ? ATTR_HTML : ''}`;
 }
 // ---- 1.6.3 拡大したときの景色（画面の幅 60 km 以下）：林・岩と雪・市街地（家の小さな印と淡い広がり）。田畑は下の層の模様 ----
@@ -960,7 +963,7 @@ function sceneInner(g) {
 let keyOpen = false;
 function terrainKeyHtml() {
   const sw = (cls, name) => `<span><i class="${cls}"></i>${name}</span>`;
-  return `<div class="gterkey${keyOpen ? ' open' : ''}" data-terkey><button class="btn small" data-terkeybtn aria-expanded="${keyOpen}">凡例</button>${keyOpen ? `<div class="gterbox">${sw('k0', '平野')}${sw('k1', '丘陵 100 m〜')}${sw('k2', '山地 500 m〜')}${sw('k3', '高い山 1,500 m〜')}${sw('kl', '湖')}${sw('kr', '川')}${sw('kp', '県境')}<small>拡大すると</small>${sw('kf', '田畑')}${sw('kt', '林')}${sw('ku', '市街地')}</div>` : ''}</div>`;
+  return `<div class="gterkey${keyOpen ? ' open' : ''}" data-terkey><button class="btn small" data-terkeybtn aria-expanded="${keyOpen}">凡例</button>${keyOpen ? `<div class="gterbox">${sw('k0', '平野')}${sw('k1', '丘陵 100 m〜')}${sw('k2', '山地 500 m〜')}${sw('k3', '高い山 1,500 m〜')}${sw('kl', '湖')}${sw('kr', '川')}${sw('kp', '県境')}<small>拡大すると</small>${sw('kf', '田畑')}${sw('kt', '林')}${sw('ku', '市街地')}<small>線の使用率</small>${sw('ku0', '〜90%')}${sw('ku1', '90% 超で注意')}${sw('ku2', '100% 超')}${sw('ku3', '120% 超')}<small>網の周波数</small>${sw('kh50', '50 Hz')}${sw('kh60', '60 Hz')}</div>` : ''}</div>`;
 }
 // 表示の細かさ（1.6.0）：縮めたときは「大」の町の名前だけ。中・小の町・水力の地点は拡大すると出す。東京の区は町の中まで拡大したときだけ
 // （それより縮めたときは、いちばん目立つ区に「東京」とだけ出す）。建設モードで光る地点・選んだ地点はいつも出す
@@ -986,6 +989,7 @@ function topInner(g) {
     if (onScreen(mid, 0)) s += `<text x="${(mid.x + 6).toFixed(1)}" y="${(mid.y - 6).toFixed(1)}" class="ghzlabel">今の境目（参考）</text>`;
   }
   // 線（下の色は使用率・直流・止まっている）
+  const hzN = hzOfNodes(g); // 1.6.4 周波数の色
   let flows = '';
   for (const l of g.lines) {
     const a = P.get(l.a), b = P.get(l.b);
@@ -1001,8 +1005,9 @@ function topInner(g) {
     const label = building ? `${K.short} 工事 あと${hoursText(l.readyAt - t)}` : `${K.short}${l.n > 1 ? `×${l.n}` : ''}`;
     const mk = markOf(l.id);
     const showLabel = L2.len > 70 || selLine === l.id;
-    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${L2.d}" fill="none" stroke="transparent" stroke-width="22"/>${selLine === l.id ? `<path d="${L2.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${mk === 'glow' ? `<path d="${L2.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : ''}<path d="${L2.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : down ? 'stroke-dasharray="7 5"' : ''}/>
-      ${showLabel ? `<text x="${L2.lx.toFixed(1)}" y="${(L2.ly - 4).toFixed(1)}" class="glabel${building ? ' gwork' : ''}">${label}</text>` : ''}${building && showLabel ? cone(L2.lx, L2.ly + 8, mk === 'work') : ''}</g>`;
+    const hz = !K.dc && hzN.get(l.a);
+    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${L2.d}" fill="none" stroke="transparent" stroke-width="22"/>${hz ? `<path d="${L2.d}" class="ghzhalo h${hz}" stroke-width="${wdt + 5}"/>` : ''}${selLine === l.id ? `<path d="${L2.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${mk === 'glow' ? `<path d="${L2.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : ''}<path d="${L2.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : down ? 'stroke-dasharray="7 5"' : ''}/>
+      ${showLabel ? `<text x="${L2.lx.toFixed(1)}" y="${(L2.ly - 4).toFixed(1)}" class="glabel${building ? ' gwork' : ''}">${label}</text>` : ''}${building && showLabel ? cone(L2.lx, L2.ly + 8, mk === 'work') : ''}${building ? '' : showLabel ? optMarks(l, L2.lx + textW7(label) / 2 + 9, L2.ly - 6.5, t, false, true) : optMarks(l, L2.lx, L2.ly, t, true)}</g>`;
     flows += flowPath(g, l, a, b, L2, mk === 'glow');
   }
   s += `<g class="gflows${B ? ' gdim' : ''}" aria-hidden="true">${flows}</g>`;
@@ -1050,7 +1055,7 @@ function topInner(g) {
       if (!pos) lines = [];
       else labels.push({ x0: rects[pos][0], y0: rects[pos][1], x1: rects[pos][0] + w, y1: rects[pos][1] + h });
     }
-    out.push(nodeSvg(g, n, x, y, { full, c, selId, lines, open, pos }));
+    out.push(nodeSvg(g, n, x, y, { full, c, selId, lines, open, pos, hz: hzN.get(n.id), hzNo: !!cand?.hz?.has(n.id) }));
   }
   // 1.6.2 県名：引いて見たとき（幅 300 km 以上）だけ、県の真ん中あたりに小さく薄く。地点の名前・絵と重なるときは省く
   if (japan && terrainOn() && VIEW.w >= 300) {
@@ -1069,21 +1074,80 @@ function topInner(g) {
   s += out.reverse().join('');
   return s;
 }
+// 1.6.4 50 Hz 網と 60 Hz 網の色分け（日本列島・交流の時代）：交流の線でつながった地点の集まりごとに、その中の交流の発電機の周波数。
+// 地点 → 50 | 60（交流の発電機か交流の線のある地点だけ）。見た目だけ（つなげるかどうかは grid.js の netHz）
+function hzOfNodes(g) {
+  const m = new Map();
+  if (!Gm.isJapan(g) || g.era < 2) return m;
+  const up = new Map();
+  const find = (x) => {
+    while (up.has(x) && up.get(x) !== x) x = up.get(x);
+    return x;
+  };
+  const join = (a, b) => {
+    for (const v of [a, b]) if (!up.has(v)) up.set(v, v);
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) up.set(ra, rb);
+  };
+  for (const l of g.lines) if (!Gm.LINES[l.kind].dc) join(l.a, l.b);
+  const acPlants = g.plants.filter((p) => Gm.PLANTS[p.type].ac && p.hz);
+  for (const p of acPlants) if (!up.has(p.site)) up.set(p.site, p.site);
+  const hzRoot = new Map();
+  for (const p of acPlants) if (!hzRoot.has(find(p.site))) hzRoot.set(find(p.site), p.hz);
+  for (const v of up.keys()) {
+    const hz = hzRoot.get(find(v));
+    if (hz) m.set(v, hz);
+  }
+  return m;
+}
+// 1.6.4 送電線の対策の印（線の中ほど）：架空地線＝盾、耐塩がいし＝がいし、相間スペーサ＝棒と玉、消弧リアクトル＝コイル。効いているものだけ
+const OPT_ICON = {
+  gw: '<path d="M0,-4.6 L3.8,-3 V0.4 C3.8,2.8 2,4.2 0,5 C-2,4.2 -3.8,2.8 -3.8,0.4 V-3Z"/>',
+  insul: '<path d="M-3.8,-3.2 H3.8 M-3.2,-0.6 H3.2 M-3.8,2 H3.8 M0,-5 V4.6"/>',
+  spacer: '<path d="M-4,-2.6 L4,2.6"/><circle cx="-4" cy="-2.6" r="1.4"/><circle cx="4" cy="2.6" r="1.4"/>',
+  petersen: '<path d="M-4.5,0 C-4.5,-3.5 -1.5,-3.5 -1.5,0 C-1.5,3.5 1.5,3.5 1.5,0 C1.5,-3.5 4.5,-3.5 4.5,0"/>',
+};
+// 7px の文字の幅（おおよそ。半角 4px・全角 7px）
+const textW7 = (str) => [...str].reduce((a, c) => a + (c.charCodeAt(0) < 256 ? 4 : 7), 0);
+// x・y：left なら左端の印の中心（線の名前の右に並べる）、そうでなければ真ん中
+function optMarks(l, x, y, t, dot, left = false) {
+  const os = Object.keys(Gm.LINE_OPTS).filter((o) => Gm.optOn(l, o, t));
+  if (!os.length) return '';
+  if (dot) return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.4" class="goptdot"/>`; // 名前の出ない縮尺では点だけ
+  const x0 = left ? x : x - ((os.length - 1) * 12) / 2;
+  return os.map((o, i) => `<g class="gopt o-${o}" transform="translate(${(x0 + i * 12).toFixed(1)},${y.toFixed(1)})"><circle r="6.2" class="goptbg"/>${OPT_ICON[o]}</g>`).join('');
+}
+// 1.6.4 発電所の稼働の光：引いて見たとき（点になる地点・幅 150 km 以上）も、動いている発電所に出力に応じた光彩。
+// 止まっている・休止・待機は光らない。渇水で出力が落ちている水力は薄いオレンジ
+function plantGlow(g, n, x, y, plants) {
+  const ready = plants.filter((p) => p.readyAt <= g.t);
+  const out = ready.reduce((a, p) => a + (g.last?.plants[p.id] || 0), 0);
+  const cap = ready.reduce((a, p) => a + p.kw, 0);
+  if (!(out > 0.5) || !cap) return '';
+  const k = Math.min(1, out / cap);
+  const dry = Gm.evOn(g, 'drought') && ready.some((p) => !Gm.PLANTS[p.type].coal && (g.last?.plants[p.id] || 0) > 0);
+  const r = Math.min(15, 6 + 2.2 * Math.log10(1 + out));
+  const c = (rr) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${rr.toFixed(1)}"/>`;
+  return `<g class="gglowp${dry ? ' dry' : ''}" style="opacity:${(0.4 + 0.6 * k).toFixed(2)}">${c(r)}${c(r * 0.55)}</g>`;
+}
 // 地点1つの絵。full：絵で描く／点で描く。c：建設モードの候補（'can'・'sel'）。lines：名前（1〜2行）。open：開いている地点か
-function nodeSvg(g, n, x, y, { full, c, selId, lines, open, pos = 'b' }) {
+function nodeSvg(g, n, x, y, { full, c, selId, lines, open, pos = 'b', hz = null, hzNo = false }) {
   const t = g.t;
-  const mode = !B ? (selId === n.id ? ' sel' : '') : c === 'sel' ? ' sel' : c ? ' gcan' : ' gdim';
+  const mode = !B ? (selId === n.id ? ' sel' : '') : c === 'sel' ? ' sel' : c ? ' gcan' : hzNo && full ? ' ghzno' : ' gdim'; // 1.6.4 周波数違い：絵は薄く、札は読めるように
   const kind = n.town ? 'gtownn' : n.game ? 'gsite ggame' : 'gsite';
   const cls = `gnode ${kind}${mode}${open ? '' : ' gclosed'}${full ? '' : ' gdot'}`;
   const plants = g.plants.filter((p) => p.site === n.id);
   const subs = g.subs.filter((v) => v.town === n.id);
   const inc = g.incidents.some((i) => i.town === n.id || plants.some((p) => p.id === i.plant) || subs.some((v) => v.id === i.sub));
   const f = (v) => v.toFixed(1);
+  // 1.6.4：稼働の光（点の地点はいつも。絵の地点は引いて見たときだけ）・周波数の色（網に入っている地点にほのかな円）
+  const glow = plants.length && (!full || (Gm.isJapan(g) && VIEW.w >= 150)) ? plantGlow(g, n, x, y, plants) : '';
+  const tint = hz ? `<circle cx="${f(x)}" cy="${f(y)}" r="${full ? 13 : 7}" class="ghztint h${hz}"/>` : '';
   if (!full) {
     // 点：町は灯り具合の色、用地は小さな菱形
     const look = n.town ? Art.townLook(g, n) : null;
     const dot = n.town ? `<circle cx="${f(x)}" cy="${f(y)}" r="3.6" class="gdotc t-${look.state}"/>` : `<path d="M${f(x)},${f(y - 3.6)} L${f(x + 3.6)},${f(y)} L${f(x)},${f(y + 3.6)} L${f(x - 3.6)},${f(y)}Z" class="gdotc s${plants.length ? ' has' : ''}"/>`;
-    return `<g class="${cls}" data-node="${n.id}"><circle cx="${f(x)}" cy="${f(y)}" r="9" fill="transparent"/>${dot}${inc ? `<circle cx="${f(x + 4)}" cy="${f(y - 4)}" r="3" fill="var(--ng)"/>` : ''}</g>`;
+    return `<g class="${cls}" data-node="${n.id}"><circle cx="${f(x)}" cy="${f(y)}" r="9" fill="transparent"/>${glow}${tint}${dot}${inc ? `<circle cx="${f(x + 4)}" cy="${f(y - 4)}" r="3" fill="var(--ng)"/>` : ''}</g>`;
   }
   // 1.5.3：町は家並み（灯ると窓が光り、まわりに光の輪）、用地は菱形。発電所・変電所は種類のアイコンを横に出し、短い線でつなぐ（gridart.js）
   let body = n.town ? Art.townSvg(x, y, Art.townLook(g, n)) : `<path d="M${f(x)},${f(y - 9)} L${f(x + 9)},${f(y)} L${f(x)},${f(y + 9)} L${f(x - 9)},${f(y)}Z" class="gsitebody${plants.length ? ' has' : ''}"/>`;
@@ -1097,8 +1161,10 @@ function nodeSvg(g, n, x, y, { full, c, selId, lines, open, pos = 'b' }) {
   const nh = lines.length * 10.5;
   const [tx, ty, anc] = { b: [x, y + 23, ''], t: [x, y - 17 - nh, ''], r: [x + 13, y + 3.5 - (nh - 10.5) / 2, ' start'], l: [x - 13, y + 3.5 - (nh - 10.5) / 2, ' end'] }[pos] || [x, y + 23, ''];
   const name = lines.length ? `<text y="${f(ty)}" class="gname${anc ? ` a${anc.trim()}` : ''}">${lines.map((v, i) => `<tspan x="${f(tx)}" dy="${i ? 10.5 : 0}">${A.esc(v)}</tspan>`).join('')}</text>` : '';
-  return `<g class="${cls}" data-node="${n.id}"><circle cx="${f(x)}" cy="${f(y)}" r="23" fill="transparent"/>${ring}${body}
-      ${name}
+  // 1.6.4 建設モード：周波数が違うためにつなげない地点に短い札（押すと理由。buildTap → whyNot）
+  const hzTag = hzNo ? `<g class="ghztag"><rect x="${f(x - 27)}" y="${f(y - 36)}" width="54" height="13" rx="6.5"/><text x="${f(x)}" y="${f(y - 26.5)}">周波数違い</text></g>` : '';
+  return `<g class="${cls}" data-node="${n.id}"><circle cx="${f(x)}" cy="${f(y)}" r="23" fill="transparent"/>${glow}${tint}${ring}${body}
+      ${name}${hzTag}
       ${inc ? `<circle cx="${f(x + 12)}" cy="${f(y + 8)}" r="6" fill="var(--ng)"/><text x="${f(x + 12)}" y="${f(y + 11)}" class="gbang">!</text>` : ''}</g>`;
 }
 // 電気の流れ（黄色い点線）：流れている線にだけ重ね、流れる向き（last.lines の to）に動かす。速さは使用率で3段階
@@ -1144,6 +1210,8 @@ function drawMap() {
   const top = wrap.querySelector('[data-top]');
   top.setAttribute('viewBox', mapVB());
   top.innerHTML = topInner(g);
+  const night = wrap.querySelector('[data-night]');
+  if (night) night.style.opacity = nightLevel(g);
   syncFlows();
 }
 // 地図が動いたあと：地図・メニュー・カード・建設の帯を描き直す
@@ -1712,7 +1780,13 @@ function candidates(g, lc) {
     if (!B.from) {
       for (const n of nodes) if (nodes.some((o) => o.id !== n.id && ok(n.id, o.id))) m.set(n.id, 'can');
     } else {
-      for (const n of nodes) if (n.id !== B.from && ok(B.from, n.id)) m.set(n.id, 'can');
+      m.hz = new Set(); // 1.6.4：周波数が違うためにつなげない地点（札「周波数違い」）
+      for (const n of nodes) {
+        if (n.id === B.from) continue;
+        const q = Gm.quoteLine(g, lc, { a: B.from, b: n.id, kind: B.lk });
+        if (q.ok) m.set(n.id, 'can');
+        else if (q.hzDiff) m.hz.add(n.id);
+      }
       m.set(B.from, 'sel');
       if (B.to) m.set(B.to, 'sel');
     }
@@ -1900,6 +1974,7 @@ async function pay(q, what, doBuild, after, kind = null) {
     // 1.6.0：史実と同じ2地点を結んだら、史実の1行を出す（答え合わせ）
     const fact = Gm.isJapan(G()) && J.lineFact(r.line.a, r.line.b);
     if (fact) band(`史実：${fact.text}（${J.confText(fact.conf)}）`);
+    if (fact && !DEV.tut && !DEV.demo) Mn.recordFact(G(), fact); // 1.6.4 再現した史実の年表に残す（チュートリアル・デモでは残さない）
   }
   else if (kind === 'sub') act('buildSub', r.sub), mark(r.sub.town, 'work');
   else if (kind === 'circuit') act('circuit', r.line);
@@ -2068,7 +2143,7 @@ function linePanel(g, lc, id) {
     title: A.esc(Gm.lineName(g, l)),
     html: `<p class="small glinehead">${linePic(l.kind)}<span>${K.name} ・ ${l.km.toFixed(1)} km（${l.route === 'detour' ? '回り道' : 'まっすぐ'}）・ ${l.n}回線${l.proto ? ' ・ 試作' : ''}</span></p>
     ${fact ? `<p class="small gfact">史実：${A.esc(fact.text)}（出典 ${A.esc(fact.src)}・${J.confText(fact.conf)}） <button class="link" data-sources>出典の一覧</button></p>` : ''}
-    <p class="small">状態：${stateOf(l, t) || (l.c1Until > t ? `1回線が修理中（あと ${l.c1Until - t}時間）` : '送電中')}${f ? ` ・ 流れ ${kw(f.p)} ・ 使用率 <b class="${f.util > 1 ? 'gneg' : ''}">${pct(f.util)}</b> ・ 損失 ${kw(f.loss)}${dir}` : ''}</p>
+    <p class="small">状態：${stateOf(l, t) || (l.c1Until > t ? `1回線が修理中（あと ${l.c1Until - t}時間）` : '送電中')}${f ? ` ・ 流れ ${kw(f.p)} ・ 使用率 <b class="${f.util > 1 ? 'gneg' : f.util > 0.9 ? 'gcaut' : ''}">${pct(f.util)}</b>${f.util > 0.9 && f.util <= 1 ? '（90% 超で注意）' : ''} ・ 損失 ${kw(f.loss)}${dir}` : ''}</p>
     <p class="small">危険：${hazardText(l.hazards)} ・ 対策：${optNames.length ? optNames.join('・') : 'なし'} ・ 故障の目安 1日あたり ${(hz.perDay * 100).toFixed(2)}%</p>
     <p class="small">送れる量を超えて 120% までは温度が上がるだけ（故障しやすくなる）。120% を2時間超えると保護装置で切れる。</p>
     <div class="gbtns2">
@@ -2275,6 +2350,12 @@ function listPanel(g, lc) {
   };
 }
 
+// 1.6.4 この系統で再現した史実（史実と同じ区間を結んだもの）。まだ再現していないものは出さない（答えを先に見せない）
+function factsHtml(g) {
+  const rows = Mn.factTimeline(g);
+  return `<h3>この系統で再現した史実</h3>${rows.length ? `<ul class="gnotes gfacts">${rows.map((r) => `<li><b>${r.year}年</b> ${A.esc(r.text)}<small>（ゲームの ${A.esc(r.game)}${r.conf === true ? '' : `・史実は${J.confText(r.conf)}`}）</small></li>`).join('')}</ul>` : '<p class="small">まだありません。史実と同じ区間を線で結ぶと、ここに残ります。</p>'}
+    <p class="small"><button class="link" data-sources>出典の一覧</button></p>`;
+}
 // ---- 経営のパネル：収益の推移・時代と学習・記録・新しい島・経営再建・そのほか・バージョン番号（開発者モードの入口） ----
 function managePanel(g, lc) {
   const gates = Object.keys(Gm.GATES)
@@ -2305,6 +2386,7 @@ function managePanel(g, lc) {
       <p class="small">関係する単元で1問正解すると、建設できる（使える）ようになる。性能＝その単元の定着の割合（これまでの最大値。下がらない）。熱効率・故障の少なさ・工期に効く</p>
       <h3>設計図</h3><p class="gtags">${bps}</p>
       <p class="small">その単元の試験レベルに正解するか、関係する外部試験で満点の3割以上</p>
+      ${Gm.isJapan(g) && !DEV.tut && !DEV.demo ? factsHtml(g) : ''}
       <h3>${Gm.isJapan(g) ? '始めた町' : '島'}</h3>
       <p class="small">島 ${g.islandNo}（${A.esc(Gm.placeName(g))}）${Gm.hzList(g).length ? ` ・ 周波数 ${Gm.hzList(g).join(' Hz と ')} Hz${Gm.hzList(g).length > 1 ? '（網ごと）' : ''}` : g.hz ? ` ・ 周波数 ${g.hz} Hz` : ' ・ 周波数はまだ決めていない'} ・ ${Math.floor(g.t / 24)}日目</p>
       ${(g.past || []).length ? `<p class="small">前の系統：${g.past.map((p) => `${p.islandNo}（${p.terrain === 'japan' ? `日本列島・${A.esc(J.startOf(p.start)?.label || '')}から` : Gm.TERRAINS[p.terrain]?.name || ''}）${Math.floor(p.hours / 24)}日・最高の年間利益 ${p.best ? yen(p.best.profit) : '—'}`).join(' ／ ')}</p>` : ''}

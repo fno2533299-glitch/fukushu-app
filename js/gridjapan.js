@@ -59,14 +59,15 @@ export function nodeOpenEra(start, n) {
 }
 
 // ---- 史実と同じ2地点を線で結んだとき（7章） ----
+// id・year・short（1.6.4）：再現した史実の年表に残す鍵・史実の年・短い名前。
 // a・b：どちらかの端がこの中なら（向きは問わない）。conf：true＝確かめた／'part'＝一部だけ確かめた／false＝未確認
 export const LINE_FACTS = [
-  { a: ['komahashi'], b: ['tk-waseda'], text: '1907年、駒橋から早稲田へ 55kV・76km で送電（当時の日本で最初の 55kV 送電線）', src: 'S4・S9', conf: true },
-  { a: ['shimotaki'], b: TOKYO_WARDS, text: '1912年、下滝から東京へ 66kV で送電を始めた', src: 'S6', conf: true },
-  { a: ['inawashiro1'], b: ['tk-tabata'], text: '1915年、猪苗代第一から東京へ 115kV（約 227km）の長距離送電を始めた（年と電圧は確かめた。終点と距離は未確認）', src: 'S6・G2', conf: 'part' },
-  { a: ['yanagawara', 'kurobe2'], b: TOKYO_WARDS, text: '1928年、日本電力の東京送電幹線 154kV・293.6km', src: 'S6', conf: true },
-  { a: ['numakami'], b: ['koriyama'], text: '1899年、日本初の高圧の長距離送電（紡績工場の動力）', src: 'G1', conf: false },
-  { a: ['oi'], b: ['osaka'], text: '1924年、200km 以上を送電して関西へ', src: 'G1', conf: false },
+  { id: 'komahashi55', year: 1907, short: '駒橋〜早稲田 55 kV 送電', a: ['komahashi'], b: ['tk-waseda'], text: '1907年、駒橋から早稲田へ 55kV・76km で送電（当時の日本で最初の 55kV 送電線）', src: 'S4・S9', conf: true },
+  { id: 'shimotaki66', year: 1912, short: '下滝〜東京 66 kV 送電', a: ['shimotaki'], b: TOKYO_WARDS, text: '1912年、下滝から東京へ 66kV で送電を始めた', src: 'S6', conf: true },
+  { id: 'inawashiro115', year: 1915, short: '猪苗代第一〜東京 115 kV 長距離送電', a: ['inawashiro1'], b: ['tk-tabata'], text: '1915年、猪苗代第一から東京へ 115kV（約 227km）の長距離送電を始めた（年と電圧は確かめた。終点と距離は未確認）', src: 'S6・G2', conf: 'part' },
+  { id: 'nichiden154', year: 1928, short: '日本電力の東京送電幹線 154 kV', a: ['yanagawara', 'kurobe2'], b: TOKYO_WARDS, text: '1928年、日本電力の東京送電幹線 154kV・293.6km', src: 'S6', conf: true },
+  { id: 'numakami', year: 1899, short: '沼上〜郡山 高圧の長距離送電', a: ['numakami'], b: ['koriyama'], text: '1899年、日本初の高圧の長距離送電（紡績工場の動力）', src: 'G1', conf: false },
+  { id: 'oi-osaka', year: 1924, short: '大井〜大阪 200 km 以上の送電', a: ['oi'], b: ['osaka'], text: '1924年、200km 以上を送電して関西へ', src: 'G1', conf: false },
 ];
 export function lineFact(a, b) {
   return LINE_FACTS.find((f) => (f.a.includes(a) && f.b.includes(b)) || (f.a.includes(b) && f.b.includes(a))) || null;
