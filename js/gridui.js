@@ -963,7 +963,7 @@ function sceneInner(g) {
 let keyOpen = false;
 function terrainKeyHtml() {
   const sw = (cls, name) => `<span><i class="${cls}"></i>${name}</span>`;
-  return `<div class="gterkey${keyOpen ? ' open' : ''}" data-terkey><button class="btn small" data-terkeybtn aria-expanded="${keyOpen}">凡例</button>${keyOpen ? `<div class="gterbox">${sw('k0', '平野')}${sw('k1', '丘陵 100 m〜')}${sw('k2', '山地 500 m〜')}${sw('k3', '高い山 1,500 m〜')}${sw('kl', '湖')}${sw('kr', '川')}${sw('kp', '県境')}<small>拡大すると</small>${sw('kf', '田畑')}${sw('kt', '林')}${sw('ku', '市街地')}<small>線の使用率</small>${sw('ku0', '〜90%')}${sw('ku1', '90% 超で注意')}${sw('ku2', '100% 超')}${sw('ku3', '120% 超')}<small>網の周波数</small>${sw('kh50', '50 Hz')}${sw('kh60', '60 Hz')}</div>` : ''}</div>`;
+  return `<div class="gterkey${keyOpen ? ' open' : ''}" data-terkey><button class="btn small" data-terkeybtn aria-expanded="${keyOpen}">凡例</button>${keyOpen ? `<div class="gterbox">${sw('k0', '平野')}${sw('k1', '丘陵 100 m〜')}${sw('k2', '山地 500 m〜')}${sw('k3', '高い山 1,500 m〜')}${sw('kl', '湖')}${sw('kr', '川')}${sw('kp', '県境')}<small>拡大すると</small>${sw('kf', '田畑')}${sw('kt', '林')}${sw('ku', '市街地')}<small>線の使用率</small>${sw('ku0', '〜90%')}${sw('ku1', '90% 超で注意')}${sw('ku2', '100% 超')}${sw('ku3', '120% 超')}<small>網の周波数</small>${sw('kh50', '50 Hz')}${sw('kh60', '60 Hz')}<small>線の対策の印</small>${Object.keys(OPT_HAZ).map((o) => `<span>${optKey(o)}</span>`).join('')}</div>` : ''}</div>`;
 }
 // 表示の細かさ（1.6.0）：縮めたときは「大」の町の名前だけ。中・小の町・水力の地点は拡大すると出す。東京の区は町の中まで拡大したときだけ
 // （それより縮めたときは、いちばん目立つ区に「東京」とだけ出す）。建設モードで光る地点・選んだ地点はいつも出す
@@ -1100,13 +1100,22 @@ function hzOfNodes(g) {
   }
   return m;
 }
-// 1.6.4 送電線の対策の印（線の中ほど）：架空地線＝盾、耐塩がいし＝がいし、相間スペーサ＝棒と玉、消弧リアクトル＝コイル。効いているものだけ
-const OPT_ICON = {
-  gw: '<path d="M0,-4.6 L3.8,-3 V0.4 C3.8,2.8 2,4.2 0,5 C-2,4.2 -3.8,2.8 -3.8,0.4 V-3Z"/>',
-  insul: '<path d="M-3.8,-3.2 H3.8 M-3.2,-0.6 H3.2 M-3.8,2 H3.8 M0,-5 V4.6"/>',
-  spacer: '<path d="M-4,-2.6 L4,2.6"/><circle cx="-4" cy="-2.6" r="1.4"/><circle cx="4" cy="2.6" r="1.4"/>',
-  petersen: '<path d="M-4.5,0 C-4.5,-3.5 -1.5,-3.5 -1.5,0 C-1.5,3.5 1.5,3.5 1.5,0 C1.5,-3.5 4.5,-3.5 4.5,0"/>',
+// 1.6.5 危険の絵（中心 0・おおよそ ±5）：雷＝稲妻、塩害＝波、雪＝雪の結晶、地絡＝接地の記号 ⏚。地図の対策の印と、危険・対策の文字の前に添える
+const HAZ_ICON = {
+  thunder: '<path d="M1.2,-5 L-3.2,0.8 H-0.3 L-1.4,5 L3.2,-1 H0.3Z"/>',
+  coast: '<path d="M-4.6,-1.6 C-3.4,-3.2 -2.2,-3.2 -1.1,-1.6 S1.2,0 2.3,-1.6 S4.4,-3.2 5,-2.2 M-4.6,2.4 C-3.4,0.8 -2.2,0.8 -1.1,2.4 S1.2,4 2.3,2.4 S4.4,0.8 5,1.8"/>',
+  snow: '<path d="M0,-4.8 V4.8 M-4.2,-2.4 L4.2,2.4 M-4.2,2.4 L4.2,-2.4 M-1.3,-3.9 L0,-2.6 L1.3,-3.9 M-1.3,3.9 L0,2.6 L1.3,3.9"/>',
+  ground: '<path d="M0,-4.8 V-0.6 M-4.2,-0.6 H4.2 M-2.7,1.7 H2.7 M-1.2,4 H1.2"/>',
 };
+const HAZ_WORD = { thunder: '雷', coast: '塩害', snow: '雪', ground: '地絡' };
+// 1.6.5 送電線の対策の印：その対策で防ぐ危険の絵に、右下の小さな ✓（緑）。架空地線＝雷・耐塩がいし＝塩害・相間スペーサ＝雪・消弧リアクトル＝地絡
+const OPT_HAZ = { gw: 'thunder', insul: 'coast', spacer: 'snow', petersen: 'ground' };
+const CHECK = '<path class="gchkb" d="M1.2,3.4 L2.7,4.9 L5.6,1.6"/><path class="gchk" d="M1.2,3.4 L2.7,4.9 L5.6,1.6"/>';
+const optGlyph = (o) => `<g class="gh-${OPT_HAZ[o]}" transform="translate(-1.1,-1.1) scale(.78)">${HAZ_ICON[OPT_HAZ[o]]}</g>${CHECK}`;
+// 文字の前に添える小さな絵（HTML）
+const hazIcon = (h) => (HAZ_ICON[h] ? `<svg class="ghazi" viewBox="-6 -6 12 12" aria-hidden="true"><g class="gh-${h}">${HAZ_ICON[h]}</g></svg>` : '');
+const optIcon = (o) => `<svg class="ghazi" viewBox="-6.5 -6.5 13 13" aria-hidden="true">${optGlyph(o)}</svg>`;
+const optKey = (o) => `${optIcon(o)}＝${HAZ_WORD[OPT_HAZ[o]]}の対策（${Gm.LINE_OPTS[o].name}）`;
 // 7px の文字の幅（おおよそ。半角 4px・全角 7px）
 const textW7 = (str) => [...str].reduce((a, c) => a + (c.charCodeAt(0) < 256 ? 4 : 7), 0);
 // x・y：left なら左端の印の中心（線の名前の右に並べる）、そうでなければ真ん中
@@ -1115,7 +1124,7 @@ function optMarks(l, x, y, t, dot, left = false) {
   if (!os.length) return '';
   if (dot) return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.4" class="goptdot"/>`; // 名前の出ない縮尺では点だけ
   const x0 = left ? x : x - ((os.length - 1) * 12) / 2;
-  return os.map((o, i) => `<g class="gopt o-${o}" transform="translate(${(x0 + i * 12).toFixed(1)},${y.toFixed(1)})"><circle r="6.2" class="goptbg"/>${OPT_ICON[o]}</g>`).join('');
+  return os.map((o, i) => `<g class="gopt o-${o}" transform="translate(${(x0 + i * 12).toFixed(1)},${y.toFixed(1)})"><circle r="6.2" class="goptbg"/>${optGlyph(o)}</g>`).join('');
 }
 // 1.6.4 発電所の稼働の光：引いて見たとき（点になる地点・幅 150 km 以上）も、動いている発電所に出力に応じた光彩。
 // 止まっている・休止・待機は光らない。渇水で出力が落ちている水力は薄いオレンジ
@@ -1628,7 +1637,7 @@ function optDialog(id) {
     .map(({ key, name, q }) => {
       const O = Gm.LINE_OPTS[key];
       const what = O.hazard ? `${Gm.HAZARD[O.hazard].name}の事故を減らす` : '地絡の事故で止まる時間が短くなる';
-      return `<div class="gitem gopt"><p class="spread grow"><span><b>${A.esc(name)}</b><small>${what}</small></span>${q.ok ? `<button class="btn small" data-addopt="${key}">${A.num(q.cost)} コイン</button>` : ''}</p>${q.ok ? '' : whyHtml(q)}</div>`;
+      return `<div class="gitem gopt"><p class="spread grow"><span><b>${optIcon(key)}${A.esc(name)}</b><small>${what}</small></span>${q.ok ? `<button class="btn small" data-addopt="${key}">${A.num(q.cost)} コイン</button>` : ''}</p>${q.ok ? '' : whyHtml(q)}</div>`;
     })
     .join('');
   const hours = list.find((x) => x.q.ok)?.q.hours;
@@ -1872,7 +1881,7 @@ const quoteHtml = (q) =>
   q.ok
     ? `<p class="gquote"><b>${A.num(q.cost)} コイン</b>（残高 ${coinText(balance())}）・ 工期 ${q.hours != null ? `ゲームの ${q.hours}時間` : 'すぐ'}${q.proto ? '<br><span class="warn">試作：次の時代の設備を先取り。建設費3倍・故障率3倍・効率は下限から</span>' : ''}</p>`
     : whyHtml(q);
-const hazardText = (hs, short = false) => (hs.length ? hs.map((h) => (short ? HAZ_SHORT[h] : Gm.HAZARD[h].name)).join('・') : 'なし');
+const hazardText = (hs, short = false) => (hs.length ? hs.map((h) => `${hazIcon(h)}${short ? HAZ_SHORT[h] : Gm.HAZARD[h].name}`).join('・') : 'なし'); // 1.6.5：地図の対策の印と同じ絵を添える
 const HAZ_SHORT = { thunder: '雷', coast: '塩害', snow: '雪' };
 // 地図の下に出す小さなカード（地点名・大きさ・費用・工期・試作の注意・「建設する」）
 function drawBuildCard() {
@@ -1903,7 +1912,7 @@ function drawBuildCard() {
     q = Gm.quoteLine(g, lc, { a: B.from, b: B.to, kind: B.lk, route: B.route, opts: B.opts });
     const r = { direct: Gm.routeInfo(g, B.from, B.to, 'direct'), detour: Gm.routeInfo(g, B.from, B.to, 'detour') };
     const lossFull = Gm.lineLoss(B.lk, r[B.route].km, 1, K.cap) / K.cap; // 送れる量いっぱいを流したときの損失の目安
-    const opts = K.dc ? '' : Object.entries(Gm.LINE_OPTS).filter(([, O]) => !O.era || Gm.eraStatus(lc, O.era) === 'ok').map(([k, O]) => `<label class="row"><input type="checkbox" data-bopt="${k}" ${B.opts[k] ? 'checked' : ''}><span>${O.name}<small>${O.hazard ? `${Gm.HAZARD[O.hazard].name}の事故を減らす` : '地絡の事故で止まる時間が短くなる'}（費用 +20%）</small></span></label>`).join('');
+    const opts = K.dc ? '' : Object.entries(Gm.LINE_OPTS).filter(([, O]) => !O.era || Gm.eraStatus(lc, O.era) === 'ok').map(([k, O]) => `<label class="row"><input type="checkbox" data-bopt="${k}" ${B.opts[k] ? 'checked' : ''}><span>${optIcon(k)}${O.name}<small>${O.hazard ? `${Gm.HAZARD[O.hazard].name}の事故を減らす` : '地絡の事故で止まる時間が短くなる'}（費用 +20%）</small></span></label>`).join('');
     h = `<p class="gbch"><b>${A.esc(Gm.nodeOf(g, B.from).name)} 〜 ${A.esc(Gm.nodeOf(g, B.to).name)}</b>：${K.name}</p>
       <div class="gseg groute">${['direct', 'detour'].map((k) => `<button class="btn small ${B.route === k ? 'on' : ''}" data-broute="${k}">${k === 'direct' ? 'まっすぐ' : '回り道'}<small>${r[k].km.toFixed(1)} km ・ 危険：${hazardText(r[k].hazards)}</small></button>`).join('')}</div>
       <p class="small">1回線で送れる量 ${kw(K.cap)} ・ いっぱいに流すと損失 ${(lossFull * 100).toFixed(1)}%${lossFull > 0.1 ? '（<b class="gneg">大きい</b>）' : ''}</p>
@@ -2135,7 +2144,8 @@ function linePanel(g, lc, id) {
   const f = g.last?.lines[id];
   const hz = Gm.lineHazard(g, l, t, lc);
   const qc = Gm.quoteCircuit(g, lc, id);
-  const optNames = Object.keys(l.opts).filter((k) => l.opts[k]).map((k) => `${Gm.LINE_OPTS[k].name}${l.optAt?.[k] > t ? `（工事中 あと${Mn.hoursText(l.optAt[k] - t)}）` : ''}`);
+  const optNames = Object.keys(l.opts).filter((k) => l.opts[k]).map((k) => `${optIcon(k)}${Gm.LINE_OPTS[k].name}${l.optAt?.[k] > t ? `（工事中 あと${Mn.hoursText(l.optAt[k] - t)}）` : ''}`);
+  const optOnKeys = Object.keys(Gm.LINE_OPTS).filter((o) => Gm.optOn(l, o, t)); // 1.6.5 地図の印の説明
   const canOpt = Gm.optChoices(g, lc, id).length > 0;
   const fact = Gm.isJapan(g) ? J.lineFact(l.a, l.b) : null;
   const dir = f?.p > 0 && f.to ? ` ・ 向き：${A.esc(Gm.nodeOf(g, f.to === l.a ? l.b : l.a).name)} → ${A.esc(Gm.nodeOf(g, f.to).name)}` : '';
@@ -2145,6 +2155,7 @@ function linePanel(g, lc, id) {
     ${fact ? `<p class="small gfact">史実：${A.esc(fact.text)}（出典 ${A.esc(fact.src)}・${J.confText(fact.conf)}） <button class="link" data-sources>出典の一覧</button></p>` : ''}
     <p class="small">状態：${stateOf(l, t) || (l.c1Until > t ? `1回線が修理中（あと ${l.c1Until - t}時間）` : '送電中')}${f ? ` ・ 流れ ${kw(f.p)} ・ 使用率 <b class="${f.util > 1 ? 'gneg' : f.util > 0.9 ? 'gcaut' : ''}">${pct(f.util)}</b>${f.util > 0.9 && f.util <= 1 ? '（90% 超で注意）' : ''} ・ 損失 ${kw(f.loss)}${dir}` : ''}</p>
     <p class="small">危険：${hazardText(l.hazards)} ・ 対策：${optNames.length ? optNames.join('・') : 'なし'} ・ 故障の目安 1日あたり ${(hz.perDay * 100).toFixed(2)}%</p>
+    ${optOnKeys.length ? `<p class="small">地図の印：${optOnKeys.map(optKey).join(' ／ ')}</p>` : ''}
     <p class="small">送れる量を超えて 120% までは温度が上がるだけ（故障しやすくなる）。120% を2時間超えると保護装置で切れる。</p>
     <div class="gbtns2">
       <button class="btn" data-circ>回線を増やす<small>${qc.ok ? `${A.num(qc.cost)} コイン` : A.esc(qc.why)}</small></button>

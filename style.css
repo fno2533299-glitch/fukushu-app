@@ -1027,10 +1027,16 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gmap .ghzhalo.h50, .gmap .ghztint.h50 { stroke: var(--gh50); }
 .gmap .ghzhalo.h60, .gmap .ghztint.h60 { stroke: var(--gh60); }
 .gmap .ghztint { fill: none; stroke-width: 2.4; opacity: .4; }
-.gmap .gopt { fill: none; stroke: var(--text); stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; }
-.gmap .gopt circle:not(.goptbg) { fill: var(--text); stroke: none; }
 .gmap .gopt .goptbg { fill: var(--card); stroke: var(--line); stroke-width: .8; opacity: .92; }
-.gmap .gopt.o-gw path { fill: color-mix(in srgb, var(--gline) 35%, transparent); }
+/* 1.6.5 危険の絵（地図の対策の印・文字の前の小さな絵）と ✓ */
+:root { --ghthunder: #d99a00; --ghcoast: #2f86c8; --ghsnow: #4f9fd6; }
+@media (prefers-color-scheme: dark) { :root { --ghthunder: #f2c94c; --ghcoast: #63b4ee; --ghsnow: #9fd0f0; } }
+.gh-thunder { fill: var(--ghthunder); stroke: color-mix(in srgb, var(--ghthunder) 60%, #000); stroke-width: .5; stroke-linejoin: round; }
+.gh-coast, .gh-snow, .gh-ground { fill: none; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.gh-coast { stroke: var(--ghcoast); } .gh-snow { stroke: var(--ghsnow); } .gh-ground { stroke: var(--text); }
+.gchk, .gchkb { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.gchkb { stroke: var(--card); stroke-width: 3; } .gchk { stroke: var(--ok); stroke-width: 1.6; }
+.ghazi { display: inline-block; width: 1.15em; height: 1.15em; vertical-align: -0.2em; margin-right: 2px; overflow: visible; }
 .gmap .goptdot { fill: var(--card); stroke: var(--text); stroke-width: 1.2; }
 .gmap .gglowp { fill: var(--gglowc); pointer-events: none; } /* 光彩：重い filter は使わず、濃さの違う2つの円 */
 .gmap .gglowp circle { fill-opacity: .35; } .gmap .gglowp circle + circle { fill-opacity: .55; }
