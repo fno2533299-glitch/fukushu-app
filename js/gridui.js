@@ -78,7 +78,7 @@ export async function sync(now = Date.now()) {
   if (!S.data) return 0;
   let fresh = false;
   if (!S.grid) {
-    S.grid = Gm.newGrid((now % 2147483647) | 0, now);
+    S.grid = Gm.newJapan((now % 2147483647) | 0, now); // 1.6.0：新しく始める人は日本列島の東京（日本橋）から
     S.grid.era = learningReal().era; // 最初から、いまのレベルの時代で始まる（「時代が進んだ」は出さない）
     fresh = true;
   }
@@ -792,8 +792,10 @@ function viewAll(g) {
 function viewStart(g) {
   if (!Gm.isJapan(g)) return viewAll(g);
   const s = Gm.nodeOf(g, Gm.startId(g));
-  const ns = s.area === '東京市内' ? Gm.nodesOf(g).filter((n) => n.area === '東京市内') : [s];
-  fitView(g, bboxOf(ns), 0.2, 16);
+  // 東京は区が入るくらい。ほかの町は、まわりの（まだ開いていない）町や海岸も見える 60 km ほど
+  const tokyo = s.area === '東京市内';
+  const ns = tokyo ? Gm.nodesOf(g).filter((n) => n.area === '東京市内') : [s];
+  fitView(g, bboxOf(ns), 0.2, tokyo ? 16 : 60);
 }
 // 開いたとき：開いている地点が入るように
 function viewHome(g) {
@@ -1450,7 +1452,7 @@ function enterBuild(kind, key, preset = null) {
   const c = candidates(g, lc);
   if (preset && c.get(preset)) pick(preset);
   else if (preset) A.toast(whyNot(g, lc, preset));
-  if (tutOn() && B.kind === 'plant' && B.type === 'dcCoal' && B.site) B.size = 50; // チュートリアル：港町にも送れる大きさ
+  if (tutOn() && B.kind === 'plant' && B.type === 'dcCoal' && B.site) B.size = 50; // チュートリアル：京橋・銀座にも送れる大きさ
   screen();
   tutEv(`bmode:${kind}`);
 }
@@ -2055,11 +2057,11 @@ function managePanel(g, lc) {
       <p class="small">関係する単元で1問正解すると、建設できる（使える）ようになる。性能＝その単元の定着の割合（これまでの最大値。下がらない）。熱効率・故障の少なさ・工期に効く</p>
       <h3>設計図</h3><p class="gtags">${bps}</p>
       <p class="small">その単元の試験レベルに正解するか、関係する外部試験で満点の3割以上</p>
-      <h3>島</h3>
+      <h3>${Gm.isJapan(g) ? '始めた町' : '島'}</h3>
       <p class="small">島 ${g.islandNo}（${A.esc(Gm.placeName(g))}）${Gm.hzList(g).length ? ` ・ 周波数 ${Gm.hzList(g).join(' Hz と ')} Hz${Gm.hzList(g).length > 1 ? '（網ごと）' : ''}` : g.hz ? ` ・ 周波数 ${g.hz} Hz` : ' ・ 周波数はまだ決めていない'} ・ ${Math.floor(g.t / 24)}日目</p>
-      ${(g.past || []).length ? `<p class="small">前の島：${g.past.map((p) => `島 ${p.islandNo}（${Gm.TERRAINS[p.terrain]?.name || ''}）${Math.floor(p.hours / 24)}日・最高の年間利益 ${p.best ? yen(p.best.profit) : '—'}`).join(' ／ ')}</p>` : ''}
-      <p class="small">いつでも、明治の小さな島からやり直せます。時代（レベル）・設計図・性能の上乗せは引き継ぎ、この島の記録は残ります。この島の設備と収益はなくなり、使ったコインは戻りません。</p>
-      <button class="btn" data-newisland>新しい島を選ぶ</button>
+      ${(g.past || []).length ? `<p class="small">前の系統：${g.past.map((p) => `${p.islandNo}（${p.terrain === 'japan' ? `日本列島・${A.esc(J.startOf(p.start)?.label || '')}から` : Gm.TERRAINS[p.terrain]?.name || ''}）${Math.floor(p.hours / 24)}日・最高の年間利益 ${p.best ? yen(p.best.profit) : '—'}`).join(' ／ ')}</p>` : ''}
+      <p class="small">いつでも、日本列島の別の地方（始める町）から、明治の小さな発電所でやり直せます。時代（レベル）・設計図・性能の上乗せは引き継ぎ、今の記録は残ります。今の設備と収益はなくなり、使ったコインは戻りません。</p>
+      <button class="btn" data-newisland>別の地方から始める</button>
       <h3>そのほか</h3>
       <label class="row"><input type="checkbox" data-minion ${miniOn() ? 'checked' : ''}><span>小さなグラフを出す<small>上の帯の下に、直近24時間の需要と電源の出力・予備力の残り（押すと需給）</small></span></label>
       ${DEV.tut || DEV.demo ? '' : '<button class="btn gwide" data-tutagain>チュートリアルをもう一度</button>'}
@@ -2134,7 +2136,7 @@ async function answerIncident(inc, q, order, choiceId) {
     `<header class="top"><h1>事故の対処</h1></header>
     ${devBand()}
     <div class="verdict ${correct ? 'ok' : 'ng'}">${correct ? '正しく対処した' : '対処を誤った'}</div>
-    <section class="card geffect"><p>${A.esc(text || '')}</p>${DEV.on ? `<p class="small">${DEV.tut ? '練習の島' : DEV.demo ? 'デモ' : '開発者モード'}：回答記録には残りません</p>` : correct ? '<p class="small">コイン +100（同じ問題は1日1回まで）</p>' : ''}</section>
+    <section class="card geffect"><p>${A.esc(text || '')}</p>${DEV.on ? `<p class="small">${DEV.tut ? '練習の東京' : DEV.demo ? 'デモ' : '開発者モード'}：回答記録には残りません</p>` : correct ? '<p class="small">コイン +100（同じ問題は1日1回まで）</p>' : ''}</section>
     <div class="choices done">
       ${order.map((c, i) => `<div class="choice ${c.choiceId === q.correctChoiceId ? `correct${correct ? ' flash' : ''}` : c.choiceId === choiceId ? 'wrong' : ''}"><span class="mark">${'ABCD'[i]}</span><span>${A.rich(c.text)}</span></div>`).join('')}
     </div>
@@ -2160,24 +2162,31 @@ async function answerIncident(inc, q, order, choiceId) {
   if (rec) await A.syncCollection();
 }
 
+// 1.6.0：始める町を選ぶボタン（史実の1行と「確かめた／未確認」。未確認の町は「年は未確認」とだけ出す）
+function startButtons(attr) {
+  return J.START_TOWNS.map((s) => `<button class="btn gwide gstartbtn" ${attr}="${s.id}"><b>${A.esc(s.label)}</b><small>${s.conf ? `${A.esc(s.fact)}（${A.esc(s.src)}・確かめた）` : '年は未確認（史実の調べが出典で確かめられていない）'}</small></button>`).join('');
+}
+// 別の地方から始める（1.6.0。今の「新しい島」の代わり）：日本列島の始める町を選ぶ。時代・設計図・性能の上乗せは引き継ぐ
 function islandDialog() {
   sheet(
-    `<h2>新しい島</h2>
+    `<h2>別の地方から始める</h2>
     ${pic('island', 'wide')}
-    <p class="warn small">いまの島の設備と収益はなくなります（記録は残ります）。</p>
-    ${Object.entries(Gm.TERRAINS).map(([k, T]) => `<button class="btn gwide" data-terrain="${k}">${T.name}<small>${T.desc}</small></button>`).join('')}`,
+    <p class="small">日本列島の、始める町を選びます。明治の小さな発電所から、時代とともに建てられる範囲が広がります。時代（レベル）・設計図・性能の上乗せは引き継ぎます。</p>
+    <p class="warn small">いまの${Gm.isJapan(G()) ? '系統' : '島'}の設備と収益はなくなります（記録は残ります。使ったコインは戻りません）。</p>
+    ${startButtons('data-start')}`,
     ({ onAll, close }) =>
-      onAll('[data-terrain]', 'click', async (e) => {
+      onAll('[data-start]', 'click', async (e) => {
         const now = Date.now();
-        store.setGrid(Gm.newIsland(G(), e.currentTarget.dataset.terrain, now, (now % 2147483647) | 0));
+        store.setGrid(Gm.newIsland(G(), 'japan', now, (now % 2147483647) | 0, e.currentTarget.dataset.start));
         lcCache = null;
         G().era = learningNow().era;
         summary = null;
         B = null;
+        sel = null;
         await save();
         close();
         screen(null);
-        act('island', { terrain: G().terrain });
+        act('island', { terrain: 'japan', start: G().start });
       }),
   );
 }
@@ -2235,7 +2244,7 @@ async function offerTutorial() {
   // すでに本番の系統がある人には1回だけ聞く
   sheet(
     `<h2>チュートリアル</h2>
-    <p>動く系統の動かし方を、練習の島でひととおり試せます（5分ほど）。本番の系統・コイン・記録は変わりません。</p>
+    <p>動く系統の動かし方を、練習の東京でひととおり試せます（5分ほど）。本番の系統・コイン・記録は変わりません。</p>
     <div class="gbtns2"><button class="btn" data-later>あとで</button><button class="btn primary" data-tutgo>チュートリアルを見る</button></div>
     <p class="small">あとからでも、経営のパネルの「チュートリアルをもう一度」で見られます。</p>`,
     ({ onAll, close }) => {
@@ -2288,7 +2297,8 @@ async function endTutorial() {
 async function tutAction(name) {
   if (name === 'finish') return endTutorial();
   const g = G(), lc = learningNow();
-  if (name === 'toEvening' && panel) setPanel(null);
+  if ((name === 'toEvening' || name === 'closePanel') && panel) setPanel(null);
+  if (name === 'closePanel') return;
   const before = Mn.underWork(g);
   const r = Mn.tutorialAction(g, lc, name, (n) => Dv.advance(g, lc, n, DEV.state.money));
   if (name === 'raiseInc') T.hasInc = r.ok;
@@ -2311,7 +2321,7 @@ async function tutGo(i) {
   DEV.state.step = i;
   tutDraw();
 }
-// 画面から知らせる出来事（menu:T1・branch:build・bmode:plant・built:plant・line:to・panel:list・app:accept・inc:open など）
+// 画面から知らせる出来事（menu:tk-nihonbashi・branch:build・bmode:plant・built:plant・line:to・panel:list・app:accept・inc:open など）
 function tutEv(name) {
   if (!tutOn()) return;
   const st = Mn.TUTORIAL[T.i];
@@ -2535,7 +2545,7 @@ function devBand() {
   if (DEV.demo)
     return `<div class="gdevband gdemoband"><span><b>デモ（記録には残りません）</b><small>問題データなしで試せます</small></span>
     <span class="gdevbtns"><button class="btn small" data-devops>${devSpeedText()}</button><button class="btn small" data-devout>抜ける</button></span></div>`;
-  if (DEV.tut) return '<div class="gdevband gtutband"><span><b>チュートリアル（練習の島）</b><small>本番の系統・コイン・記録は変わりません</small></span></div>';
+  if (DEV.tut) return '<div class="gdevband gtutband"><span><b>チュートリアル（練習の東京）</b><small>本番の系統・コイン・記録は変わりません</small></span></div>';
   if (!DEV.on) return '';
   return `<div class="gdevband"><span><b>開発者モード</b><small>本番の記録には影響しません</small></span>
     <span class="gdevbtns"><button class="btn small" data-devops>${devSpeedText()}</button><button class="btn small" data-devout>抜ける</button></span></div>`;
@@ -2563,7 +2573,7 @@ async function devTick() {
 }
 const devSheetLive = () => {
   const el = document.querySelector('.modal.gsheet [data-devclock]');
-  if (el) el.textContent = `${timeLabel(G())} ・ 島 ${G().islandNo}（${Gm.TERRAINS[G().terrain].name}）`;
+  if (el) el.textContent = `${timeLabel(G())} ・ 島 ${G().islandNo}（${Gm.placeName(G())}）`;
 };
 function devSheet() {
   const g = G(), o = DEV.state.opts, real = learningBase(), lc = learningNow();
@@ -2572,7 +2582,7 @@ function devSheet() {
   const evs = Object.entries(Gm.EVENTS).map(([k, E]) => `<option value="${k}">${A.esc(E.name)}（${A.esc(E.text)}）</option>`).join('');
   sheet(
     `<h2>${DEV.demo ? 'デモの操作' : '開発者モードの操作'}</h2>
-    <p class="small" data-devclock>${timeLabel(g)} ・ 島 ${g.islandNo}（${Gm.TERRAINS[g.terrain].name}）</p>
+    <p class="small" data-devclock>${timeLabel(g)} ・ 島 ${g.islandNo}（${A.esc(Gm.placeName(g))}）</p>
     <h3>時間</h3>
     <div class="gseg">${Dv.SPEEDS.map((v) => `<button class="btn small ${o.speed === v ? 'on' : ''}" data-speed="${v}">${v ? `×${v}` : '一時停止'}</button>`).join('')}</div>
     <div class="gseg"><button class="btn small" data-jump="day">1日進める</button><button class="btn small" data-jump="week">1週間進める</button><button class="btn small" data-jump="year">1年進める</button></div>
@@ -2594,9 +2604,10 @@ function devSheet() {
     <div class="grow gpick"><select data-inckey>${incs}</select><button class="btn small" data-incgo>起こす</button></div>
     <div class="grow gpick"><select data-evkey>${evs}</select><button class="btn small" data-evgo>起こす</button></div>
     <p class="small">${DEV.demo ? 'デモでは事故の問題は出ません（標準の被害で片づきます）。' : '事故の問題も解けます（回答記録には残りません。正誤だけをゲームに反映します）。'}対象の設備がなければ、対象なしで起きます。</p>
-    <h3>系統のリセット</h3>
-    <div class="gseg">${Object.entries(Gm.TERRAINS).map(([k, T]) => `<button class="btn small" data-devreset="${k}">${T.name}</button>`).join('')}</div>
-    <p class="small">選んだ地形で、${DEV.demo ? 'デモ' : '開発者'}の系統を最初からやり直します（本番の系統は変わりません）。</p>`,
+    <h3>始める町を選んでリセット</h3>
+    <div class="gseg gwrap">${J.START_TOWNS.map((s) => `<button class="btn small" data-devreset="japan:${s.id}">${A.esc(s.label)}</button>`).join('')}</div>
+    <div class="gseg gwrap">${Gm.OLD_TERRAINS.map((k) => `<button class="btn small" data-devreset="${k}:">${Gm.TERRAINS[k].name}（古い島）</button>`).join('')}</div>
+    <p class="small">選んだ町（または古い島）で、${DEV.demo ? 'デモ' : '開発者'}の系統を最初からやり直します（本番の系統は変わりません）。地図は2本指・ホイールで拡大・移動できます。</p>`,
     ({ q: $, onAll, close }) => {
       const set = async (patch) => {
         Object.assign(o, patch);
@@ -2640,7 +2651,8 @@ function devSheet() {
         collectAlerts();
       });
       onAll('[data-devreset]', 'click', async (e) => {
-        const g2 = Dv.freshGrid(Date.now(), e.currentTarget.dataset.devreset);
+        const [terrain, start] = e.currentTarget.dataset.devreset.split(':');
+        const g2 = Dv.freshGrid(Date.now(), terrain, undefined, start || null);
         g2.era = learningNow().era;
         store.setGrid(g2);
         DEV.state.money = [];
@@ -2648,7 +2660,7 @@ function devSheet() {
         B = null;
         await save();
         close();
-        A.toast(`開発者の系統を最初から（${Gm.TERRAINS[g2.terrain].name}）`);
+        A.toast(`${DEV.demo ? 'デモ' : '開発者'}の系統を最初から（${Gm.placeName(g2)}）`);
         screen(null);
       });
     },

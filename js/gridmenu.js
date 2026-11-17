@@ -2,6 +2,7 @@
 // 地点のメニュー（SAO 風）の項目と位置の計算、したことの表示の文、工事の完成の見つけ方、チュートリアルの手順と練習の島
 // 地点・手順はデータなので、1.6.0（日本列島）では中身を差し替えるだけでよい
 import * as Gm from './grid.js';
+import * as J from './gridjapan.js';
 
 const eraName = (n) => Gm.ERAS[Math.min(n, Gm.ERAS.length) - 1].name;
 const gateText = (keys) => `「${keys.map((k) => Gm.GATE_NAMES[k]).join('」「')}」の単元で、まだ1問も正解していない`;
@@ -210,6 +211,7 @@ export function actText(g, kind, x = {}) {
     case 'sell':
       return `経営再建：設備を${x.count}件手放した（収益に ${yenText(x.back)} 戻った）`;
     case 'island':
+      if (x.terrain === 'japan') return `別の地方から始めた（日本列島の${J.startOf(x.start)?.label || nodeName(g, x.start)}から、明治から）`;
       return `新しい島（${Gm.TERRAINS[x.terrain].name}）で、明治から始めた`;
     default:
       return '';
@@ -236,11 +238,14 @@ export const doneText = (g, f) => actText(g, { plant: 'donePlant', line: 'doneLi
 
 // ---- チュートリアル（案内の文字だけ。押す場所だけを明るくする） ----
 // 練習の島は本番とは別の系統（kv「gridTutorial」）。コインは練習用、学習は「直流の配電だけ1問正解」の扱い（灰色の種類を見せるため）
+// 1.6.0：練習の島を「練習の東京」に（日本列島の東京。日本橋（茅場町）から京橋・銀座へ）
 export const TUT_KEY = 'gridTutorial';
 export const TUT_SEEN = 'gridTutorialSeen';
 export const TUT_COINS = 20000;
+export const TUT_HOME = J.TOKYO; // 日本橋（茅場町）
+export const TUT_NEXT = 'tk-kyobashi'; // 京橋・銀座（線を引く先）
 export function tutorialGrid(nowMs) {
-  const g = Gm.newGrid(20261115, nowMs);
+  const g = Gm.newJapan(20261115, nowMs);
   // 最初の発電所はなし（自分で建てて町を灯す）
   g.plants = [];
   g.priority = [];
@@ -261,32 +266,33 @@ export function isFreshGrid(g) {
 // on＝この出来事で次へ（画面から tutEvent で知らせる）、next＝「次へ」のボタン（文字を変えるときは文字列）、
 // before／after＝手順の前後にすること（練習の島の時間をとばす・申し込みを出す・事故を起こす など）、need＝この条件がなければとばす
 export const TUTORIAL = [
-  { id: 'intro', text: '練習の島で、動く系統の動かし方をひととおり試します。本番の系統・コイン・記録は変わりません。', next: '始める' },
+  { id: 'intro', text: '練習の東京で、動く系統の動かし方をひととおり試します。本番の系統・コイン・記録は変わりません。', next: '始める' },
   { id: 'hud', target: '[data-hud]', text: '上の帯：時代と日付・状態、コイン（建設に使う）・収益（円）・需要と届いた量・周波数。押すと需給のくわしい画面が開きます。', next: true },
-  { id: 'town', target: '[data-node="T1"]', text: '中央の町には電灯の需要がありますが、発電所がありません。町を押してみましょう。', on: 'menu:T1' },
+  { id: 'town', target: `[data-node="${TUT_HOME}"]`, text: '日本橋（茅場町）には電灯の需要がありますが、発電所がありません。町を押してみましょう。', on: `menu:${TUT_HOME}` },
   { id: 'build', target: '[data-mi="build"]', text: '地点の横にメニューが出ました。「建設」を押します。', on: 'branch:build' },
   { id: 'dc', target: '[data-mb="plant:dcCoal"]', text: 'この地点に建てられる種類が並びます。「直流の火力」を押します。', on: 'bmode:plant' },
-  { id: 'size', target: '[data-bcard]', text: '大きさで費用と工期が変わります。あとで港町にも送るので 50 kW にして「建設する」。', on: 'built:plant' },
-  { id: 'work', target: '[data-node="T1"]', text: 'コインが減り、町に工事の印が出ました。本番では完成を待ちます。ここでは時間をとばします。', next: 'とばす（完成まで）', after: 'skipWork' },
-  { id: 'lit', target: '[data-node="T1"]', before: 'toEvening', text: '完成して夜になり、町が灯りました（黄色）。足りないと暗い色になります。', next: true },
-  { id: 'line1', target: '[data-node="T1"]', text: '次は港町へ線を引きます。もう一度、中央の町を押します。', on: 'menu:T1' },
+  { id: 'size', target: '[data-bcard]', text: '大きさで費用と工期が変わります。あとで京橋・銀座にも送るので 50 kW にして「建設する」。', on: 'built:plant' },
+  { id: 'work', target: `[data-node="${TUT_HOME}"]`, text: 'コインが減り、町に工事の印が出ました。本番では完成を待ちます。ここでは時間をとばします。', next: 'とばす（完成まで）', after: 'skipWork' },
+  { id: 'lit', target: `[data-node="${TUT_HOME}"]`, before: 'toEvening', text: '完成して夜になり、町が灯りました（黄色）。足りないと暗い色になります。', next: true },
+  { id: 'line1', target: `[data-node="${TUT_HOME}"]`, text: '次は京橋・銀座へ線を引きます。もう一度、日本橋を押します。', on: `menu:${TUT_HOME}` },
   { id: 'line2', target: '[data-mi="line"]', text: '「線を引く」を押します。', on: 'branch:line' },
   { id: 'line3', target: '[data-mb="line:dc200"]', text: '明治の電灯は直流 200 V で配りました。押します（ほかの種類は、まだ灰色）。', on: 'bmode:line' },
-  { id: 'line4', target: '[data-node="T2"]', text: '光っている地点が終点に選べます。港町を押します。', on: 'line:to' },
+  { id: 'line4', target: `[data-node="${TUT_NEXT}"]`, text: '光っている地点が終点に選べます。京橋・銀座を押します。', on: 'line:to' },
   { id: 'line5', target: '[data-bcard]', text: '距離・危険・損失を見て「建設する」。直流は遠くへ送るほど損失が大きくなります。', on: 'built:line' },
   { id: 'line6', target: '[data-line]', text: '線の工事が始まりました（点線）。時間をとばします。', next: 'とばす（開通まで）', after: 'skipWork' },
-  { id: 'app1', target: '[data-dockp="list"]', before: 'spawnApp', text: '港町から接続の申し込みが届きました。「一覧」を押します。', on: 'panel:list' },
+  { id: 'app1', target: '[data-dockp="list"]', before: 'spawnApp', text: '京橋・銀座から接続の申し込みが届きました。「一覧」を押します。', on: 'panel:list' },
   { id: 'app2', target: '[data-accept]', text: '受けたときの見込み（供給の余裕・線の使用率）を見て「受ける」。保留しても罰はありません。', on: 'app:accept' },
-  { id: 'flow', target: '[data-line]', before: 'toEvening', text: '港町にも電気が届きました。黄色い点線は電気の流れる向きで、線が混むほど速く流れます。', next: true },
+  { id: 'flow', target: '[data-line]', before: 'toEvening', text: '京橋・銀座にも電気が届きました。黄色い点線は電気の流れる向きで、線が混むほど速く流れます。', next: true },
   { id: 'inc1', target: '[data-dockp="list"]', before: 'raiseInc', need: 'incident', text: '事故が起きました（赤い印）。「一覧」を押します。', on: 'panel:list' },
   { id: 'inc2', target: '[data-inc]', need: 'incident', text: '「対処を選ぶ」を押します。', on: 'inc:open' },
   { id: 'inc3', target: '.choices', need: 'incident', text: '4つから対処を選びます。正しいと被害が小さく、誤ると大きくなります（練習なので回答記録には残りません）。', on: 'inc:answer' },
   { id: 'inc4', target: '[data-next]', need: 'incident', text: '解説を読んだら、系統に戻ります。', on: 'inc:back' },
   { id: 'run', target: '[data-dockp="run"]', text: '運転：給電の優先順位・予備力の目標・点検・燃料の買い方を決めます。毎時の出力の配分は自動です。', next: true },
   { id: 'supply', target: '[data-dockp="supply"]', text: '需給：需要と発電のグラフ、周波数、需要の上限（レベルと定着で広がる）。', next: true },
-  { id: 'manage', target: '[data-dockp="manage"]', text: '経営：収益の推移、時代と学習、新しい島。このチュートリアルも、ここからもう一度見られます。', next: true },
+  { id: 'manage', target: '[data-dockp="manage"]', text: '経営：収益の推移、時代と学習、別の地方から始める。このチュートリアルも、ここからもう一度見られます。', next: true },
   { id: 'gate1', target: '[data-dockp="build"]', text: '最後に「建設」を押します。', on: 'panel:build' },
-  { id: 'gate2', target: '.gbitem.locked', text: '灰色の種類は、関係する単元で1問正解すると建てられます。押すと理由と「この単元を解く」が出ます（練習の島では、直流のほかは解いていない扱い）。', next: true },
+  { id: 'gate2', target: '.gbitem.locked', text: '灰色の種類は、関係する単元で1問正解すると建てられます。押すと理由と「この単元を解く」が出ます（練習の東京では、直流のほかは解いていない扱い）。', next: true },
+  { id: 'zoom', target: '[data-zoom="all"]', before: 'closePanel', text: '地図は2本指で拡大・縮小、1本指で動かせます。2本指で縮めると列島全体が見えます（「全体」「始めた町」のボタンでも）。時代が進むと、建てられる範囲が広がります。', next: true },
   { id: 'end', text: '練習はここまでです。本番の系統に戻ります。電気が届くと収益が入り、解くほど建てられる設備と需要が広がります。', next: '本番の系統へ', after: 'finish' },
 ];
 
@@ -307,14 +313,15 @@ export function tutorialAction(g, lc, name, advance) {
     return { ok: true, steps: k };
   }
   if (name === 'spawnApp') {
-    // 港町から電灯の申し込み（10 kW）
-    const app = { id: `A${g.nextId++}`, town: 'T2', type: 'lamp', kw: 10, at: g.t };
-    g.apps.push(app);
+    // 京橋・銀座から電灯の申し込み（10 kW）
+    // 一覧のいちばん上に出す（1.6.0：区が多く、ほかの区からの申し込みが先に届いていることがあるので）
+    const app = { id: `A${g.nextId++}`, town: TUT_NEXT, type: 'lamp', kw: 10, at: g.t };
+    g.apps.unshift(app);
     return { ok: true, app };
   }
   if (name === 'raiseInc') {
     g.cool.dcDrop = 0;
-    const inc = Gm.raise(g, lc, 'dcDrop', { town: 'T2', what: '港町から「電灯が暗い」という苦情が来た。', cool: 1 });
+    const inc = Gm.raise(g, lc, 'dcDrop', { town: TUT_NEXT, what: '京橋・銀座から「電灯が暗い」という苦情が来た。', cool: 1 });
     return { ok: !!inc, inc };
   }
   return { ok: true };
