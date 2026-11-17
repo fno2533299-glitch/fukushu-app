@@ -743,6 +743,7 @@ function announceDone(g, before) {
   const done = Mn.finished(g, before);
   for (const f of done) {
     band(Mn.doneText(g, f));
+    if (f.kind === 'withdraw') continue; // 1.6.4 保留の取り下げ：帯だけ
     if (f.kind === 'line') mark(f.x.id, 'glow');
     else if (f.kind === 'opt') mark(f.x.line.id, 'glow');
     else mark(f.kind === 'plant' ? f.x.site : f.x.town, 'done');
@@ -787,6 +788,9 @@ const ISLAND = 'M38,78 C70,22 170,6 252,36 C312,58 348,150 338,244 C332,322 300,
 // VIEW：画面の左上の地図の座標（x・y）と、画面の幅に入る地図の幅（w）。W・H：地図の箱の大きさ（px）。key：どの系統の地図か
 const VIEW = { x: 0, y: 0, w: MAP_W, W: 360, H: 400, key: null, base: null };
 const scaleK = () => VIEW.W / VIEW.w;
+// 1.6.4：地図の層は画面より上下左右に MAP_PAD（画面の幅・高さの割合）ずつ大きく描く。指で動かしている間（CSS の transform だけ）も、まわりが空にならないように
+const MAP_PAD = 0.4;
+const mapVB = () => `${(-VIEW.W * MAP_PAD).toFixed(1)} ${(-VIEW.H * MAP_PAD).toFixed(1)} ${(VIEW.W * (1 + 2 * MAP_PAD)).toFixed(1)} ${(VIEW.H * (1 + 2 * MAP_PAD)).toFixed(1)}`;
 const viewH = () => (VIEW.w * VIEW.H) / VIEW.W;
 const at = (n) => ({ x: (n.x - VIEW.x) * scaleK(), y: (n.y - VIEW.y) * scaleK() });
 const utilColor = (u) => (u > 1.2 ? 'var(--ng)' : u > 1 ? 'var(--idk)' : 'var(--gline)');
@@ -798,14 +802,16 @@ function mapBounds(g) {
   }
   return { x0: 0, y0: 0, x1: MAP_W, y1: MAP_H, minW: 90 };
 }
-function clampView(g) {
+// v：{ x, y, w }（省くと VIEW）。1.6.4：指で動かしている途中の形（clampTf）にも使う
+function clampView(g, v = VIEW) {
   const b = mapBounds(g);
   const maxW = Math.max(b.x1 - b.x0, ((b.y1 - b.y0) * VIEW.W) / VIEW.H) * 1.06;
-  VIEW.w = Math.max(b.minW, Math.min(maxW, VIEW.w));
-  const h = viewH();
-  const cx = Math.max(b.x0, Math.min(b.x1, VIEW.x + VIEW.w / 2)), cy = Math.max(b.y0, Math.min(b.y1, VIEW.y + h / 2));
-  VIEW.x = cx - VIEW.w / 2;
-  VIEW.y = cy - h / 2;
+  v.w = Math.max(b.minW, Math.min(maxW, v.w));
+  const h = (v.w * VIEW.H) / VIEW.W;
+  const cx = Math.max(b.x0, Math.min(b.x1, v.x + v.w / 2)), cy = Math.max(b.y0, Math.min(b.y1, v.y + h / 2));
+  v.x = cx - v.w / 2;
+  v.y = cy - h / 2;
+  return v;
 }
 // 長方形 [x0, y0, x1, y1] が入るように（pad：まわりの余白の割合、minW：いちばん狭い幅）
 function fitView(g, [x0, y0, x1, y1], pad = 0.15, minW = 0) {
@@ -904,7 +910,7 @@ const baseKeyOf = (g) => {
 };
 function baseSvg(g) {
   VIEW.base = baseKeyOf(g);
-  return `<svg class="gmap gbase" data-base viewBox="0 0 ${VIEW.W} ${VIEW.H}" aria-hidden="true"><g data-basetf transform="${baseTf()}">${baseInner(g)}</g></svg>`;
+  return `<svg class="gmap gbase" data-base viewBox="${mapVB()}" aria-hidden="true"><g data-basetf transform="${baseTf()}">${baseInner(g)}</g></svg>`;
 }
 // 1.6.3 地球地図日本の出典：日本列島の地図を出している間は右上にいつも小さく出す（凡例・全体・始めた町のボタンと重ならない所）
 const ATTR_HTML = '<div class="gattr" aria-hidden="true">地球地図日本（国土地理院）を加工</div>';
@@ -912,7 +918,7 @@ function mapHtml(g) {
   ensureView(g);
   const jp = Gm.isJapan(g);
   const sh = sceneInner(g);
-  return `<div class="gmapwrap" data-mapwrap>${baseSvg(g)}<svg class="gmap gscene" data-scene data-k="${sh ? sceneCache.key : ''}" viewBox="0 0 ${VIEW.W} ${VIEW.H}" aria-hidden="true">${sh}</svg><svg class="gmap gtop" data-top viewBox="0 0 ${VIEW.W} ${VIEW.H}" role="img" aria-label="${jp ? '日本列島の地図' : '島の地図'}">${topInner(g)}</svg></div>
+  return `<div class="gmapwrap" data-mapwrap>${baseSvg(g)}<svg class="gmap gscene" data-scene data-k="${sh ? sceneCache.key : ''}" viewBox="${mapVB()}" aria-hidden="true">${sh}</svg><svg class="gmap gtop" data-top viewBox="${mapVB()}" role="img" aria-label="${jp ? '日本列島の地図' : '島の地図'}">${topInner(g)}</svg></div>
     <div class="gzoombtns" data-zoombtns><button class="btn small" data-zoom="all">全体</button><button class="btn small" data-zoom="start">始めた町</button></div>${jp && terrainOn() ? terrainKeyHtml() : ''}${jp ? ATTR_HTML : ''}`;
 }
 // ---- 1.6.3 拡大したときの景色（画面の幅 60 km 以下）：林・岩と雪・市街地（家の小さな印と淡い広がり）。田畑は下の層の模様 ----
@@ -930,16 +936,19 @@ let sceneCache = { key: null, html: '' };
 function sceneInner(g) {
   if (!Gm.isJapan(g) || !terrainOn() || !Mg.sceneLevel(VIEW.w)) return '';
   const k = scaleK();
-  const view = { x0: VIEW.x, y0: VIEW.y, x1: VIEW.x + VIEW.w, y1: VIEW.y + viewH() };
+  const px = VIEW.w * MAP_PAD, py = viewH() * MAP_PAD; // 1.6.4：画面のまわり（MAP_PAD）まで
+  const view = { x0: VIEW.x - px, y0: VIEW.y - py, x1: VIEW.x + VIEW.w + px, y1: VIEW.y + viewH() + py };
+  const cx = VIEW.x + VIEW.w / 2, cy = VIEW.y + viewH() / 2;
   const nodes = Gm.nodesOf(g);
   const towns = nodes
     .filter((n) => n.town)
     .map((n) => ({ id: n.id, x: n.x, y: n.y, r: Mg.sprawlKm(Art.townLook(g, n).kw, g.era, n.size) }))
-    .filter((t) => t.x + t.r * 2 > view.x0 && t.x - t.r * 2 < view.x1 && t.y + t.r * 2 > view.y0 && t.y - t.r * 2 < view.y1);
+    .filter((t) => t.x + t.r * 2 > view.x0 && t.x - t.r * 2 < view.x1 && t.y + t.r * 2 > view.y0 && t.y - t.r * 2 < view.y1)
+    .sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy)); // 1.6.4：家の印の上限は、画面の真ん中に近い町から使う
   const key = `${VIEW.x.toFixed(3)},${VIEW.y.toFixed(3)},${VIEW.w.toFixed(4)},${VIEW.W}x${VIEW.H}|${towns.map((t) => `${t.id}:${t.r.toFixed(3)}`).join(',')}`;
   if (sceneCache.key === key) return sceneCache.html;
   const avoid = nodes.filter((n) => n.x > view.x0 - 5 && n.x < view.x1 + 5 && n.y > view.y0 - 5 && n.y < view.y1 + 5);
-  const marks = Mg.sceneMarks({ view, k, towns, avoid });
+  const marks = Mg.sceneMarks({ view, k, towns, avoid, max: Mg.SCENE_MAX * 2 }); // 1.6.4：描く範囲が広がったぶん上限も
   const f = (v) => v.toFixed(1);
   const blobs = towns.flatMap(Mg.sprawlBlobs).map((b) => `<circle cx="${b.x.toFixed(2)}" cy="${b.y.toFixed(2)}" r="${b.r.toFixed(3)}"/>`).join('');
   const html = `${SCENE_SYM}<g transform="${baseTf()}" clip-path="url(#gjclip)"><g class="gurban">${blobs}</g></g>
@@ -966,7 +975,10 @@ function topInner(g) {
   const selLine = sel?.kind === 'line' ? sel.id : null;
   const P = new Map(nodes.map((n) => [n.id, at(n)]));
   const W = VIEW.W, H = VIEW.H;
-  const onScreen = (p, m = 40) => p.x > -m && p.x < W + m && p.y > -m && p.y < H + m;
+  // 1.6.4：画面のまわり（MAP_PAD）まで描く。inView：画面の中（名前の重なりは、画面の中の地点を先に決める）
+  const PX = W * MAP_PAD, PY = H * MAP_PAD;
+  const onScreen = (p, m = 40) => p.x > -PX - m && p.x < W + PX + m && p.y > -PY - m && p.y < H + PY + m;
+  const inView = (p) => p.x > -20 && p.x < W + 20 && p.y > -20 && p.y < H + 20;
   let s = Art.MAP_DEFS;
   // 今の 50 Hz と 60 Hz の境目（参考）の文字
   if (japan && g.era >= 2) {
@@ -978,7 +990,7 @@ function topInner(g) {
   for (const l of g.lines) {
     const a = P.get(l.a), b = P.get(l.b);
     if (!a || !b) continue;
-    if (Math.max(a.x, b.x) < -40 || Math.min(a.x, b.x) > W + 40 || Math.max(a.y, b.y) < -40 || Math.min(a.y, b.y) > H + 40) continue;
+    if (Math.max(a.x, b.x) < -PX - 40 || Math.min(a.x, b.x) > W + PX + 40 || Math.max(a.y, b.y) < -PY - 40 || Math.min(a.y, b.y) > H + PY + 40) continue;
     const K = Gm.LINES[l.kind];
     const L2 = linePath(a, b, l.route, K.dc);
     const building = l.readyAt > t;
@@ -1003,7 +1015,8 @@ function topInner(g) {
   const has = (n) => g.plants.some((p) => p.site === n.id) || g.subs.some((v) => v.town === n.id) || g.loads.some((l) => l.town === n.id);
   const start = Gm.startId(g);
   const prio = (n) => (selId === n.id ? 4000 : 0) + (cand?.get(n.id) ? 2000 : 0) + (has(n) ? 600 : 0) + (n.id === start ? 300 : 0) + (Gm.nodeOpen(g, n) ? 100 : 0) + (n.town ? (n.size || 2) * 30 : 10);
-  const vis = nodes.filter((n) => onScreen(P.get(n.id))).sort((a, b) => prio(b) - prio(a));
+  const prio2 = (n) => prio(n) + (inView(P.get(n.id)) ? 10000 : 0);
+  const vis = nodes.filter((n) => onScreen(P.get(n.id))).sort((a, b) => prio2(b) - prio2(a));
   const placed = [], labels = [];
   let wardNamed = false;
   const out = [];
@@ -1121,15 +1134,15 @@ function drawMap() {
   ensureView(g);
   if (VIEW.base !== baseKeyOf(g)) wrap.querySelector('[data-base]').outerHTML = baseSvg(g);
   const base = wrap.querySelector('[data-base]');
-  base.setAttribute('viewBox', `0 0 ${VIEW.W} ${VIEW.H}`);
+  base.setAttribute('viewBox', mapVB());
   base.querySelector('[data-basetf]').setAttribute('transform', baseTf());
   // 1.6.3 景色の層：見えている範囲が変わったときだけ作り直す
   const scene = wrap.querySelector('[data-scene]');
-  scene.setAttribute('viewBox', `0 0 ${VIEW.W} ${VIEW.H}`);
+  scene.setAttribute('viewBox', mapVB());
   const sh = sceneInner(g);
   if (scene.dataset.k !== (sh ? sceneCache.key : '')) (scene.innerHTML = sh), (scene.dataset.k = sh ? sceneCache.key : '');
   const top = wrap.querySelector('[data-top]');
-  top.setAttribute('viewBox', `0 0 ${VIEW.W} ${VIEW.H}`);
+  top.setAttribute('viewBox', mapVB());
   top.innerHTML = topInner(g);
   syncFlows();
 }
@@ -1149,7 +1162,7 @@ function afterMove() {
 // 地図を押す・動かす（1.6.0）：1本指で移動、2本指で拡大・縮小、空いたところを2回押すと拡大（PC はホイールでも）。
 // 押すのと動かすのは 8px 動いたかどうかで分ける。押したときは、押した場所（pointerdown）の地点・線を覚えて、離したときに動かす
 const MOVE_PX = 8;
-const GS = { pts: new Map(), start: null, moved: false, pinch: null, lastTap: null, tf: null };
+const GS = { pts: new Map(), start: null, moved: false, pinch: null, lastTap: null, tf: null, dirty: false, lastFill: 0, raf: 0 };
 let mapRO = null;
 function bindMap() {
   const mid = document.querySelector('[data-mid]');
@@ -1159,25 +1172,72 @@ function bindMap() {
     const r = box.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
-  const setTf = (tx, ty, s) => {
+  // 1.6.4：動かしている途中の形も、地図の範囲と拡大の限度に収める（離したとき・途中の描き直しで、地図が跳ね戻らないように）
+  // 画面の点 p' ＝ s・p ＋ t のとき、新しい見え方は x' ＝ x − t／(s・k)、w' ＝ w／s
+  const clampTf = (tx, ty, s) => {
+    const k0 = scaleK();
+    const v = clampView(G(), { x: VIEW.x - tx / s / k0, y: VIEW.y - ty / s / k0, w: VIEW.w / s });
+    const s2 = VIEW.w / v.w;
+    return [s2 * k0 * (VIEW.x - v.x), s2 * k0 * (VIEW.y - v.y), s2];
+  };
+  const setTf = (tx0, ty0, s0) => {
+    const [tx, ty, s] = clampTf(tx0, ty0, s0);
     GS.tf = { tx, ty, s };
     const w = wrap();
     if (w) w.style.transform = `translate(${tx}px,${ty}px) scale(${s})`;
   };
   // 動かした分を VIEW に移して描き直す（画面の点 p' ＝ s・p ＋ t）
-  const commit = () => {
-    const tf = GS.tf;
-    GS.tf = null;
-    const w = wrap();
-    if (w) w.style.transform = '';
-    document.querySelector('.gscreen')?.classList.remove('gmoving');
-    if (!tf) return;
+  const apply = (tf) => {
     const k0 = scaleK();
     VIEW.x += -tf.tx / tf.s / k0;
     VIEW.y += -tf.ty / tf.s / k0;
     VIEW.w /= tf.s;
     clampView(G());
+  };
+  const commit = () => {
+    const tf = GS.tf;
+    GS.tf = null;
+    if (GS.raf) cancelAnimationFrame(GS.raf), (GS.raf = 0);
+    const w = wrap();
+    if (w) w.style.transform = '';
+    document.querySelector('.gscreen')?.classList.remove('gmoving');
+    const dirty = GS.dirty;
+    GS.dirty = false;
+    if (!tf && !dirty) return;
+    if (tf) apply(tf);
     afterMove();
+  };
+  // 1.6.4 動かしている途中の描き直し：まわりに描いておいた分（MAP_PAD）を使い切りそうなとき・大きく拡大したときだけ、
+  // 指を離す前に地図を描き直す（メニュー・カードは離したときに）。続けて描き直すのは 0.2 秒に1回まで
+  const needFill = (tf) => {
+    const W = VIEW.W, H = VIEW.H, m = 0.35 * MAP_PAD;
+    const x0 = -tf.tx / tf.s, x1 = (W - tf.tx) / tf.s, y0 = -tf.ty / tf.s, y1 = (H - tf.ty) / tf.s;
+    return tf.s > 1.7 || x0 < -W * (MAP_PAD - m) || x1 > W * (1 + MAP_PAD - m) || y0 < -H * (MAP_PAD - m) || y1 > H * (1 + MAP_PAD - m);
+  };
+  const fill = () => {
+    GS.raf = 0;
+    const tf = GS.tf;
+    if (!tf || !GS.pts.size) return;
+    GS.lastFill = Date.now();
+    GS.tf = null;
+    apply(tf);
+    const w = wrap();
+    if (w) w.style.transform = '';
+    drawMap();
+    GS.dirty = true;
+    // 指の今の位置を、新しい起点にする
+    const one = { tx: 0, ty: 0, s: 1 };
+    if (GS.pinch && GS.pts.size >= 2) {
+      const [a, b] = [...GS.pts.values()];
+      GS.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, m: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, base: one };
+    } else if (GS.start) {
+      const q = GS.pts.get(GS.start.id);
+      if (q) GS.start = { ...GS.start, x: q.x, y: q.y, base: one };
+    }
+  };
+  const maybeFill = () => {
+    if (GS.raf || !GS.tf || !needFill(GS.tf) || Date.now() - GS.lastFill < 200) return;
+    GS.raf = requestAnimationFrame(fill);
   };
   box.addEventListener('pointerdown', (e) => {
     if (e.button && e.button !== 0) return;
@@ -1207,6 +1267,7 @@ function bindMap() {
       const s = P0.s * k;
       setTf(m.x - k * (GS.pinch.m.x - P0.tx), m.y - k * (GS.pinch.m.y - P0.ty), s);
       document.querySelector('.gscreen')?.classList.add('gmoving');
+      maybeFill();
       return;
     }
     const st = GS.start;
@@ -1216,6 +1277,7 @@ function bindMap() {
     GS.moved = true;
     document.querySelector('.gscreen')?.classList.add('gmoving');
     setTf(st.base.tx + dx, st.base.ty + dy, st.base.s);
+    maybeFill();
   });
   const end = (e) => {
     if (!GS.pts.has(e.pointerId)) return;
@@ -2164,11 +2226,11 @@ function listPanel(g, lc) {
     .map((a) => {
       const p = Gm.previewApp(g, lc, a.id);
       const n = Gm.nodeOf(g, a.town);
-      const warn = [!p.reach ? 'この町には、まだ電気が届かない' : '', p.reach && p.margin < g.reserve ? `供給の余裕が小さい（${pct(p.margin)}）` : '', p.line > 1 ? `線の使用率 ${pct(p.line)}` : '', p.sub > 1 ? `変圧器の使用率 ${pct(p.sub)}` : ''].filter(Boolean);
+      const warn = [!p.reach ? (p.net ? '今の設備では電気が足りない（受けると停電する）' : '電気が届く道がない（線・変電所がつながっていない）') : '', p.reach && p.margin < g.reserve ? `供給の余裕が小さい（${pct(p.margin)}）` : '', p.line > 1 ? `線の使用率 ${pct(p.line)}` : '', p.sub > 1 ? `変圧器の使用率 ${pct(p.sub)}` : ''].filter(Boolean);
       return `<div class="gitem"><p class="spread"><b>${A.esc(n.name)}：${Gm.LOADS[a.type].name} ${kw(a.kw)}</b><small>${Gm.LOADS[a.type].rate} 円/kWh</small></p>
         <p class="small">受けたときの見込み（${p.hour}時ごろのピーク）：供給の余裕 ${pct(p.margin)} ・ 線の使用率 最大 ${pct(p.line)}${p.sub ? ` ・ 変圧器 ${pct(p.sub)}` : ''}${Gm.LOADS[a.type].pf < 1 ? ' ・ 力率 0.75（受けたあと、町の建設から進相コンデンサで直せる）' : ''}</p>
         ${warn.length ? `<p class="warn small">${warn.join(' ・ ')}</p>` : ''}
-        <button class="btn primary" data-accept="${a.id}">受ける</button>${a.held ? '<span class="tag">保留中</span>' : `<button class="btn" data-hold="${a.id}">保留する</button>`}<span class="small">保留に罰はありません</span></div>`;
+        <button class="btn primary" data-accept="${a.id}">受ける</button>${a.held ? '<span class="tag">保留中</span>' : `<button class="btn" data-hold="${a.id}">保留する</button>`}<span class="small">保留に罰はありません（保留が多いと、古いものから取り下げられます）</span></div>`;
     })
     .join('');
   const order = g.priority.map((id) => g.plants.find((p) => p.id === id)).filter(Boolean);
@@ -2553,6 +2615,19 @@ function tutSkipDialog() {
   box.querySelector('[data-tstay]').onclick = () => box.remove();
   box.querySelector('[data-tquit]').onclick = endTutorial;
 }
+// 1.6.4：地図は画面のまわりまで描くので、地図の中の対象は、画面の地図の枠（.gmid）に入っているものを選び、枠で切った範囲を照らす
+function mapClip(el, r) {
+  const mid = el.closest('[data-mid]');
+  if (!mid || !el.closest('[data-mapwrap]')) return r;
+  const m = mid.getBoundingClientRect();
+  const x0 = Math.max(r.left, m.left), y0 = Math.max(r.top, m.top), x1 = Math.min(r.right, m.right), y1 = Math.min(r.bottom, m.bottom);
+  if (x1 - x0 < 1 || y1 - y0 < 1) return null;
+  return { left: x0, top: y0, right: x1, bottom: y1, width: x1 - x0, height: y1 - y0 };
+}
+function tutTarget(q) {
+  const els = [...document.querySelectorAll(q)];
+  return els.find((e) => mapClip(e, e.getBoundingClientRect())) || els[0] || null;
+}
 // スポットライトの位置：対象のまわりだけ穴をあけ、ほかは暗くして押せなくする。吹き出しは対象の上か下
 function tutPlace() {
   const el = document.querySelector('.gtut');
@@ -2560,13 +2635,13 @@ function tutPlace() {
   const st = Mn.TUTORIAL[T.i];
   if (!st) return;
   const W = window.innerWidth, H = window.innerHeight;
-  let tgt = st.target ? document.querySelector(st.target) : null;
+  let tgt = st.target ? tutTarget(st.target) : null;
   if (tgt && T.scrolled !== T.i) {
     T.scrolled = T.i;
     if (tgt.closest('.gpin, .gdetail, .gbcard') || !tgt.closest('.gscreen')) tgt.scrollIntoView?.({ block: 'nearest' });
   }
-  let r = tgt?.getBoundingClientRect();
-  if (r && (r.width < 1 || r.height < 1 || r.bottom < 0 || r.top > H)) r = null;
+  let r = tgt ? mapClip(tgt, tgt.getBoundingClientRect()) : null;
+  if (r && (r.width < 1 || r.height < 1 || r.bottom < 0 || r.top > H || r.right < 0 || r.left > W)) r = null;
   const R = Math.round;
   const sh = (k, x, y, w, h) => Object.assign(el.querySelector(`[data-sh="${k}"]`).style, { left: `${R(x)}px`, top: `${R(y)}px`, width: `${Math.max(0, R(x + w) - R(x))}px`, height: `${Math.max(0, R(y + h) - R(y))}px` });
   const ring = el.querySelector('.gtring');
@@ -2586,7 +2661,8 @@ function tutPlace() {
     if (st.target && wait && !el.querySelector('[data-tnext]')) {
       clearTimeout(T.lost);
       T.lost = setTimeout(() => {
-        if (Mn.TUTORIAL[T.i] !== st || document.querySelector(st.target)) return;
+        const e = tutTarget(st.target);
+        if (Mn.TUTORIAL[T.i] !== st || (e && mapClip(e, e.getBoundingClientRect()))) return; // 1.6.4：地図のまわり（画面の外）にあるだけなら、見つからない扱い
         wait.outerHTML = '<button class="btn primary small" data-tnext>次へ</button>';
         el.querySelector('[data-tnext]').onclick = () => tutGo(T.i + 1);
       }, 1500);

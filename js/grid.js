@@ -993,10 +993,27 @@ function daily(G, lc) {
   G.acc.maint += m;
   G.yr.profit -= m;
   // 接続の申し込み：受けた需要＋保留中が D_max を下回ると届く。停電の少ない町ほど届きやすい
-  const used = G.loads.reduce((a, l) => a + l.kw, 0) + G.apps.reduce((a, l) => a + l.kw, 0);
+  let used = G.loads.reduce((a, l) => a + l.kw, 0) + G.apps.reduce((a, l) => a + l.kw, 0);
   const towns = nodesOf(G).filter((n) => n.town && townActive(G, n));
   const repAvg = towns.reduce((a, n) => a + (G.rep[n.id] ?? 1), 0) / towns.length;
-  if (used < lc.dmax - 1 && G.apps.length < 5 && roll(0.6 * repAvg)) {
+  let fits = used < lc.dmax - 1 && G.apps.length < 5;
+  // 1.6.4：枠（5件）か D_max で入らないとき、保留した申し込みがあれば、抽選に当たったら古い保留から取り下げて新しいものを入れる（罰なし）
+  // 保留していない（未対応の）申し込みは取り下げない。保留を全部外しても入らないときは取り下げない
+  if (!fits && G.apps.some((a) => a.held) && roll(0.6 * repAvg)) {
+    const loadKw = G.loads.reduce((a, l) => a + l.kw, 0);
+    const keep = G.apps.filter((a) => !a.held);
+    if (loadKw + keep.reduce((a, l) => a + l.kw, 0) < lc.dmax - 1 && keep.length < 5) {
+      const held = G.apps.filter((a) => a.held).sort((a, b) => a.at - b.at);
+      while (held.length && !(used < lc.dmax - 1 && G.apps.length < 5)) {
+        const old = held.shift();
+        G.apps = G.apps.filter((a) => a !== old);
+        used -= old.kw;
+        withdrawApp(G, old);
+      }
+      fits = true;
+    }
+  } else if (fits) fits = roll(0.6 * repAvg);
+  if (fits) {
     const town = pickWeighted(G, towns.map((n) => [n.id, (G.rep[n.id] ?? 1) * appWeight(G, n)]));
     const type = pickWeighted(G, Object.entries(LOAD_MIX[Math.min(G.era, 4)]));
     const raw = lc.dmax * (0.05 + 0.15 * rnd(G));
@@ -1024,6 +1041,12 @@ function daily(G, lc) {
   if (fac && roll(0.02)) raise(G, lc, 'motor', { town: fac.town, what: `${nodeOf(G, fac.town).name}で、工場のモータが回り始めるたびに電灯がちらつく。`, cool: month });
   // 年の変わり目：スコアを残す
   if (day > 0 && day % YEAR_DAYS === 0) closeYear(G);
+}
+// 1.6.4 保留の取り下げ：評判・収益は変えない。G.withdrawn に残し（画面の「したことの帯」で出す。新しいもの 10 件まで）、前回からの結果にも
+export const withdrawText = (G, a) => `${nodeOf(G, a.town).name}の申し込み（${LOADS[a.type].name} ${fmtKw(a.kw)}）は取り下げられた（保留の枠が埋まっていたため）`;
+function withdrawApp(G, a) {
+  G.withdrawn = [...(G.withdrawn || []), { id: a.id, town: a.town, type: a.type, kw: a.kw, t: G.t }].slice(-10);
+  note(G, withdrawText(G, a));
 }
 // 申し込みの届きやすさ。古い島：中央の町が2倍。日本列島（1.6.0）：町の大きさ（大・中・小）で 3:2:1、
 // まだ線も需要もない町は 0.3 倍（町が多いので、遠い町の申し込みばかりで保留が埋まらないように）
@@ -1581,7 +1604,9 @@ export function previewApp(G, lc, appId) {
     load += r.load;
   }
   const reach = (sol.served.get(app.town) || 0) > 0.999;
-  return { reach, served: sol.served.get(app.town) || 0, line, sub, cap, load, margin: load > 0 ? cap / load - 1 : 0, hour: t % 24 };
+  // 1.6.4 net：町が発電機のある網（交流・直流）に入っているか。届かないときの文を、道がないのか・設備が足りないのかで分ける
+  const net = sol.results.some((r) => r.net?.nodes.includes(app.town));
+  return { reach, net, served: sol.served.get(app.town) || 0, line, sub, cap, load, margin: load > 0 ? cap / load - 1 : 0, hour: t % 24 };
 }
 export function acceptApp(G, appId) {
   const i = G.apps.findIndex((a) => a.id === appId);

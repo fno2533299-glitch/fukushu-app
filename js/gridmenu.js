@@ -235,6 +235,7 @@ export function underWork(g) {
   const s = new Set();
   for (const x of [...g.plants, ...g.lines, ...g.subs]) if (x.readyAt > g.t) s.add(x.id);
   for (const l of g.lines) for (const [o, at] of Object.entries(l.optAt || {})) if (at > g.t) s.add(`${l.id}#${o}`); // 1.6.1 後付けの対策の工事
+  for (const a of g.apps) if (a.held) s.add(`app:${a.id}`); // 1.6.4 保留の申し込み（取り下げられたら帯で知らせる）
   return s;
 }
 // 前に工事中だったもののうち、完成したもの。[{ kind: 'plant'|'line'|'sub'|'opt', x }]（opt の x は { line, opt }）
@@ -245,9 +246,10 @@ export function finished(g, before) {
   add('line', g.lines);
   add('sub', g.subs);
   for (const l of g.lines) for (const [o, at] of Object.entries(l.optAt || {})) if (before.has(`${l.id}#${o}`) && at <= g.t) out.push({ kind: 'opt', x: { line: l, opt: o } });
+  for (const w of g.withdrawn || []) if (before.has(`app:${w.id}`) && !g.apps.some((a) => a.id === w.id)) out.push({ kind: 'withdraw', x: w }); // 1.6.4
   return out;
 }
-export const doneText = (g, f) => actText(g, { plant: 'donePlant', line: 'doneLine', sub: 'doneSub', opt: 'doneOpt' }[f.kind], f.x);
+export const doneText = (g, f) => (f.kind === 'withdraw' ? Gm.withdrawText(g, f.x) : actText(g, { plant: 'donePlant', line: 'doneLine', sub: 'doneSub', opt: 'doneOpt' }[f.kind], f.x));
 
 // ---- チュートリアル（案内の文字だけ。押す場所だけを明るくする） ----
 // 練習の島は本番とは別の系統（kv「gridTutorial」）。コインは練習用、学習は「直流の配電だけ1問正解」の扱い（灰色の種類を見せるため）

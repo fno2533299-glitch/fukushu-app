@@ -622,7 +622,7 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gmapbox .gmap { width: 100%; height: 100%; }
 /* 1.6.0 拡大・移動：下の層（海岸線）と上の層（線・地点）。動かしている間は CSS の transform だけで動かす */
 .gmapwrap { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform; }
-.gmapwrap .gmap { position: absolute; inset: 0; }
+.gmapwrap .gmap { position: absolute; left: -40%; top: -40%; width: 180%; height: 180%; } /* 1.6.4：画面より上下左右に 40% ずつ大きく描く（gridui.js の MAP_PAD。動かしている間もまわりが見える） */
 .gmapwrap .gbase { pointer-events: none; }
 .gmapwrap .gtop { background: transparent; }
 .gmap .gcoastl { fill: var(--land); stroke: var(--coast); stroke-width: 1.2; stroke-linejoin: round; }
