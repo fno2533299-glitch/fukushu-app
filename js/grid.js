@@ -1274,7 +1274,8 @@ export function applyLearning(G, lc) {
     note(G, `時代が ${E.name} に進んだ`);
     const opened = openedAreas(G, before, lc.era);
     if (opened.length) note(G, `${opened.join('・')}が開いた`);
-    addReport(G, { title: `時代が進んだ：${E.name}（${E.year}）`, what: `新しい設備と需要が登場する。${opened.length ? `建てられる範囲が広がった（${opened.join('・')}）。` : ''}`, units: [] });
+    const facts = isJapan(G) ? J.ERA_FACTS[lc.era] || [] : [];
+    addReport(G, { title: `時代が進んだ：${E.name}（${E.year}）`, what: `新しい設備と需要が登場する。${opened.length ? `建てられる範囲が広がった（${opened.join('・')}）。` : ''}${facts.length ? `史実：${facts.join('。')}（確かめた）。` : ''}`, units: [] });
   }
 }
 // 時代 from → to で新しく開いたエリア（日本列島。エリアの町か水力の地点のどれかが開いたら）

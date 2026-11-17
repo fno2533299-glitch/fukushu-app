@@ -355,7 +355,10 @@ function drawPanel(keep = false) {
 function effects(g) {
   if (g.eraUp) {
     const E = Gm.ERAS[g.eraUp - 1];
-    overlay(`era${g.eraUp}`, `時代が進んだ：${E.name}`, `${E.year}　新しい設備と需要が登場する。${g.eraUp === 2 && !Gm.hzList(g).length && !g.hz ? '交流の発電機を、まだ周波数のない網に初めて建てるとき、周波数（50 Hz／60 Hz）を選ぶ。' : ''}`, [523.3, 659.3, 784, 1046.5]);
+    // 1.6.0：開いたエリアと、その時代の史実（確かめたものだけ。自分の選び方と比べられるように）
+    const opened = Gm.openedAreas(g, g.eraUp - 1, g.eraUp);
+    const lines = Gm.isJapan(g) ? [...(opened.length ? [`${opened.join('・')}が開いた（建てられる範囲が広がった）`] : []), ...(J.ERA_FACTS[g.eraUp] || []).map((f) => `史実：${f}`)] : [];
+    overlay(`era${g.eraUp}`, `時代が進んだ：${E.name}`, `${E.year}　新しい設備と需要が登場する。${g.eraUp === 2 && !Gm.hzList(g).length && !g.hz ? '交流の発電機を、まだ周波数のない網に初めて建てるとき、周波数（50 Hz／60 Hz）を選ぶ。' : ''}`, [523.3, 659.3, 784, 1046.5], lines);
     delete g.eraUp;
     save();
   } else if (g.blackoutFx && !Object.values(g.black).some((u) => u > g.t)) {
@@ -364,10 +367,11 @@ function effects(g) {
     save();
   }
 }
-function overlay(picKey, title, text, notes) {
+// lines：本文の下に出す短い行（1.6.0：開いたエリア・その時代の史実）
+function overlay(picKey, title, text, notes, lines = []) {
   const ov = document.createElement('div');
   ov.className = 'goverlay';
-  ov.innerHTML = `<div class="gov">${pic(picKey, 'wide')}<h2>${A.esc(title)}</h2><p>${A.esc(text)}</p><button class="btn primary" data-close>閉じる</button></div>`;
+  ov.innerHTML = `<div class="gov">${pic(picKey, 'wide')}<h2>${A.esc(title)}</h2><p>${A.esc(text)}</p>${lines.length ? `<ul class="govlines">${lines.map((v) => `<li>${A.esc(v)}</li>`).join('')}</ul>` : ''}<button class="btn primary" data-close>閉じる</button></div>`;
   document.body.append(ov);
   if (A.fx()) A.playNotes(notes.map((f, i) => [f, i * 0.12]));
   ov.querySelector('[data-close]').onclick = () => {
@@ -1661,7 +1665,13 @@ async function pay(q, what, doBuild, after, kind = null) {
   if (!r.ok) return A.toast(r.why);
   await spend(r.cost, what);
   if (kind === 'plant') act('buildPlant', r.plant), mark(r.plant.site, 'work');
-  else if (kind === 'line') act('buildLine', r.line), mark(r.line.id, 'work');
+  else if (kind === 'line') {
+    act('buildLine', r.line);
+    mark(r.line.id, 'work');
+    // 1.6.0：史実と同じ2地点を結んだら、史実の1行を出す（答え合わせ）
+    const fact = Gm.isJapan(G()) && J.lineFact(r.line.a, r.line.b);
+    if (fact) band(`史実：${fact.text}（${J.confText(fact.conf)}）`);
+  }
   else if (kind === 'sub') act('buildSub', r.sub), mark(r.sub.town, 'work');
   else if (kind === 'circuit') act('circuit', r.line);
   else if (kind === 'cap') act('cap', r.load);
@@ -1819,10 +1829,12 @@ function linePanel(g, lc, id) {
   const hz = Gm.lineHazard(g, l, t, lc);
   const qc = Gm.quoteCircuit(g, lc, id);
   const optNames = Object.keys(l.opts).filter((k) => l.opts[k]).map((k) => Gm.LINE_OPTS[k].name);
+  const fact = Gm.isJapan(g) ? J.lineFact(l.a, l.b) : null;
   const dir = f?.p > 0 && f.to ? ` ・ 向き：${A.esc(Gm.nodeOf(g, f.to === l.a ? l.b : l.a).name)} → ${A.esc(Gm.nodeOf(g, f.to).name)}` : '';
   return {
     title: A.esc(Gm.lineName(g, l)),
     html: `<p class="small">${K.name} ・ ${l.km.toFixed(1)} km（${l.route === 'detour' ? '回り道' : 'まっすぐ'}）・ ${l.n}回線${l.proto ? ' ・ 試作' : ''}</p>
+    ${fact ? `<p class="small gfact">史実：${A.esc(fact.text)}（出典 ${A.esc(fact.src)}・${J.confText(fact.conf)}） <button class="link" data-sources>出典の一覧</button></p>` : ''}
     <p class="small">状態：${stateOf(l, t) || (l.c1Until > t ? `1回線が修理中（あと ${l.c1Until - t}時間）` : '送電中')}${f ? ` ・ 流れ ${kw(f.p)} ・ 使用率 <b class="${f.util > 1 ? 'gneg' : ''}">${pct(f.util)}</b> ・ 損失 ${kw(f.loss)}${dir}` : ''}</p>
     <p class="small">危険：${hazardText(l.hazards)} ・ 対策：${optNames.length ? optNames.join('・') : 'なし'} ・ 故障の目安 1日あたり ${(hz.perDay * 100).toFixed(2)}%</p>
     <p class="small">送れる量を超えて 120% までは温度が上がるだけ（故障しやすくなる）。120% を2時間超えると保護装置で切れる。</p>
@@ -1832,6 +1844,7 @@ function linePanel(g, lc, id) {
     </div>`,
     bind: ({ onAll }) => {
       onAll('[data-circ]', 'click', () => circuitDialog(id));
+      onAll('[data-sources]', 'click', sourcesSheet);
       onAll('[data-rm]', 'click', () => removeDialog('line', id));
     },
   };
@@ -2442,9 +2455,11 @@ window.addEventListener('resize', () => tutOn() && tutFollow());
 
 // ---- 開発者モード（1.5.1）：経営のパネルのバージョン番号を5回押すと入る。本番とは別の系統（kv「gridDev」）で動かす ----
 function versionHtml() {
-  return `<p class="note center"><button class="link gver" data-ver>版 ${A.esc(window.APP_VERSION || '')}</button></p>`;
+  return `<p class="note center">地図：Natural Earth（1:10m）。主な島だけを描いています（沖縄・小笠原・北方の島々は描いていません）。<button class="link" data-sources>出典の一覧</button></p>
+    <p class="note center"><button class="link gver" data-ver>版 ${A.esc(window.APP_VERSION || '')}</button></p>`;
 }
 function bindVersion(onAll) {
+  onAll('[data-sources]', 'click', sourcesSheet);
   onAll('[data-ver]', 'click', () => {
     if (DEV.tut) return;
     if (DEV.on) return devSheet();
