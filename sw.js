@@ -1,6 +1,6 @@
 // オフライン用：アプリ本体をすべて端末に保存し、以後は保存したものから表示する
 // アプリを更新したら CACHE の番号を上げる（index.html の APP_VERSION も合わせる）
-const CACHE = 'fukushu-1.6.0';
+const CACHE = 'fukushu-1.6.1';
 const FILES = [
   './',
   './index.html',
@@ -40,6 +40,16 @@ const FILES = [
   './img/grid/G20.webp',
   './img/grid/G21.webp',
   './img/grid/G22.webp',
+  './img/grid/I01.webp',
+  './img/grid/I02.webp',
+  './img/grid/I03.webp',
+  './img/grid/I04.webp',
+  './img/grid/I05.webp',
+  './img/grid/I06.webp',
+  './img/grid/I07.webp',
+  './img/grid/L01.webp',
+  './img/grid/L02.webp',
+  './img/grid/L03.webp',
   // GRID_IMAGES_END
   './icons/icon-180.png',
   './icons/icon-192.png',

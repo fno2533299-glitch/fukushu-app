@@ -61,6 +61,11 @@ export const LINE_OPTS = {
   spacer: { name: '相間スペーサ', hazard: 'snow', k: 0.5, gates: ['insul'] },
   petersen: { name: '消弧リアクトル', hazard: null, k: 0.6, era: 4, gates: ['prot'], blueprint: 'petersen' },
 };
+// 1.6.1 後付けの対策：既設の線に後から足す。費用は建設のときに足す場合（線の費用の 20%・回線の数だけ）の RETRO_K 倍（後から工事するぶん割増）。
+// 工期は線の建設と同じ式。工事の間も線は止めない（1回線ずつ・短い停止で済む工事とみなす）。効くのは工事が終わってから（l.optAt）
+export const OPT_K = 0.2;
+export const RETRO_K = 1.3;
+export const optOn = (l, o, t) => !!l.opts?.[o] && !(l.optAt?.[o] > t);
 export const HAZARD = { thunder: { name: '雷の多い地域', k: 2 }, coast: { name: '海沿い（塩害）', k: 1.5 }, snow: { name: '雪の山（冬）', k: 2 } };
 export const SUB_SIZES = [0.1, 0.5, 1, 2, 5, 10, 30, 100]; // MVA
 export const subCost = (mva) => Math.max(2000, Math.round(mva * 1000));
@@ -353,7 +358,7 @@ export function lineHazard(G, l, t, lc) {
   for (const h of l.hazards) {
     if (h === 'snow' && seasonOf(t) !== 3) continue;
     let k = HAZARD[h].k;
-    for (const [o, d] of Object.entries(LINE_OPTS)) if (d.hazard === h && l.opts[o]) k = 1 + (k - 1) * d.k;
+    for (const [o, d] of Object.entries(LINE_OPTS)) if (d.hazard === h && optOn(l, o, t)) k = 1 + (k - 1) * d.k;
     m[h] = 1 + (k - 1) * (l.fix?.[h] ?? 1) * (h === 'coast' && l.saltUntil > t ? 0.5 : 1);
   }
   if (evOn(G, 'typhoon', t) && l.hazards.includes('coast')) m.coast *= 3;
@@ -1078,7 +1083,7 @@ function failures(G, lc, prev) {
     if (rnd(G) >= hz.perDay / 24) continue;
     if (shielded()) continue;
     const cause = pickWeighted(G, [['other', 1], ['thunder', hz.m.thunder - 1], ['coast', hz.m.coast - 1], ['snow', hz.m.snow - 1]]);
-    const dur = Math.round((12 + 36 * rnd(G)) * prot * (l.opts.petersen && cause === 'other' ? LINE_OPTS.petersen.k : 1));
+    const dur = Math.round((12 + 36 * rnd(G)) * prot * (optOn(l, 'petersen', t) && cause === 'other' ? LINE_OPTS.petersen.k : 1));
     const cost = l.cost * 0.05;
     const circuit = l.n - (l.c1Until > t ? 1 : 0) >= 2; // 2回線以上あれば、止まるのは1回線
     if (circuit) l.c1Until = t + dur;
@@ -1090,7 +1095,7 @@ function failures(G, lc, prev) {
     const name = lineName(G, l);
     const why = { other: '設備の故障', thunder: '雷', coast: '塩害（がいしの汚れ）', snow: '着雪・ギャロッピング' }[cause];
     const info = { line: l.id, dur, cost, circuit, what: `${name}が${why}で止まった（${circuit ? '1回線' : '全回線'}）。` };
-    const key = cause === 'thunder' ? (l.opts.gw ? 'backFlash' : 'lightning') : cause === 'coast' ? 'salt' : cause === 'snow' ? 'gallop' : G.era >= 4 && l.km >= 50 && !l.opts.petersen ? 'arc' : null;
+    const key = cause === 'thunder' ? (optOn(l, 'gw', t) ? 'backFlash' : 'lightning') : cause === 'coast' ? 'salt' : cause === 'snow' ? 'gallop' : G.era >= 4 && l.km >= 50 && !optOn(l, 'petersen', t) ? 'arc' : null;
     const inc = key && raise(G, lc, key, { ...info, cool: 6 });
     if (!inc) addReport(G, { title: `${name}の故障`, what: `${info.what}修理に ${dur}時間。`, why, units: INCIDENTS[key || 'lightning'].units });
     note(G, `${name}が${why}で止まった`);
@@ -1433,16 +1438,15 @@ export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {} }) {
   if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
   for (const o of Object.keys(opts)) {
     if (!opts[o]) continue;
-    const O = LINE_OPTS[o];
-    if (O.era && eraStatus(lc, O.era) !== 'ok') return { ok: false, why: `${O.name}はまだ先の時代の設備` };
-    if (O.blueprint && !lc.blueprint[O.blueprint]) return { ok: false, why: `設計図「${BLUEPRINTS[O.blueprint].name}」がない`, blueprint: O.blueprint };
+    const no = optBlocked(lc, o);
+    if (no) return no;
   }
   if (K.blueprint && !lc.blueprint[K.blueprint]) return { ok: false, why: `設計図「${BLUEPRINTS[K.blueprint].name}」がない（試験レベルに正解するか、関係する外部試験で3割以上）`, blueprint: K.blueprint };
   if (connected(G, a, b, !!K.dc)) return { ok: false, why: 'この2地点は、すでに線でつながっている（回線を増やすなら、今ある線を増設する）' };
   const r = routeInfo(G, a, b, route);
   const proto = st === 'proto';
   const nOpts = Object.values(opts).filter(Boolean).length;
-  let cost = K.cost * r.km * (1 + 0.2 * nOpts) * (proto ? 3 : 1);
+  let cost = K.cost * r.km * (1 + OPT_K * nOpts) * (proto ? 3 : 1);
   if (K.dc && G.buffs.dcDiscount) cost *= 0.8;
   const needSub = K.hv ? [a, b].filter((id) => nodeOf(G, id).town && !G.subs.some((s) => s.town === id)) : [];
   return { ok: true, cost: Math.max(50, Math.round(cost)), km: r.km, hazards: r.hazards, hours: buildHours(12 + Math.min(228, r.km), lc, K.perf), proto, needSub };
@@ -1467,6 +1471,48 @@ export function addCircuit(G, lc, id) {
   if (!q.ok) return q;
   q.line.n++;
   q.line.cost += q.cost;
+  return q;
+}
+// 対策の時代・設計図（学習の単元は gates で見る）
+function optBlocked(lc, o) {
+  const O = LINE_OPTS[o];
+  if (O.era && eraStatus(lc, O.era) !== 'ok') return { ok: false, why: `${O.name}はまだ先の時代の設備` };
+  if (O.blueprint && !lc.blueprint[O.blueprint]) return { ok: false, why: `設計図「${BLUEPRINTS[O.blueprint].name}」がない`, blueprint: O.blueprint };
+  return null;
+}
+// 1.6.1 既設の線に、後から対策を足す（費用は建設のときに足す場合の RETRO_K 倍。事故の対処の問題で付く効果 l.fix とは別に重なる）
+export function optChoices(G, lc, id) {
+  const l = G.lines.find((x) => x.id === id);
+  if (!l || LINES[l.kind].dc) return [];
+  return Object.entries(LINE_OPTS)
+    .filter(([o, O]) => !l.opts[o] && (!O.era || eraStatus(lc, O.era) === 'ok'))
+    .map(([o, O]) => ({ key: o, name: O.name, q: quoteLineOpt(G, lc, id, o) }));
+}
+export function quoteLineOpt(G, lc, id, o) {
+  const l = G.lines.find((x) => x.id === id);
+  const O = LINE_OPTS[o];
+  if (!l || !O) return { ok: false, why: '線と対策を選ぶ' };
+  const K = LINES[l.kind];
+  if (K.dc) return { ok: false, why: '直流の配電線には付けられない' };
+  if (l.opts[o]) return { ok: false, why: l.optAt?.[o] > G.t ? `${O.name}は工事中` : `${O.name}はもう付いている` };
+  const miss = missing(lc, O.gates);
+  if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
+  const no = optBlocked(lc, o);
+  if (no) return no;
+  const proto = eraStatus(lc, K.era, K.level) === 'proto';
+  const one = K.cost * l.km * OPT_K * (proto ? 3 : 1); // 建設のときに足す場合の費用（1回線あたり）
+  const cost = Math.max(50, Math.round(one * l.n * RETRO_K));
+  const hours = buildHours(12 + Math.min(228, l.km), lc, K.perf);
+  return { ok: true, cost, hours, line: l, opt: o, readyAt: Math.max(l.readyAt, G.t + hours), unit: Math.round(K.cost * l.km * OPT_K * (l.proto ? 3 : 1)) };
+}
+export function addLineOpt(G, lc, id, o) {
+  const q = quoteLineOpt(G, lc, id, o);
+  if (!q.ok) return q;
+  const l = q.line;
+  l.opts[o] = true;
+  l.optAt = { ...(l.optAt || {}), [o]: q.readyAt };
+  l.cost += q.cost;
+  l.unit += q.unit; // これから増やす回線にも、この対策が付く
   return q;
 }
 export function quoteSub(G, lc, { town, mva }) {

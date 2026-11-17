@@ -35,9 +35,15 @@ export function buildChoices(g, lc, id) {
   if (n.town) {
     const st = typeStatus(lc, 'sub', 'tr');
     if (!st.era) out.push({ kind: 'sub', key: 'tr', name: SHORT.tr, st });
+    // 1.6.1：力率の悪い工場の需要（まだ進相コンデンサがない）がある町は、変圧器の並びに「進相コンデンサ」も（押すと今のシート）
+    const caps = capLoads(g, id);
+    const cst = lc.gate.pf ? { ok: true } : { ok: false, why: gateText(['pf']), gates: ['pf'] };
+    for (const ld of caps) out.push({ kind: 'cap', key: ld.id, name: '進相コンデンサ', tag: caps.length > 1 ? `工場 ${Gm.fmtKw(ld.kw)}` : '', st: cst });
   }
   return out;
 }
+// 進相コンデンサを付けられる需要（力率の悪い工場で、まだ付けていないもの）
+export const capLoads = (g, id) => g.loads.filter((l) => l.town === id && Gm.LOADS[l.type].pfFixed && !l.cap);
 // その地点から引ける線の種類（直流は町と町の間だけ）
 export function lineChoices(g, lc, id) {
   const n = Gm.nodeOf(g, id);
@@ -73,10 +79,11 @@ export function nodeMenu(g, lc, id) {
   if (incidentsAt(g, id).length) items.push({ k: 'inc', label: '事故', alert: true });
   return items;
 }
-// 線を押したときのメニュー（線の中ほど）：回線の増設・詳細・撤去
-export function lineMenu() {
+// 線を押したときのメニュー（線の中ほど）：回線の増設・対策を足す（1.6.1。まだ付けていない対策がある交流の線）・詳細・撤去
+export function lineMenu(g, lc, id) {
   return [
     { k: 'circ', label: '回線の増設' },
+    ...(g && Gm.optChoices(g, lc, id).length ? [{ k: 'opt', label: '対策を足す' }] : []),
     { k: 'detail', label: '詳細' },
     { k: 'rm', label: '撤去' },
   ];
@@ -188,6 +195,10 @@ export function actText(g, kind, x = {}) {
       return `${Gm.lineName(g, x)}の回線を増やした（${x.n}回線）`;
     case 'cap':
       return `${nodeName(g, x.town)}の工場に進相コンデンサを付けた（力率 0.95）`;
+    case 'lineOpt':
+      return `${Gm.lineName(g, x.line)}に${Gm.LINE_OPTS[x.opt].name}を付ける工事を始めた（効くのは工事が終わってから。あと${hoursText(x.readyAt - g.t)}）`;
+    case 'doneOpt':
+      return `${Gm.lineName(g, x.line)}の${Gm.LINE_OPTS[x.opt].name}の工事が終わった`;
     case 'incident':
       return `事故「${x.title}」：${x.settled ? '標準の被害で片づけた' : x.correct ? '正しく対処した' : '対処を誤った'}${x.text ? `。${x.text}` : ''}`;
     case 'accept':
@@ -223,18 +234,20 @@ export function actText(g, kind, x = {}) {
 export function underWork(g) {
   const s = new Set();
   for (const x of [...g.plants, ...g.lines, ...g.subs]) if (x.readyAt > g.t) s.add(x.id);
+  for (const l of g.lines) for (const [o, at] of Object.entries(l.optAt || {})) if (at > g.t) s.add(`${l.id}#${o}`); // 1.6.1 後付けの対策の工事
   return s;
 }
-// 前に工事中だったもののうち、完成したもの。[{ kind: 'plant'|'line'|'sub', x }]
+// 前に工事中だったもののうち、完成したもの。[{ kind: 'plant'|'line'|'sub'|'opt', x }]（opt の x は { line, opt }）
 export function finished(g, before) {
   const out = [];
   const add = (kind, list) => list.forEach((x) => before.has(x.id) && x.readyAt <= g.t && out.push({ kind, x }));
   add('plant', g.plants);
   add('line', g.lines);
   add('sub', g.subs);
+  for (const l of g.lines) for (const [o, at] of Object.entries(l.optAt || {})) if (before.has(`${l.id}#${o}`) && at <= g.t) out.push({ kind: 'opt', x: { line: l, opt: o } });
   return out;
 }
-export const doneText = (g, f) => actText(g, { plant: 'donePlant', line: 'doneLine', sub: 'doneSub' }[f.kind], f.x);
+export const doneText = (g, f) => actText(g, { plant: 'donePlant', line: 'doneLine', sub: 'doneSub', opt: 'doneOpt' }[f.kind], f.x);
 
 // ---- チュートリアル（案内の文字だけ。押す場所だけを明るくする） ----
 // 練習の島は本番とは別の系統（kv「gridTutorial」）。コインは練習用、学習は「直流の配電だけ1問正解」の扱い（灰色の種類を見せるため）
@@ -330,7 +343,11 @@ export function tutorialAction(g, lc, name, advance) {
 // ---- 1.5.3 事故・出来事が起きたときの演出：見出し・絵・新しく起きたものの見つけ方 ----
 // 事故の絵は7つにまとめる（I01〜I07。試作/系統ゲーム_画像プロンプト.md）。渇水は出来事の絵（G18）。絵がない間は fallback の G の絵
 export const INC_PIC = { lightning: 'I01', backFlash: 'I01', arc: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18' };
-export const PIC_FALLBACK = { I01: 'G11', I02: 'G11', I03: 'G15', I04: 'G06', I05: 'G10', I06: 'G11', I07: 'G01' };
+export const PIC_FALLBACK = { I01: 'G11', I02: 'G11', I03: 'G15', I04: 'G06', I05: 'G10', I06: 'G11', I07: 'G01', L01: 'G11', L02: 'G11', L03: 'G11' };
+// 1.6.1 線の階級ごとの絵：町の電柱（L01）・木柱の送電線（L02）・中くらいの鉄塔（L03）・大きな鉄塔（G11）。L の絵がない間は G11
+export const LINE_PIC = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11' };
+// 報告の形の事故（見出しが「◯◯発生」でないもの）：演出で上に小さく「事故発生」を足す
+export const isReport = (key) => !/発生$/.test(INC_HEAD[key] || '');
 export const EV_PIC = { heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18' };
 // 赤い太字の見出し（「◯◯発生」。起きたことではなく判断を求めるものは、それに合う言い方）
 export const INC_HEAD = { dcDrop: '電圧低下発生', parallelIn: '並列投入の判断', salt: '塩害発生', gallop: 'ギャロッピング発生', genTrip: '発電機故障発生', genShort: '発電機故障・予備力不足', reserve: '予備力不足', trLoss: '変圧器の損失報告', trParallel: '循環電流発生', trShare: '変圧器過負荷発生', lineOver: '送電線過負荷発生', factoryPf: '低力率の申し込み', motor: '電灯のちらつき発生', lightning: '落雷事故発生', backFlash: '逆フラッシオーバ発生', arc: '地絡アーク発生', drought: '渇水発生' };
@@ -372,7 +389,31 @@ export function statusChips(g) {
   const black = Math.max(0, ...Object.values(g.black || {}));
   if (black > t) out.push({ kind: 'black', name: '全域停電', left: `復旧まで${leftText(black - t)}`, cls: 'c-black' });
   else if (g.last?.shed) out.push({ kind: 'shed', name: '負荷遮断', left: '', cls: 'c-shed' });
-  for (const i of [...g.incidents].sort((a, b) => a.deadline - b.deadline)) out.push({ kind: 'inc', id: i.id, key: i.key, name: (INC_HEAD[i.key] || Gm.INCIDENTS[i.key].title).replace(/発生$/, ''), left: leftText(i.deadline - t), cls: 'c-inc' });
-  for (const e of g.events.filter((x) => x.until > t).sort((a, b) => a.until - b.until)) out.push({ kind: 'ev', key: e.key, name: Gm.EVENTS[e.key].name, left: leftText(e.until - t), cls: 'c-ev' });
+  // 1.6.1：同じ出来事で札が2つ並ぶ（渇水など）ときに役割がわかるように、事故は「！◯◯ 対処 あと◯」、出来事は「◯◯ 何が変わっているか・あと◯」
+  for (const i of [...g.incidents].sort((a, b) => a.deadline - b.deadline)) out.push({ kind: 'inc', id: i.id, key: i.key, name: `！${(INC_HEAD[i.key] || Gm.INCIDENTS[i.key].title).replace(/発生$/, '')}`, left: `対処 ${leftText(i.deadline - t)}`, cls: 'c-inc' });
+  for (const e of g.events.filter((x) => x.until > t).sort((a, b) => a.until - b.until)) {
+    const fx = evEffect(e);
+    out.push({ kind: 'ev', key: e.key, name: Gm.EVENTS[e.key].name, left: `${fx ? `${fx}・` : ''}${leftText(e.until - t)}`, cls: 'c-ev' });
+  }
   return out;
+}
+// 続いている出来事で、何が変わっているか（札に短く）。値は grid.js の出来事の効き方に合わせる
+export function evEffect(e) {
+  switch (e.key) {
+    case 'heat':
+    case 'cold':
+      return '需要+15%';
+    case 'typhoon':
+      return '線の事故5倍';
+    case 'snowstorm':
+      return '雪の線の事故3倍';
+    case 'coalSpike':
+      return '石炭1.8倍';
+    case 'priceWar':
+      return '料金2割減';
+    case 'drought':
+      return e.eased ? '出力5.5割' : '出力4割';
+    default:
+      return '';
+  }
 }

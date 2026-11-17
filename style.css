@@ -698,6 +698,14 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .groute .btn.on small { color: inherit; opacity: .9; }
 .gopts summary { min-height: 40px; line-height: 40px; color: var(--primary); font-size: 0.88rem; cursor: pointer; }
 .gopts .row small { display: block; }
+/* 1.6.1 対策の見出しに区間の危険（事実として書くだけ。どの対策かは目立たせない） */
+.gopts .ghaz { margin-left: 1em; color: var(--muted); font-size: 0.8rem; }
+.gopt { padding: 8px 0; }
+.gopt .spread { margin: 0; align-items: center; }
+.gopt small { display: block; color: var(--muted); }
+.gopt .btn { flex: none; margin: 0 0 0 8px; }
+.glinehead { display: flex; align-items: center; gap: 8px; }
+.glinehead .gpic.mini { width: 56px; height: 25px; }
 .gmap .gnode.gdim, .gmap .gline.gdim { opacity: .28; }
 .gmap .gring { fill: none; stroke: var(--spark); stroke-width: 2.6; }
 .gmap .gpulse { fill: none; stroke: var(--spark); stroke-width: 2; transform-box: fill-box; transform-origin: center; animation: gpulse 1.4s ease-out infinite; }
@@ -881,6 +889,7 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .galpic img { display: block; width: 100%; aspect-ratio: 960 / 420; object-fit: cover; }
 .galpic.ph svg { display: block; width: 100%; aspect-ratio: 960 / 420; color: #8b919a; padding: 18px 0 40px; }
 .galpic::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 55%; background: linear-gradient(transparent, rgba(0, 0, 0, .55)); pointer-events: none; }
+.galkick { display: block; margin-bottom: 2px; font-size: 0.42em; letter-spacing: .12em; }
 .galhead { position: absolute; left: 6px; right: 6px; bottom: 7%; z-index: 1; margin: 0; font-size: clamp(1.55rem, 8.4vw, 2.3rem); font-weight: 900; line-height: 1.2; letter-spacing: .04em; color: #ff3b30;
   text-shadow: 0 0 3px #000, 0 0 8px rgba(0, 0, 0, .9), 2px 2px 0 #2a0000, -2px 2px 0 #2a0000, 2px -2px 0 #2a0000, -2px -2px 0 #2a0000; opacity: 0; transform: scale(1.45); transition: opacity .16s, transform .26s cubic-bezier(.2, 1.5, .4, 1); }
 .galert.p2 .galhead { opacity: 1; transform: none; }
@@ -918,8 +927,16 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 @media (prefers-reduced-motion: reduce) { .gchip { animation: none !important; } }
 
 /* ---- 1.5.3 小さなグラフ（高さ 40px。押すと需給） ---- */
-.gmini { flex: none; display: flex; align-items: stretch; gap: 6px; width: auto; margin: 5px 8px 0; padding: 0 0 0 4px; height: 44px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; text-align: left; }
-.gmsvg { flex: 1; min-width: 0; height: 40px; align-self: center; }
+.gmini { flex: none; display: flex; align-items: stretch; gap: 6px; width: auto; margin: 5px 8px 0; padding: 0 0 0 4px; height: 56px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; text-align: left; }
+.gmplot { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.gmsvg { display: block; width: 100%; height: 40px; }
+/* 1.6.1 色見本（1行。色は需給のパネルと同じ） */
+.gmkey { display: flex; gap: 8px; overflow: hidden; white-space: nowrap; font-size: 0.62rem; line-height: 12px; color: var(--muted); }
+.gmkey span { flex: none; display: inline-flex; align-items: center; gap: 3px; }
+.gmkey i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+.gmkey i.gk-dem { width: 11px; height: 2px; border-radius: 0; background: var(--text); }
+.gmkey i.gk-sv { width: 11px; height: 0; border-radius: 0; border-top: 2px dotted var(--ok); }
+.gmkey i.gk-hy { background: var(--ghydro); } .gmkey i.gk-co { background: var(--gcoal); } .gmkey i.gk-dc { background: var(--gdc); }
 .gmempty { align-self: center; font-size: 0.72rem; color: var(--muted); padding-left: 6px; }
 .gmlab { flex: none; width: 78px; display: flex; flex-direction: column; justify-content: center; padding-right: 8px; border-left: 1px solid var(--line); padding-left: 6px; font-size: 0.72rem; line-height: 1.35; font-variant-numeric: tabular-nums; }
 .gmlab small { font-size: 0.68rem; font-weight: 700; color: var(--muted); white-space: nowrap; }

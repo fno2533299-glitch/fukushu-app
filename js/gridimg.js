@@ -1,5 +1,5 @@
 // 動く系統の絵（本人が Gemini で作った画像）。ツール/系統画像/make_grid_images.py が書き換える
-// 番号（G01〜・事故の I01〜）→ 画像の場所。ない番号は、アプリが仮の絵（I は代わりの G の絵）を出す
+// 番号（G01〜・事故の I01〜・線の階級の L01〜）→ 画像の場所。ない番号は、アプリが仮の絵（I・L は代わりの G の絵）を出す
 export const GRID_IMAGES = {
   G01: 'img/grid/G01.webp',
   G02: 'img/grid/G02.webp',
@@ -23,4 +23,14 @@ export const GRID_IMAGES = {
   G20: 'img/grid/G20.webp',
   G21: 'img/grid/G21.webp',
   G22: 'img/grid/G22.webp',
+  I01: 'img/grid/I01.webp',
+  I02: 'img/grid/I02.webp',
+  I03: 'img/grid/I03.webp',
+  I04: 'img/grid/I04.webp',
+  I05: 'img/grid/I05.webp',
+  I06: 'img/grid/I06.webp',
+  I07: 'img/grid/I07.webp',
+  L01: 'img/grid/L01.webp',
+  L02: 'img/grid/L02.webp',
+  L03: 'img/grid/L03.webp',
 };
