@@ -1270,6 +1270,7 @@ export function applyLearning(G, lc) {
     const before = G.era;
     G.era = lc.era;
     G.eraUp = lc.era;
+    G.eraUpFrom = Math.min(G.eraUpFrom ?? before, before); // 演出を見る前に2つ進んだときも、開いたエリアをまとめて出す
     const E = ERAS[lc.era - 1];
     note(G, `時代が ${E.name} に進んだ`);
     const opened = openedAreas(G, before, lc.era);

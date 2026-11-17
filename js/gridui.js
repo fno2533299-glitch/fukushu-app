@@ -356,10 +356,11 @@ function effects(g) {
   if (g.eraUp) {
     const E = Gm.ERAS[g.eraUp - 1];
     // 1.6.0：開いたエリアと、その時代の史実（確かめたものだけ。自分の選び方と比べられるように）
-    const opened = Gm.openedAreas(g, g.eraUp - 1, g.eraUp);
+    const opened = Gm.openedAreas(g, g.eraUpFrom ?? g.eraUp - 1, g.eraUp);
     const lines = Gm.isJapan(g) ? [...(opened.length ? [`${opened.join('・')}が開いた（建てられる範囲が広がった）`] : []), ...(J.ERA_FACTS[g.eraUp] || []).map((f) => `史実：${f}`)] : [];
     overlay(`era${g.eraUp}`, `時代が進んだ：${E.name}`, `${E.year}　新しい設備と需要が登場する。${g.eraUp === 2 && !Gm.hzList(g).length && !g.hz ? '交流の発電機を、まだ周波数のない網に初めて建てるとき、周波数（50 Hz／60 Hz）を選ぶ。' : ''}`, [523.3, 659.3, 784, 1046.5], lines);
     delete g.eraUp;
+    delete g.eraUpFrom;
     save();
   } else if (g.blackoutFx && !Object.values(g.black).some((u) => u > g.t)) {
     overlay('recover', '全域停電から復旧した', '町に明かりが戻った。予備力の目標と、最大の発電機1台分を見比べてみよう。', [392, 523.3, 659.3]);
@@ -858,7 +859,7 @@ function mapHtml(g) {
 // 表示の細かさ（1.6.0）：縮めたときは「大」の町の名前だけ。中・小の町・水力の地点は拡大すると出す。東京の区は町の中まで拡大したときだけ
 // （それより縮めたときは、いちばん目立つ区に「東京」とだけ出す）。建設モードで光る地点・選んだ地点はいつも出す
 const NAME_W = { 3: Infinity, 2: 1000, 1: 320, hydro: 220, ward: 40 };
-const DOT_GAP = 18; // 画面の上でこれより近い地点は、目立つ方だけを絵で描き、ほかは小さな点にする
+const DOT_GAP = 28; // 画面の上でこれより近い地点は、目立つ方だけを絵で描き、ほかは小さな点にする
 function topInner(g) {
   const nodes = Gm.nodesOf(g);
   const japan = Gm.isJapan(g);
@@ -922,7 +923,7 @@ function topInner(g) {
     if (full) {
       const ward = japan && n.area === '東京市内';
       const limit = !japan ? Infinity : ward ? NAME_W.ward : n.town ? NAME_W[n.size || 2] : has(n) ? NAME_W.hydro * 3 : NAME_W.hydro;
-      if (VIEW.w <= limit || force) name = n.name;
+      if (VIEW.w <= limit || force) name = n.name; // 候補・選んだ地点は、縮めていても名前を出してみる（重なれば出さない）
       else if (ward && !wardNamed) name = '東京';
       if (name === '東京') wardNamed = true;
     }
@@ -933,7 +934,9 @@ function topInner(g) {
       const w = Math.max(...lines.map((v) => v.length)) * 9.4 + 4, h = lines.length * 10.5;
       const rects = { b: [x - w / 2, y + 14], t: [x - w / 2, y - 26 - h], r: [x + 13, y - h / 2], l: [x - 13 - w, y - h / 2] };
       const hit = ([x0, y0]) => labels.some((q) => x0 < q.x1 && x0 + w > q.x0 && y0 < q.y1 && y0 + h > q.y0);
-      pos = force ? 'b' : ['b', 't', 'r', 'l'].find((k) => !hit(rects[k])) || null;
+      // 選んだ地点の名前はいつも下に。建設モードの候補は、絵はいつも出すが、名前は重ならないときだけ
+      const must = selId === n.id || c === 'sel';
+      pos = must ? 'b' : ['b', 't', 'r', 'l'].find((k) => !hit(rects[k])) || null;
       if (!pos) lines = [];
       else labels.push({ x0: rects[pos][0], y0: rects[pos][1], x1: rects[pos][0] + w, y1: rects[pos][1] + h });
     }
@@ -1751,7 +1754,8 @@ const confOf = (c) => (/^確認済み/.test(c || '') ? '確かめた' : c === '�
 function historyHtml(n) {
   const rows = [];
   if (n.game) rows.push('<p class="small">ゲームの地点（実在の川の名前を使った、史実ではない地点）</p>');
-  else if (n.year || n.fact) rows.push(`<p class="small">${n.year && !(n.fact || '').startsWith(String(n.year)) ? `${n.year}年 ` : ''}${A.esc(n.fact || (n.hydro ? '運転開始の年' : ''))}</p>`);
+  else if (n.fact) rows.push(`<p class="small">${n.year && !n.fact.startsWith(String(n.year)) ? `${n.year}年 ` : ''}${A.esc(n.fact)}</p>`);
+  else if (n.year) rows.push(`<p class="small">${n.hydro ? `運転開始 ${n.year}年` : `${n.year}年`}</p>`);
   if (n.hydro) rows.push(`<p class="small">使える水の上限 ${kw(n.hydro)}：${n.limitBy === 'ゲーム' ? 'ゲームの値' : '今の最大出力（運転開始のころの値ではない。その川の力の目安）'}</p>`);
   const conf = confOf(n.conf);
   rows.push(`<p class="small gsrc">${n.src ? `出典 ${A.esc(n.src)}${conf ? `（${conf}）` : ''} ・ ` : ''}位置はおおよそ <button class="link" data-sources>出典の一覧</button></p>`);
@@ -2283,6 +2287,7 @@ async function startTutorial() {
   panel = null;
   Gm.applyLearning(G(), learningNow());
   delete G().eraUp;
+  delete G().eraUpFrom;
   T.hasInc = false;
   await save();
   await A.db.putKV(Mn.TUT_SEEN, new Date().toISOString());
@@ -2491,6 +2496,7 @@ async function enterDev() {
   B = null;
   Gm.applyLearning(G(), learningNow());
   delete G().eraUp;
+  delete G().eraUpFrom;
   await save();
   A.toast('開発者モードに入った');
   screen(null);
@@ -2522,6 +2528,7 @@ export async function enterDemo() {
   panel = null;
   Gm.applyLearning(G(), learningNow());
   delete G().eraUp;
+  delete G().eraUpFrom;
   await save();
   await screen(null);
 }
