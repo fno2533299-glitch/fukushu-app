@@ -19,10 +19,11 @@
 | `js/griddev.js`・`js/gridmenu.js`・`js/gridart.js` | 動く系統の画面に依存しない部分（開発者モード・デモ／地点のメニュー・したことの表示・チュートリアル・演出と状態の札／町と発電所のアイコン） |
 | `js/japan.js`・`js/gridjapan.js` | 日本列島（1.6.0）：地図の形と地点（`ツール/日本列島/make_japan.mjs` が書き出す）／始める町・エリアの開く順番・史実の線・出典 |
 | `js/gridimg.js`・`img/grid/` | 動く系統の絵（番号 → 画像の場所）。変換スクリプトが書き換える |
+| `js/japan_terrain.js`・`js/japan_water.js`・`js/mapgeo.js` | 日本列島の地形・県境（1.6.2）、海岸線・川・湖（1.6.3。`ツール/日本列島/make_water.mjs` が書き出す）、水系の形を戻す・拡大したときの景色（見た目だけ） |
 | `sw.js` | オフライン用（アプリ本体をすべて端末に保存する） |
 | `vendor/katex/` | 数式の表示（KaTeX 0.16.11、MIT License） |
 
-地図の海岸線は Natural Earth（1:10m、パブリックドメイン。npm の world-atlas 2.0.2 から）を簡単にしたものです。主な島だけを描いています。
+地図の海岸線・川・湖は、国土地理院「地球地図日本」（第2.2版ベクタ・1:100万）を加工して作成しました（国土地理院コンテンツ利用規約。出典：国土地理院ウェブサイト https://www.gsi.go.jp/kankyochiri/gm_jpn.html ）。県境は Natural Earth（1:10m、パブリックドメイン）、標高の塗り分けは NOAA ETOPO 2022 です。主な島だけを描いています。
 
 ## 更新するとき
 
