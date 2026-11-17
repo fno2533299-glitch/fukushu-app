@@ -654,6 +654,30 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gterbox i.kr { height: 0; border: 0; border-top: 2px solid var(--griver); border-radius: 0; }
 .gterbox i.kp { height: 0; border: 0; border-top: 2px dotted var(--muted); border-radius: 0; opacity: .7; }
 .building .gterkey { visibility: hidden; }
+/* 1.6.3 水系（地球地図日本）と拡大したときの景色。景色は淡く、町・線・状態の色（青・茶・緑・黄・赤）より目立たないように */
+:root {
+  --glake: #d3e4f2; --gfa: #e9efd6; --gfb: #f1ead2; --gfc: #e3ecd9;
+  --gtree: #a9c09a; --gtreed: #7f9872; --grock: #c4beb2; --gsnowc: #ffffff; --gurban: #d9d2c4; --ghouse: #a3957d;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --glake: #2b3f52; --gfa: #343a31; --gfb: #3b3830; --gfc: #313831; --gtree: #4f6548; --gtreed: #3c4e37; --grock: #5d5a54; --gsnowc: #9aa3ad; --gurban: #4a4640; --ghouse: #7d7566; }
+}
+@supports (color: color-mix(in srgb, red, blue)) {
+  :root { --glake: color-mix(in srgb, var(--sea), var(--griver) 45%); --gfa: color-mix(in srgb, var(--land), #8fae5a 16%); --gfb: color-mix(in srgb, var(--land), #c2a35a 15%); --gfc: color-mix(in srgb, var(--land), #7fae7a 12%); --gurban: color-mix(in srgb, var(--land), #8a7a60 22%); }
+}
+.gmap .glake { fill: var(--glake); stroke: var(--griver); stroke-width: .7; stroke-linejoin: round; }
+.gmap .griverl.r0 { stroke-width: 1.4; } .gmap .griverl.r1 { stroke-width: 1.1; } .gmap .griverl.r2 { stroke-width: .85; } .gmap .griverl.r3 { stroke-width: .65; }
+.gmap .gfield { fill: url(#gfieldp); opacity: .7; }
+.gmap .f1 { fill: var(--gfa); } .gmap .f2 { fill: var(--gfb); } .gmap .f3 { fill: var(--gfc); }
+.gmapwrap .gscene { pointer-events: none; background: transparent; }
+.gmap .gurban { fill: var(--gurban); opacity: .55; }
+.gmap .gsmarks { opacity: .85; }
+.gattr { position: absolute; top: 4px; right: 6px; z-index: 1; padding: 1px 6px; border-radius: 6px; background: var(--card); opacity: .78; color: var(--muted); font-size: 9px; line-height: 1.5; pointer-events: none; white-space: nowrap; }
+.gterbox > small { margin-top: 3px; color: var(--muted); }
+.gterbox i.kl { background: var(--glake); border-color: var(--griver); }
+.gterbox i.kf { background: repeating-linear-gradient(-14deg, var(--gfa) 0 3px, var(--land) 3px 4px, var(--gfb) 4px 7px, var(--land) 7px 8px); }
+.gterbox i.kt { background: radial-gradient(circle at 5px 5px, var(--gtree) 3px, transparent 3.5px), radial-gradient(circle at 11px 6px, var(--gtreed) 3px, transparent 3.5px), var(--gt1); }
+.gterbox i.ku { background: var(--gurban); }
 /* 地点：絵で描くもの・点で描くもの（近すぎて重なるとき）・まだ開いていないもの（薄く）。ゲームの地点（史実ではない水力の地点）は点線の灰色 */
 .gmap .gsitebody { fill: var(--card); stroke: var(--ghydro); stroke-width: 1.3; stroke-dasharray: 2 3; }
 .gmap .gsitebody.has { stroke-dasharray: none; }
