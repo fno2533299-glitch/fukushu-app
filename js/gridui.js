@@ -1247,16 +1247,28 @@ function afterMove() {
 
 // 地図を押す・動かす（1.6.0）：1本指で移動、2本指で拡大・縮小、空いたところを2回押すと拡大（PC はホイールでも）。
 // 押すのと動かすのは 8px 動いたかどうかで分ける。押したときは、押した場所（pointerdown）の地点・線を覚えて、離したときに動かす
+// 1.7.2：地図は指が触れた最初の move から指について動かす（8px を超えた瞬間にまとめて跳ばない）。
+// 8px を超えずに離したら「押した」として、ついてきた分を元に戻してから押したときの処理をする
 const MOVE_PX = 8;
-const GS = { pts: new Map(), start: null, moved: false, pinch: null, lastTap: null, tf: null, dirty: false, lastFill: 0, raf: 0 };
+const GS = { pts: new Map(), start: null, moved: false, pinch: null, lastTap: null, tf: null, dirty: false, lastFill: 0, raf: 0, hid: false, rect: null };
 let mapRO = null;
 function bindMap() {
   const mid = document.querySelector('[data-mid]');
   const box = document.querySelector('[data-mapbox]');
   const wrap = () => document.querySelector('[data-mapwrap]');
-  const rel = (e) => {
-    const r = box.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  GS.rect = null; // 画面を作り直したら、測り直し・隠したメニューの印もやり直し
+  GS.hid = false;
+  // 1.7.2：地図の枠の位置は、最初の指が触れたときに1回だけ測って使い回す（move のたびに配置の計算をさせない）
+  const rel = (e, fresh = false) => {
+    if (fresh || !GS.rect) GS.rect = box.getBoundingClientRect();
+    return { x: e.clientX - GS.rect.left, y: e.clientY - GS.rect.top };
+  };
+  // 1.7.2：動かしている間はメニュー・線のメニューを隠す。地図の祖先（.gscreen）のクラスは変えず、メニューの要素の style だけを変える
+  const hideMenu = (h) => {
+    if (GS.hid === h) return;
+    GS.hid = h;
+    const m = document.querySelector('[data-menu]');
+    if (m) m.style.visibility = h ? 'hidden' : '';
   };
   // 1.6.4：動かしている途中の形も、地図の範囲と拡大の限度に収める（離したとき・途中の描き直しで、地図が跳ね戻らないように）
   // 画面の点 p' ＝ s・p ＋ t のとき、新しい見え方は x' ＝ x − t／(s・k)、w' ＝ w／s
@@ -1286,7 +1298,7 @@ function bindMap() {
     if (GS.raf) cancelAnimationFrame(GS.raf), (GS.raf = 0);
     const w = wrap();
     if (w) w.style.transform = '';
-    document.querySelector('.gscreen')?.classList.remove('gmoving');
+    hideMenu(false);
     const dirty = GS.dirty;
     GS.dirty = false;
     if (!tf && !dirty) return;
@@ -1327,7 +1339,7 @@ function bindMap() {
   };
   box.addEventListener('pointerdown', (e) => {
     if (e.button && e.button !== 0) return;
-    const p = rel(e);
+    const p = rel(e, GS.pts.size === 0);
     GS.pts.set(e.pointerId, p);
     if (GS.pts.size === 1) {
       const el = e.target.closest('[data-node],[data-line]');
@@ -1352,18 +1364,17 @@ function bindMap() {
       // 指の真ん中の点が、指の下に残るように
       const s = P0.s * k;
       setTf(m.x - k * (GS.pinch.m.x - P0.tx), m.y - k * (GS.pinch.m.y - P0.ty), s);
-      document.querySelector('.gscreen')?.classList.add('gmoving');
+      hideMenu(true);
       maybeFill();
       return;
     }
     const st = GS.start;
     if (!st || st.id !== e.pointerId || GS.pts.size !== 1) return;
     const dx = p.x - st.x, dy = p.y - st.y;
-    if (!GS.moved && Math.hypot(dx, dy) <= MOVE_PX) return;
-    GS.moved = true;
-    document.querySelector('.gscreen')?.classList.add('gmoving');
+    // 一度でも 8px を超えたら「動かした」（戻ってきても押したにはしない）
+    if (!GS.moved && Math.hypot(dx, dy) > MOVE_PX) GS.moved = true, hideMenu(true);
     setTf(st.base.tx + dx, st.base.ty + dy, st.base.s);
-    maybeFill();
+    if (GS.moved) maybeFill();
   });
   const end = (e) => {
     if (!GS.pts.has(e.pointerId)) return;
@@ -1385,6 +1396,13 @@ function bindMap() {
       if (GS.tf && GS.tf.s === 1 && !GS.tf.tx && !GS.tf.ty) GS.tf = null;
       return commit();
     }
+    // 1.7.2 押した（8px を超えなかった）：指についてきた分を元に戻す（VIEW は変えない）
+    if (GS.tf) {
+      GS.tf = null;
+      const w = wrap();
+      if (w) w.style.transform = '';
+    }
+    hideMenu(false);
     if (!st || e.type === 'pointercancel') return;
     // 押した：空いたところを2回続けて押すと拡大
     const p = rel(e);
@@ -1403,7 +1421,7 @@ function bindMap() {
   box.addEventListener('pointercancel', end);
   box.addEventListener('wheel', (e) => {
     e.preventDefault();
-    const p = rel(e);
+    const p = rel(e, true);
     zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.0018));
   }, { passive: false });
   mid.addEventListener('contextmenu', (e) => e.target.closest('[data-mapbox]') && e.preventDefault());

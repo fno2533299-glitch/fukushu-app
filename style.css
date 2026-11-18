@@ -677,7 +677,7 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gmap .gcoastl { fill: var(--land); stroke: var(--coast); stroke-width: 1.2; stroke-linejoin: round; }
 .gmap .ghzline { fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 5 5; opacity: .55; }
 .gmap .ghzlabel { font-size: 8px; fill: var(--muted); opacity: .8; paint-order: stroke; stroke: var(--sea); stroke-width: 3px; }
-.gmoving .gmenu, .gmoving .gmlines { visibility: hidden; }
+/* 1.7.2：動かしている間のメニューの隠し方は gridui.js の hideMenu（メニューの要素の style だけ。.gscreen のクラスは変えない） */
 .gzoombtns { position: absolute; right: 8px; bottom: 8px; z-index: 1; display: flex; gap: 6px; }
 .gzoombtns .btn { margin: 0; min-height: 44px; min-width: 44px; padding: 4px 10px; background: var(--card); opacity: .92; box-shadow: 0 1px 6px rgba(0, 0, 0, .15); }
 .building .gzoombtns { visibility: hidden; }
