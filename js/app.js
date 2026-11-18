@@ -707,8 +707,37 @@ function examTab() {
       )
       .join('')}
     <p class="legend"><span><i class="g"></i>取れる点</span><span><i class="r"></i>まだ取れていない点</span><span><i class="n"></i>問題がまだない範囲</span><span><i class="p"></i>合格点</span></p>
-    <p class="note">その年の過去問を空欄ごとに4択にした問題で測っています。最後に解いた結果が正解の空欄の点だけを足すので、間違えたり「わからない」を押したりした空欄は、次に正解するまで数えません。</p>`,
+    <p class="note">その年の過去問を空欄ごとに4択にした問題で測っています。最後に解いた結果が正解の空欄の点だけを足すので、間違えたり「わからない」を押したりした空欄は、次に正解するまで数えません。小問の誘導つきで解いた回は数えず、誘導なしで解いた結果で決まります。</p>
+    ${stuckHtml()}`,
+    bind: () =>
+      on('[data-stuck]', 'click', async (e) => {
+        const q = S.data.questions.find((x) => x.questionId === e.currentTarget.dataset.stuck);
+        if (!q || q.status !== '出題中') return toast('この問題はいま出題していません');
+        // その元の問題から「この単元を◯問」（今の段階の誘導で出す）
+        await startSession('単元', { subjectId: q.subjectId, unitId: q.unitId }, makeCurrent(q));
+        questionScreen();
+      }),
   };
+}
+
+// 計算のつまずき（1.7.0）：小問の種類（値・式・代入）ごとの正解率と、間違えることの多い小問（3つまで）
+function stuckHtml() {
+  const st = L.stepStats(S.logs, S.data);
+  if (!st.answered) return '';
+  const pct = (k) => (k.answered ? `${Math.round(k.rate * 100)}%` : '—');
+  return `<section class="card stuck"><h2>計算のつまずき</h2>
+      <table><thead><tr><th>小問の種類</th><th>正解率</th><th>答えた数</th></tr></thead><tbody>
+        ${st.kinds.map((k) => `<tr><td>${esc(k.kind)}</td><td>${pct(k)}</td><td>${k.answered}</td></tr>`).join('')}
+      </tbody></table>
+      <p class="small">値：途中の値・単位の換算／式：どの式を使うか／代入：数値を入れた式</p>
+      ${
+        st.hard.length
+          ? `<p class="small"><b>間違えることの多い小問</b>（押すとその問題から解く）</p>${st.hard
+              .map((h) => `<button class="row stuckrow" data-stuck="${esc(h.questionId)}"><span><b>${esc(h.title)}</b>（${esc(h.kind)}）<small>${esc(h.qTitle)}</small></span><span class="count">${h.answered}回中 ${h.missed}回</span></button>`)
+              .join('')}`
+          : '<p class="small">間違えた小問はまだありません</p>'
+      }
+    </section>`;
 }
 
 function calendarTab() {
@@ -1019,8 +1048,158 @@ function nextQuestion() {
   const q = L.pickNext(ss.mode, sessionCtx());
   if (!q) return endSession(ss.asked.length === 0 ? '出せる問題がありません' : '');
   ss.asked.push(q.questionId);
-  ss.current = { q, order: L.shuffle(q.choices) };
+  ss.current = makeCurrent(q);
   questionScreen();
+}
+
+// ---- 段階問題（小問。1.7.0：設計図 1.12） ----
+// 出す問題の今の段階（回答記録から計算）で、誘導あり・誘導少なめなら小問の列を付ける
+function makeCurrent(q, order = L.shuffle(q.choices)) {
+  const level = L.assistLevel(q, S.logs);
+  const steps = L.stepsFor(q, level);
+  if (!steps.length) return { q, order };
+  return { q, order, level, assist: L.ASSIST_OF_LEVEL[level], steps, stepAnswers: [], stepOrder: L.shuffle(steps[0].choices), stepDone: false, stemOpen: true };
+}
+
+const CIRCLED = '①②③④⑤⑥';
+const RESULT_CLS = { 正解: 'ok', 不正解: 'ng', わからない: 'idk' };
+
+// 答えた小問の積み上げ：1行ずつ「① 見出し：正解の選択肢の文」、間違えた小問には印。押すと解説
+// n：積み上げる数（正誤を見ている小問は、まだ積まない）
+function stackHtml(cur, n = cur.stepAnswers.length) {
+  if (!n) return '';
+  return `<ol class="stack">${cur.stepAnswers
+    .slice(0, n)
+    .map((a, i) => {
+      const s = cur.steps[i];
+      const right = s.choices.find((c) => c.choiceId === s.correctChoiceId);
+      const miss = a.result !== '正解';
+      return `<li class="${miss ? 'miss' : ''}"><details><summary><span class="no">${CIRCLED[i]}</span><span class="tx"><b>${esc(s.title)}</b>：${rich(right.text)}</span>${miss ? `<span class="x" aria-label="${esc(a.result)}">${a.result === 'わからない' ? '？' : '✗'}</span>` : ''}</summary><p class="small">${rich(s.explanation)}</p></details></li>`;
+    })
+    .join('')}</ol>`;
+}
+
+// 画面を描き直すが、スクロールの位置は残す（小問の正誤を出すとき）。to：描いたあとに見せる要素
+function showStep(html, after, to = null) {
+  const y = window.scrollY;
+  S.view = null;
+  app.innerHTML = html;
+  renderMath(app);
+  window.scrollTo(0, to === 'top' ? 0 : y);
+  after?.();
+  const el = to && to !== 'top' ? app.querySelector(to) : null;
+  if (el) {
+    // 積み上げた小問がなるべく見えるように、要素の下の端を画面の下に合わせる（入りきらなければ上の端を）
+    const r = el.getBoundingClientRect();
+    if (r.height + 16 < window.innerHeight) {
+      if (r.bottom > window.innerHeight - 8) window.scrollBy(0, r.bottom - window.innerHeight + 16);
+    } else window.scrollBy(0, r.top - 8);
+  }
+}
+
+function assistScreen(to = 'top') {
+  const ss = S.session;
+  const cur = ss.current;
+  const { q, steps, stepAnswers } = cur;
+  const i = stepAnswers.length - (cur.stepDone ? 1 : 0); // いま見ている小問
+  const inStep = i < steps.length;
+  const s = steps[i];
+  const hideTags = ss.mode === 'おまかせ' || ss.mode === 'さっと';
+  const where = inStep ? `小問 ${i + 1}/${steps.length}` : '元の問題';
+  let body;
+  if (inStep && !cur.stepDone) {
+    body = `<section class="card step cur">
+        <p class="steph"><span class="no">${CIRCLED[i]}</span><b>${esc(s.title)}</b><span class="kind">${esc(s.kind)}</span></p>
+        <div class="stem">${rich(s.stem)}</div>
+        <div class="choices">
+          ${cur.stepOrder.map((c, k) => `<button class="choice" data-schoice="${esc(c.choiceId)}"><span class="mark">${'ABCD'[k]}</span><span class="ct">${rich(c.text)}</span></button>`).join('')}
+        </div>
+        <button class="btn idk" data-sidk>わからない</button>
+      </section>`;
+  } else if (inStep) {
+    const a = stepAnswers[i];
+    body = `<section class="card step cur">
+        <p class="steph"><span class="no">${CIRCLED[i]}</span><b>${esc(s.title)}</b><span class="kind">${esc(s.kind)}</span></p>
+        <div class="stem">${rich(s.stem)}</div>
+        <div class="choices done">
+          ${cur.stepOrder
+            .map((c, k) => {
+              const cls = c.choiceId === s.correctChoiceId ? 'correct' : c.choiceId === a.selectedChoiceId ? 'wrong' : '';
+              return `<div class="choice ${cls}"><span class="mark">${'ABCD'[k]}</span><span class="ct">${rich(c.text)}</span></div>`;
+            })
+            .join('')}
+        </div>
+        <p class="stepres ${RESULT_CLS[a.result]}">${{ 正解: '○ 正解', 不正解: '× 不正解（正解は緑）', わからない: 'わからない（正解は緑）' }[a.result]}</p>
+        <p class="stepexp">${rich(s.explanation)}</p>
+        <div class="actions"><button class="btn small" data-sreport>疑問がある</button><button class="btn primary big" data-snext>${i + 1 < steps.length ? '次の小問へ' : '元の問題へ'}</button></div>
+      </section>`;
+  } else {
+    body = `<section class="card step cur main">
+        <p class="steph"><b>元の問題</b><span class="kind">4択</span></p>
+        <p class="small">上の問題文${q.figure ? 'と図' : ''}の答えを選ぼう</p>
+        <div class="choices">
+          ${cur.order.map((c, k) => `<button class="choice" data-choice="${esc(c.choiceId)}"><span class="mark">${'ABCD'[k]}</span><span class="ct">${rich(c.text)}</span></button>`).join('')}
+        </div>
+        <button class="btn idk" data-idk>わからない</button>
+      </section>`;
+  }
+  showStep(
+    `<header class="quizbar"><span>${ss.asked.length} / ${ss.size}</span><span class="lv lv-${q.level}">${q.level}</span><span class="clock">${elapsed()}</span><button class="btn small" data-end>終了</button></header>
+    <p class="assistbar"><span class="as ${cur.assist}">${L.ASSIST_LABEL[cur.assist]}</span><span>${where}</span></p>
+    <details class="orig"${cur.stemOpen ? ' open' : ''}><summary>元の問題${q.figure ? 'と図' : ''}</summary>${metaHtml(q, hideTags)}${figureHtml(q)}<div class="stem">${rich(q.stem)}</div></details>
+    ${stackHtml(cur, i)}
+    ${body}`,
+    () => {
+      bindFigureZoom();
+      app.querySelector('details.orig').addEventListener('toggle', (e) => (cur.stemOpen = e.currentTarget.open));
+      on('[data-schoice]', 'click', (e) => {
+        primeAudio();
+        stepAnswer(e.currentTarget.dataset.schoice);
+      });
+      on('[data-sidk]', 'click', () => stepAnswer(null));
+      on('[data-snext]', 'click', () => {
+        cur.stepDone = false;
+        const next = cur.steps[cur.stepAnswers.length];
+        if (next) cur.stepOrder = L.shuffle(next.choices);
+        assistScreen('.step.cur');
+      });
+      on('[data-sreport]', 'click', () => reportDialog(q, s));
+      on('[data-choice]', 'click', (e) => {
+        primeAudio();
+        answer(e.currentTarget.dataset.choice);
+      });
+      on('[data-idk]', 'click', () => answer(null));
+      on('[data-end]', 'click', () => {
+        ss.asked.pop(); // 答えていない問題は出題しなかった扱い（途中の小問も残さない）
+        endSession();
+      });
+    },
+    to,
+  );
+}
+
+// 小問に答えた：その場で正誤と解説を出し、間違えても正解を見せてそのまま続ける（記録は元の問題に答えたときに1件）
+function stepAnswer(choiceId) {
+  const cur = S.session.current;
+  const s = cur.steps[cur.stepAnswers.length];
+  const result = choiceId == null ? 'わからない' : choiceId === s.correctChoiceId ? '正解' : '不正解';
+  cur.stepAnswers.push({ stepId: s.stepId, result, selectedChoiceId: choiceId });
+  cur.stepDone = true;
+  if (result === '正解') playCorrect();
+  assistScreen('.step.cur');
+}
+
+const ASSIST_NAME = { 2: '誘導あり', 1: '誘導少なめ', 0: '誘導なし' };
+// 解説画面の1行：今回の誘導と、次の段階
+function assistLineHtml(cur, result) {
+  const { q } = cur;
+  if (!q.steps || cur.nextLevel == null) return '';
+  const now = cur.assist ? cur.level : 0;
+  if (!cur.assist && result === '正解') return '<p class="assistline ok">誘導なしで正解！</p>';
+  const okN = (cur.stepAnswers || []).filter((a) => a.result === '正解').length;
+  const was = cur.assist ? `今回：${ASSIST_NAME[now]}（小問 ${cur.steps.length}つ中 ${okN}つ正解）` : '今回：誘導なし';
+  const next = cur.nextLevel === now ? `次も${ASSIST_NAME[now]}で出ます` : `次は${ASSIST_NAME[cur.nextLevel]}で出ます`;
+  return `<p class="assistline${cur.nextLevel < now ? ' up' : ''}">${esc(was)}<br><b>${esc(next)}</b></p>`;
 }
 
 function metaHtml(q, hideTags) {
@@ -1035,6 +1214,7 @@ function elapsed() {
 
 function questionScreen() {
   const ss = S.session;
+  if (ss.current.assist) return assistScreen();
   const { q, order } = ss.current;
   const hideTags = ss.mode === 'おまかせ' || ss.mode === 'さっと'; // 単元から始めたときは出す
   show(
@@ -1075,6 +1255,13 @@ async function answer(choiceId) {
     result,
     selectedChoiceId: choiceId,
   };
+  // 段階問題（1.7.0）：誘導つきなら、誘導の種類と小問の結果。result は元の問題の4択の結果
+  const cur = ss.current;
+  if (cur.assist) {
+    log.assist = cur.assist;
+    log.steps = cur.stepAnswers.map((a) => ({ ...a }));
+  }
+  // 復習の間隔は誘導つきでも元の問題の正誤で進める（思い出す練習にはなっているため）
   const state = L.nextReviewState(S.states[q.questionId], q.questionId, result, now, S.settings.intervals);
   if (result === '正解') playCorrect(); // 演出ありのときだけ鳴る。不正解・わからないでは鳴らさない
   // 解説画面に出す単元のタイル：この回答の前と後の定着の状況
@@ -1082,9 +1269,10 @@ async function answer(choiceId) {
   const tileBefore = L.groupProgress(inU, L.questionProgress(S.logs));
   S.logs.push(log);
   S.states[q.questionId] = state;
-  ss.results.push({ q, result });
+  ss.results.push({ q, result, assist: cur.assist || null });
   ss.current.choiceId = choiceId;
   ss.current.result = result;
+  if (q.steps) ss.current.nextLevel = L.assistLevel(q, S.logs);
   ss.current.tile = inU.length ? { before: tileBefore, after: L.groupProgress(inU, L.questionProgress(S.logs)) } : null;
   answerScreen();
   await db.saveAnswer(log, state);
@@ -1092,19 +1280,22 @@ async function answer(choiceId) {
 
 function answerScreen() {
   const ss = S.session;
-  const { q, order, choiceId, result, tile } = ss.current;
+  const cur = ss.current;
+  const { q, order, choiceId, result, tile } = cur;
   const cls = { 正解: 'ok', 不正解: 'ng', わからない: 'idk' }[result];
   const label = { 正解: '正解！', 不正解: '不正解', わからない: 'わからない' }[result];
   const last = ss.asked.length >= ss.size;
   const ex = L.examItemInfo(S.data, q);
   let gain = '';
-  if (ex && result === '正解') {
+  if (ex && result === '正解' && !cur.assist) {
+    // 誘導つきの正解は「合格まであと何点」に数えない（1.7.0）
     const r = L.examScores(S.data, S.logs).find((x) => x.key === ex.key);
     if (r) gain = `<p class="egain">${esc(r.subject)}（${r.year}年）の ${ex.points}点を確保 ・ ${examLeft(r)}</p>`;
   }
   show(
     `<header class="quizbar"><span>${ss.asked.length} / ${ss.size}</span><span class="lv lv-${q.level}">${q.level}</span><span class="clock">${elapsed()}</span><button class="btn small" data-end>終了</button></header>
     <div class="verdict ${cls}">${label}</div>
+    ${assistLineHtml(cur, result)}
     ${gain}
     <div class="choices done">
       ${order
@@ -1114,6 +1305,7 @@ function answerScreen() {
         })
         .join('')}
     </div>
+    ${cur.assist ? `<section class="card"><h2>今回の小問</h2>${stackHtml(cur)}</section>` : ''}
     <section class="card expl"><h2>解説</h2><p>${rich(q.explanation)}</p></section>
     ${q.trivia ? `<section class="card trivia"><h2>豆知識</h2><p>${rich(q.trivia)}</p></section>` : ''}
     <details class="stem-again"><summary>問題文${q.figure ? 'と図' : ''}を見る</summary>${figureHtml(q)}<div class="stem">${rich(q.stem)}</div></details>
@@ -1152,12 +1344,13 @@ function unitNowLabel(g) {
   return `定着 ${g.mastered} ／ 全 ${g.total}問`;
 }
 
-function reportDialog(q) {
+// step：小問を見ているときの小問（1.7.0。報告に stepId を付ける）
+function reportDialog(q, step = null) {
   const dlg = document.createElement('div');
   dlg.className = 'modal';
   dlg.innerHTML = `<div class="sheet">
-      <h2>この問題に疑問がある</h2>
-      <p class="note">${esc(q.questionId)}（第${q.revision}版）${esc(q.title)}</p>
+      <h2>${step ? 'この小問' : 'この問題'}に疑問がある</h2>
+      <p class="note">${esc(q.questionId)}（第${q.revision}版）${esc(q.title)}${step ? ` ・ 小問 ${esc(step.stepId)}「${esc(step.title)}」` : ''}</p>
       <textarea rows="5" placeholder="どこが気になったか（任意）"></textarea>
       <div class="actions"><button class="btn" data-cancel>取り消し</button><button class="btn primary" data-save>保存</button></div>
     </div>`;
@@ -1173,6 +1366,7 @@ function reportDialog(q) {
       memo: dlg.querySelector('textarea').value.trim(),
       resolved: false,
     };
+    if (step) rep.stepId = step.stepId;
     S.reports.push(rep);
     await db.put('issueReports', rep);
     dlg.remove();
@@ -1248,7 +1442,7 @@ async function endSession(message = '') {
         : ''
     }
     <ul class="resultlist">
-      ${ss.results.map((x) => `<li><span class="dot ${{ 正解: 'ok', 不正解: 'ng', わからない: 'idk' }[x.result]}"></span><span class="lv lv-${x.q.level}">${x.q.level}</span>${esc(x.q.title)}</li>`).join('')}
+      ${ss.results.map((x) => `<li><span class="dot ${{ 正解: 'ok', 不正解: 'ng', わからない: 'idk' }[x.result]}"></span><span class="lv lv-${x.q.level}">${x.q.level}</span>${esc(x.q.title)}${x.assist ? `<span class="tag">${L.ASSIST_LABEL[x.assist]}</span>` : ''}</li>`).join('')}
     </ul>
     <div class="actions">
       <button class="btn" data-home>${short ? '終わる' : 'ホームへ'}</button>
@@ -1278,6 +1472,21 @@ async function endSession(message = '') {
       });
     },
   );
+}
+
+// 読み流しの「解き方の見本」：段階問題のある問題は、誘導ありの小問を正解つきで全部見せる（1.7.0）
+function modelHtml(q) {
+  const steps = q.steps?.guided || [];
+  if (!steps.length) return '';
+  return `<section class="card model"><h2>解き方の見本（誘導あり）</h2>${steps
+    .map((s, i) => {
+      const right = s.choices.find((c) => c.choiceId === s.correctChoiceId);
+      return `<div class="mstep"><p class="steph"><span class="no">${CIRCLED[i]}</span><b>${esc(s.title)}</b><span class="kind">${esc(s.kind)}</span></p>
+        <div class="stem">${rich(s.stem)}</div>
+        <p class="mans">→ ${rich(right.text)}</p>
+        <p class="small">${rich(s.explanation)}</p></div>`;
+    })
+    .join('')}</section>`;
 }
 
 // ---- 読み流し：答えずに問題と解説を読むだけ。何も記録しない（ANSWER_LOG・復習状態・定着・実績に影響しない） ----
@@ -1315,6 +1524,7 @@ function readScreen() {
     <div class="choices done">
       ${order.map((c, i) => `<div class="choice ${c.choiceId === q.correctChoiceId ? 'correct' : ''}"><span class="mark">${'ABCD'[i]}</span><span>${rich(c.text)}</span></div>`).join('')}
     </div>
+    ${modelHtml(q)}
     <section class="card expl"><h2>解説</h2><p>${rich(q.explanation)}</p></section>
     ${q.trivia ? `<section class="card trivia"><h2>豆知識</h2><p>${rich(q.trivia)}</p></section>` : ''}
     <section class="info">
@@ -1591,6 +1801,10 @@ async function exportReports() {
     lines.push(`- 日時：${new Date(r.createdAt).toLocaleString('ja-JP')}`);
     lines.push(`- メモ：${r.memo || '（なし）'}`);
     if (q) lines.push(`- 問題文：${q.stem.replace(/\n/g, ' ')}`);
+    if (r.stepId) {
+      const st = [...(q?.steps?.guided || []), ...(q?.steps?.light || [])].find((x) => x.stepId === r.stepId);
+      lines.push(`- 小問：${r.stepId}${st ? `「${st.title}」（${st.kind}）${st.stem.replace(/\n/g, ' ')}` : '（今の問題データにない小問）'}`);
+    }
     lines.push('');
   }
   await saveFile(`疑問報告_${stamp()}.md`, lines.join('\n'), 'text/markdown');

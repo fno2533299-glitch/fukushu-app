@@ -178,6 +178,53 @@ button.choice:active { border-color: var(--primary); }
 .stem-again summary { color: var(--muted); font-size: 0.9rem; padding: 4px 0; }
 .choices.done { margin: 8px 0; }
 .expl p { margin: 0; }
+
+/* 段階問題（小問。1.7.0）：元の問題文（折りたためる）・積み上げた小問・今の小問 */
+.assistbar { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 0.8rem; color: var(--muted); }
+.assistbar .as { font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.assistbar .as.guided { color: var(--primary); }
+.assistbar .as.light { color: var(--idk); }
+details.orig { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 4px 12px; margin: 0 0 10px; }
+details.orig > summary { min-height: 36px; line-height: 36px; color: var(--muted); font-size: 0.85rem; cursor: pointer; }
+details.orig[open] > summary { border-bottom: 1px dashed var(--line); margin-bottom: 4px; }
+details.orig .stem { margin: 8px 0 10px; }
+.stack { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.stack li { border-left: 3px solid var(--ok); background: var(--card); border-radius: 0 8px 8px 0; }
+.stack li.miss { border-left-color: var(--ng); }
+.stack summary { display: flex; align-items: baseline; gap: 6px; padding: 6px 8px; font-size: 0.9rem; cursor: pointer; list-style: none; }
+.stack summary::-webkit-details-marker { display: none; }
+.stack .no { flex: none; color: var(--muted); }
+.stack .tx { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; }
+.stack .x { flex: none; color: var(--ng); font-weight: 700; }
+.stack details > p { margin: 0; padding: 0 8px 8px 28px; }
+.card .stack { margin: 0; }
+.step .steph, .model .steph { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; }
+.steph .no { color: var(--muted); }
+.steph .kind { margin-left: auto; font-size: 0.72rem; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); }
+.step .stem { margin: 4px 0 12px; }
+.step .idk { margin-top: 12px; }
+.choice .ct { min-width: 0; overflow-x: auto; overflow-y: hidden; }
+.stepres { font-weight: 800; margin: 10px 0 4px; }
+.stepres.ok { color: var(--ok); } .stepres.ng { color: var(--ng); } .stepres.idk { color: var(--idk); }
+.stepexp { margin: 0 0 4px; }
+.step .actions .btn { margin: 8px 0 0; }
+.step .actions { gap: 8px; }
+.step .actions .btn.small { flex: 0 0 auto; }
+.assistline { text-align: center; font-size: 0.9rem; color: var(--muted); margin: 0 0 8px; }
+.assistline.ok { color: var(--ok); font-weight: 700; font-size: 1rem; }
+.assistline.up b { color: var(--primary); }
+.model .mstep { border-top: 1px solid var(--line); padding: 8px 0; }
+.model .mstep:first-of-type { border-top: 0; }
+.model .stem { margin: 4px 0; font-size: 0.95rem; }
+.model .mans { margin: 4px 0; color: var(--ok); font-weight: 600; overflow-x: auto; overflow-y: hidden; }
+.model .small { margin: 0; }
+.stuck table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.stuck th, .stuck td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.stuck th { color: var(--muted); font-weight: 600; font-size: 0.8rem; }
+.stuckrow { width: 100%; background: none; border-left: 0; border-right: 0; border-bottom: 0; text-align: left; color: inherit; font: inherit; font-size: 0.9rem; justify-content: space-between; cursor: pointer; }
+.stuckrow b { font-weight: 600; }
+.stuckrow .count { flex: none; }
+.stuckrow small { display: block; color: var(--muted); font-size: 0.78rem; }
 .trivia { background: var(--trivia-bg); }
 .info { font-size: 0.85rem; color: var(--muted); margin: 12px 4px; }
 .info .src { font-size: 0.78rem; }
