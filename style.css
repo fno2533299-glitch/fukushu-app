@@ -674,8 +674,7 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gmapwrap .gmap { position: absolute; left: -40%; top: -40%; width: 180%; height: 180%; } /* 1.6.4：画面より上下左右に 40% ずつ大きく描く（gridui.js の MAP_PAD。動かしている間もまわりが見える） */
 .gmapwrap .gbase { pointer-events: none; }
 .gmapwrap .gtop { background: transparent; }
-.gmap .gcoastl { fill: var(--land); stroke: var(--coast); stroke-width: 1.2; stroke-linejoin: round; }
-.gmap .ghzline { fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 5 5; opacity: .55; }
+/* 1.7.3：日本列島の海岸線・地形・湖・川・県境・周波数の境目・田畑・林・市街地は canvas（js/mapcanvas.js の STYLE に線の太さ・点線・薄さ。色はここの CSS 変数を読む） */
 .gmap .ghzlabel { font-size: 8px; fill: var(--muted); opacity: .8; paint-order: stroke; stroke: var(--sea); stroke-width: 3px; }
 /* 1.7.2：動かしている間のメニューの隠し方は gridui.js の hideMenu（メニューの要素の style だけ。.gscreen のクラスは変えない） */
 .gzoombtns { position: absolute; right: 8px; bottom: 8px; z-index: 1; display: flex; gap: 6px; }
@@ -687,12 +686,6 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 @supports (color: color-mix(in srgb, red, blue)) {
   :root { --gt1: color-mix(in srgb, var(--land), var(--gtint) 13%); --gt2: color-mix(in srgb, var(--land), var(--gtint) 27%); --gt3: color-mix(in srgb, var(--land), var(--gtint) 44%); }
 }
-.gmap .gcoastf { fill: var(--land); }
-.gmap .gcoasts { fill: none; stroke: var(--coast); stroke-width: 1.2; stroke-linejoin: round; }
-.gmap .gter { stroke: none; fill-rule: evenodd; }
-.gmap .gter.t1 { fill: var(--gt1); } .gmap .gter.t2 { fill: var(--gt2); } .gmap .gter.t3 { fill: var(--gt3); }
-.gmap .griverl { fill: none; stroke: var(--griver); stroke-width: 1.3; stroke-linejoin: round; stroke-linecap: round; }
-.gmap .gprefl { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 1 3; stroke-linecap: round; opacity: .5; }
 .gmap .gpref { font-size: 8px; text-anchor: middle; fill: var(--muted); opacity: .75; paint-order: stroke; stroke: var(--land); stroke-width: 2.5px; stroke-linejoin: round; }
 .gterkey { position: absolute; left: 8px; bottom: 8px; z-index: 1; display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 6px; }
 .gterkey .btn { margin: 0; min-height: 44px; min-width: 44px; padding: 4px 10px; background: var(--card); opacity: .92; box-shadow: 0 1px 6px rgba(0, 0, 0, .15); }
@@ -714,13 +707,6 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 @supports (color: color-mix(in srgb, red, blue)) {
   :root { --glake: color-mix(in srgb, var(--sea), var(--griver) 45%); --gfa: color-mix(in srgb, var(--land), #8fae5a 16%); --gfb: color-mix(in srgb, var(--land), #c2a35a 15%); --gfc: color-mix(in srgb, var(--land), #7fae7a 12%); --gurban: color-mix(in srgb, var(--land), #8a7a60 22%); }
 }
-.gmap .glake { fill: var(--glake); stroke: var(--griver); stroke-width: .7; stroke-linejoin: round; }
-.gmap .griverl.r0 { stroke-width: 1.4; } .gmap .griverl.r1 { stroke-width: 1.1; } .gmap .griverl.r2 { stroke-width: .85; } .gmap .griverl.r3 { stroke-width: .65; }
-.gmap .gfield { fill: url(#gfieldp); opacity: .7; }
-.gmap .f1 { fill: var(--gfa); } .gmap .f2 { fill: var(--gfb); } .gmap .f3 { fill: var(--gfc); }
-.gmapwrap .gscene { pointer-events: none; background: transparent; }
-.gmap .gurban { fill: var(--gurban); opacity: .55; }
-.gmap .gsmarks { opacity: .85; }
 .gattr { position: absolute; top: 4px; right: 6px; z-index: 1; padding: 1px 6px; border-radius: 6px; background: var(--card); opacity: .78; color: var(--muted); font-size: 9px; line-height: 1.5; pointer-events: none; white-space: nowrap; }
 .gterbox > small { margin-top: 3px; color: var(--muted); }
 .gterbox i.kl { background: var(--glake); border-color: var(--griver); }

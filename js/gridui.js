@@ -11,6 +11,7 @@ import * as Art from './gridart.js';
 import { JAPAN_BOUNDS, JAPAN_HZ_LINE } from './japan.js';
 import { JAPAN_TERRAIN, JAPAN_PREF_LINES, JAPAN_PREFS } from './japan_terrain.js';
 import * as Mg from './mapgeo.js';
+import * as Mc from './mapcanvas.js';
 import * as J from './gridjapan.js';
 
 let A = null; // app.js から渡される部品（S・db・show・on・esc・toast など）
@@ -405,6 +406,12 @@ function markSeen() {
 function leaveGrid() {
   inGrid = false;
   AL.queue = [];
+  // 1.7.3：地図の canvas のメモリを手放す。別の画面に入れ替わってから（保存を待つ間に地図が消えて見えないように）
+  const cv = liveCv;
+  liveCv = null;
+  let n = 0;
+  const gone = () => (!cv || cv === liveCv ? null : !cv.isConnected ? Mc.release(cv) : ++n < 20 && setTimeout(gone, 250));
+  gone();
 }
 // 時間が進んだあとに呼ぶ：新しく起きたものを待ち行列へ（別の系統に切り替わった・系統を開いていない・チュートリアルの間は印だけ）
 function collectAlerts() {
@@ -867,28 +874,58 @@ function linePath(a, b, route, dc) {
 const hoursText = (h) => (h >= 48 ? `${Math.ceil(h / 24)}日` : `${h}時間`);
 // 下の層（海岸線など）の transform：地図の座標 → 画面の px
 const baseTf = () => `matrix(${scaleK()} 0 0 ${scaleK()} ${(-VIEW.x * scaleK()).toFixed(2)} ${(-VIEW.y * scaleK()).toFixed(2)})`;
+// 1.7.3 日本列島の下の層と景色の層は 1 枚の canvas（mapcanvas.js）。描くものをここで決める
+// 1.6.3 水系（地球地図日本）：海岸線は引いて見たときは簡単な形、拡大すると細かい形。川は本流からの長さの段ごとに、拡大すると支流まで。湖（拡大すると幅の広い川の面も）
+// 拡大したとき（細かい海岸線）は、画面のまわりの区域だけを切り出して描く（区域を出たら作り直す。baseKeyOf）
+// 1.6.2 地形：陸の色 →（1.6.3 拡大したときは田畑の模様）→ 丘陵・山地・高い山の面を重ねて塗る（海岸線の形で切り抜く）→ 湖 → 海岸線 → 県境 → 川 → 周波数の境目
+// → 景色（市街地の広がり・林・岩・家）。線・地点は上の層（SVG）
+function japanSpec(g, scene) {
+  const lv = Mg.coastLevel(VIEW.w);
+  const reg = Mg.regionOf(VIEW.x, VIEW.y, VIEW.w, viewH());
+  const ter = terrainOn();
+  const sl = ter ? Mg.sceneLevel(VIEW.w) : 0;
+  return {
+    terrain: ter,
+    coast: Mg.coastPath(lv, reg),
+    lakes: [Mg.lakePath(reg), reg ? Mg.riverAreaPath(reg) : ''],
+    rivers: Array.from({ length: Mg.riverCount(VIEW.w) }, (_, i) => Mg.riverPath(i, reg)),
+    pref: ter ? Mg.prefPath(JAPAN_PREF_LINES, reg) : '',
+    ter: ter ? [JAPAN_TERRAIN.hill, JAPAN_TERRAIN.mount, JAPAN_TERRAIN.high] : null,
+    hz: g.era >= 2 ? HZ_D : '',
+    fieldKm: sl ? Mg.FIELD_KM[sl] : 0,
+    scene,
+  };
+}
+const HZ_D = `M${JAPAN_HZ_LINE.map((p) => p.join(',')).join(' L')}`;
+// 色：CSS 変数を読み替えたもの。テーマ（シンプル／演出あり）・ライト／ダークが変わったら読み直す（鍵 colorKey）
+const darkMQ = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null;
+const colorKey = () => `${document.documentElement.dataset.theme || ''}|${darkMQ?.matches ? 'dark' : 'light'}`;
+let colorCache = { key: null, colors: null };
+const colorsNow = (parent) => {
+  const ck = colorKey();
+  if (colorCache.key !== ck) colorCache = { key: ck, colors: Mc.readColors(parent) };
+  return colorCache;
+};
+// 端末の設定でライト／ダークが変わったら、地図を描き直す（SVG のときは CSS 変数で自然に変わっていた）
+darkMQ?.addEventListener?.('change', () => onGrid() && drawMap());
+const mkCanvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+let liveCv = null; // いま出している canvas（画面を作り直したら、古いほうのメモリを手放す）
+// canvas に描く。同じ見え方・同じ景色・同じ色なら描き直さない（時間が進んだときの描き直しなど）
+function paintBase(g, cv) {
+  if (liveCv && liveCv !== cv) Mc.release(liveCv);
+  liveCv = cv;
+  const scene = sceneData(g);
+  const dpr = Mc.dprOf(window.devicePixelRatio);
+  const { key: ck, colors } = colorsNow(cv.parentNode);
+  const key = `${baseKeyOf(g)}|${VIEW.x.toFixed(4)},${VIEW.y.toFixed(4)},${VIEW.w.toFixed(5)},${VIEW.W}x${VIEW.H}@${dpr}|${scene ? scene.key : ''}|${ck}`;
+  if (cv.dataset.k === key) return false;
+  cv.dataset.k = key;
+  Mc.paint(cv, { W: VIEW.W, H: VIEW.H, pad: MAP_PAD, dpr, view: { x: VIEW.x, y: VIEW.y, k: scaleK() }, colors, ck, ...japanSpec(g, scene) }, mkCanvas);
+  return true;
+}
+const CANVAS_HTML = '<canvas class="gmap gbase" data-base data-cv aria-hidden="true"></canvas>';
+// 古い島（日本列島より前）は SVG のまま
 function baseInner(g) {
-  if (Gm.isJapan(g)) {
-    const hz = g.era >= 2 ? `<path d="M${JAPAN_HZ_LINE.map((p) => p.join(',')).join(' L')}" class="ghzline" vector-effect="non-scaling-stroke"/>` : '';
-    // 1.6.3 水系（地球地図日本）：海岸線は引いて見たときは簡単な形、拡大すると細かい形。川は本流からの長さの段ごとに、拡大すると支流まで。湖（拡大すると幅の広い川の面も）
-    // 拡大したとき（細かい海岸線）は、画面のまわりの区域だけを切り出して描く（区域を出たら描き直す。baseKeyOf）
-    const lv = Mg.coastLevel(VIEW.w);
-    const reg = Mg.regionOf(VIEW.x, VIEW.y, VIEW.w, viewH());
-    const nr = Mg.riverCount(VIEW.w);
-    const water = `<path d="${Mg.lakePath(reg)}" class="glake" vector-effect="non-scaling-stroke"/>${reg ? `<path d="${Mg.riverAreaPath(reg)}" class="glake" vector-effect="non-scaling-stroke"/>` : ''}`;
-    const rivers = Array.from({ length: nr }, (_, i) => `<path d="${Mg.riverPath(i, reg)}" class="griverl r${i}" vector-effect="non-scaling-stroke"/>`).join('');
-    if (!terrainOn()) return `<path d="${Mg.coastPath(lv, reg)}" class="gcoastl" vector-effect="non-scaling-stroke"/>${water}${rivers}${hz}`;
-    // 1.6.2 地形：陸の色 →（1.6.3 拡大したときは田畑の模様）→ 丘陵・山地・高い山の面を重ねて塗る（海岸線の形で切り抜く）→ 湖 → 海岸線 → 県境 → 川 → 周波数の境目。
-    // 林・岩・市街地は景色の層（data-scene）、線・地点は上の層
-    const sl = Mg.sceneLevel(VIEW.w);
-    return `<defs><path id="gjcoast" d="${Mg.coastPath(lv, reg)}" vector-effect="non-scaling-stroke"/><clipPath id="gjclip"><use href="#gjcoast"/></clipPath>${sl ? fieldPattern(Mg.FIELD_KM[sl]) : ''}</defs>
-      <use href="#gjcoast" class="gcoastf"/>${sl ? '<use href="#gjcoast" class="gfield"/>' : ''}
-      <g clip-path="url(#gjclip)"><path d="${JAPAN_TERRAIN.hill}" class="gter t1"/><path d="${JAPAN_TERRAIN.mount}" class="gter t2"/><path d="${JAPAN_TERRAIN.high}" class="gter t3"/></g>
-      ${water}
-      <use href="#gjcoast" class="gcoasts" vector-effect="non-scaling-stroke"/>
-      <path d="${Mg.prefPath(JAPAN_PREF_LINES, reg)}" class="gprefl" vector-effect="non-scaling-stroke"/>
-      ${rivers}${hz}`;
-  }
   // 古い島：地形（雪の地域（北西）・山・川・海岸）
   let s = `<path d="${ISLAND}" fill="var(--land)" stroke="var(--coast)" stroke-width="1.5"/>`;
   s += '<path d="M40,84 C60,46 110,26 150,22 C150,60 120,110 70,140 C40,140 26,116 40,84Z" fill="var(--gsnow)" opacity=".7"/>';
@@ -897,12 +934,7 @@ function baseInner(g) {
   s += '<text x="74" y="72" class="gland">雪の地域</text><text x="222" y="78" class="gland">山</text><text x="302" y="312" class="gland">海岸</text><text x="118" y="236" class="gland">平野</text>';
   return s;
 }
-// 1.6.3 田畑の模様（1枚の幅 t km）：4つの区画に、細い田を縦・横の向きを変えて並べる（淡い緑〜黄土）。すき間（あぜ）は陸の色。少し傾ける
-function fieldPattern(t) {
-  const r = (x, y, w, h, c) => `<rect x="${(x * t).toFixed(3)}" y="${(y * t).toFixed(3)}" width="${(w * t).toFixed(3)}" height="${(h * t).toFixed(3)}" class="${c}"/>`;
-  const strips = (x0, y0, across, cs) => cs.map((c, i) => (across ? r(x0 + 0.02, y0 + 0.02 + i * 0.16, 0.44, 0.13, c) : r(x0 + 0.02 + i * 0.16, y0 + 0.02, 0.13, 0.44, c))).join('');
-  return `<pattern id="gfieldp" patternUnits="userSpaceOnUse" width="${t}" height="${t}" patternTransform="rotate(-14)">${strips(0, 0, true, ['f1', 'f2', 'f1'])}${strips(0.5, 0, false, ['f3', 'f1', 'f3'])}${strips(0, 0.5, false, ['f2', 'f3', 'f2'])}${strips(0.5, 0.5, true, ['f3', 'f2', 'f1'])}</pattern>`;
-}
+// 1.6.3 田畑の模様（1枚の幅 t km）：4つの区画に、細い田を縦・横の向きを変えて並べる（淡い緑〜黄土）。すき間（あぜ）は陸の色。少し傾ける（1.7.3 から mapcanvas.js の fieldTile）
 // 下の層を描き直すかどうかの鍵：系統・周波数の境目・地形のオン・オフ・（1.6.3）海岸線の細かさ・川の段の数・景色の段・切り出す区域
 const baseKeyOf = (g) => {
   const jp = Gm.isJapan(g);
@@ -917,27 +949,22 @@ function baseSvg(g) {
 const nightLevel = (g) => Mn.nightOf(g.t).toFixed(2);
 // 1.6.3 地球地図日本の出典：日本列島の地図を出している間は右上にいつも小さく出す（凡例・全体・始めた町のボタンと重ならない所）
 const ATTR_HTML = '<div class="gattr" aria-hidden="true">地球地図日本（国土地理院）を加工</div>';
+// 1.7.3：日本列島の下の層と景色の層は 1 枚の canvas（中身は drawMap で描く）。古い島は SVG
 function mapHtml(g) {
   ensureView(g);
   const jp = Gm.isJapan(g);
-  const sh = sceneInner(g);
-  return `<div class="gmapwrap" data-mapwrap>${baseSvg(g)}<svg class="gmap gscene" data-scene data-k="${sh ? sceneCache.key : ''}" viewBox="${mapVB()}" aria-hidden="true">${sh}</svg><div class="gnight" data-night style="opacity:${nightLevel(g)}" aria-hidden="true"></div><svg class="gmap gtop" data-top viewBox="${mapVB()}" role="img" aria-label="${jp ? '日本列島の地図' : '島の地図'}">${topInner(g)}</svg></div>
+  return `<div class="gmapwrap" data-mapwrap>${jp ? CANVAS_HTML : baseSvg(g)}<div class="gnight" data-night style="opacity:${nightLevel(g)}" aria-hidden="true"></div><svg class="gmap gtop" data-top viewBox="${mapVB()}" role="img" aria-label="${jp ? '日本列島の地図' : '島の地図'}">${topInner(g)}</svg></div>
     <div class="gzoombtns" data-zoombtns><button class="btn small" data-zoom="all">全体</button><button class="btn small" data-zoom="start">始めた町</button></div>${jp && terrainOn() ? terrainKeyHtml() : ''}${jp ? ATTR_HTML : ''}`;
 }
 // ---- 1.6.3 拡大したときの景色（画面の幅 60 km 以下）：林・岩と雪・市街地（家の小さな印と淡い広がり）。田畑は下の層の模様 ----
 // 画面に見えている範囲だけを描き、印は 200 まで（mapgeo.js）。指を離したあとの描き直しで作る（同じ画面・同じ町の大きさなら前のものを使う）
 // 市街地の広がりは、その町に届いている需要（なければ時代と町の大きさの基本）で決める。見た目だけで、需要や申し込みの計算には使わない
-// 印の色は style に直接書く（<use> で写した中身には、文書の CSS のクラスが効かないブラウザがある）
-const SCENE_SYM = `<defs>
-  <symbol id="gs-tree" overflow="visible"><path d="M0,1.2 v2.6" style="stroke:var(--gtreed);stroke-width:1;fill:none"/><circle cx="0" cy="-0.6" r="2.7" style="fill:var(--gtree)"/></symbol>
-  <symbol id="gs-pine" overflow="visible"><path d="M0,-4.4 L3,1.6 H-3Z" style="fill:var(--gtreed)"/><path d="M0,1.6 v1.8" style="stroke:var(--gtreed);stroke-width:1;fill:none"/></symbol>
-  <symbol id="gs-rock" overflow="visible"><path d="M-3.6,2 L-0.8,-2.6 L0.8,-0.6 L1.8,-1.6 L3.8,2Z" style="fill:var(--grock)"/></symbol>
-  <symbol id="gs-snow" overflow="visible"><path d="M-4,2.2 L0,-3.4 L4,2.2Z" style="fill:var(--grock)"/><path d="M-1.5,-1.3 L0,-3.4 L1.5,-1.3 L0.5,-0.7 L-0.4,-1.1Z" style="fill:var(--gsnowc)"/></symbol>
-  <symbol id="gs-house" overflow="visible"><path d="M-2.6,2.2 V-0.4 L0,-2.6 L2.6,-0.4 V2.2Z" style="fill:var(--ghouse)"/></symbol>
-</defs>`;
-let sceneCache = { key: null, html: '' };
-function sceneInner(g) {
-  if (!Gm.isJapan(g) || !terrainOn() || !Mg.sceneLevel(VIEW.w)) return '';
+// 1.7.3：印の形は mapcanvas.js の SYM（1.6.3 の SVG の symbol と同じ形）。canvas に描く
+// 指で動かしている間（途中の描き直し）は印を決め直さず、前に決めた印を今の見え方で描く（1.7.1 と同じく、指を離したときに決め直す）
+let sceneCache = { key: null, blobs: [], marks: [] };
+function sceneData(g) {
+  if (!Gm.isJapan(g) || !terrainOn() || !Mg.sceneLevel(VIEW.w)) return null;
+  if (GS.pts.size && sceneCache.key) return sceneCache;
   const k = scaleK();
   const px = VIEW.w * MAP_PAD, py = viewH() * MAP_PAD; // 1.6.4：画面のまわり（MAP_PAD）まで
   const view = { x0: VIEW.x - px, y0: VIEW.y - py, x1: VIEW.x + VIEW.w + px, y1: VIEW.y + viewH() + py };
@@ -949,15 +976,11 @@ function sceneInner(g) {
     .filter((t) => t.x + t.r * 2 > view.x0 && t.x - t.r * 2 < view.x1 && t.y + t.r * 2 > view.y0 && t.y - t.r * 2 < view.y1)
     .sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy)); // 1.6.4：家の印の上限は、画面の真ん中に近い町から使う
   const key = `${VIEW.x.toFixed(3)},${VIEW.y.toFixed(3)},${VIEW.w.toFixed(4)},${VIEW.W}x${VIEW.H}|${towns.map((t) => `${t.id}:${t.r.toFixed(3)}`).join(',')}`;
-  if (sceneCache.key === key) return sceneCache.html;
+  if (sceneCache.key === key) return sceneCache;
   const avoid = nodes.filter((n) => n.x > view.x0 - 5 && n.x < view.x1 + 5 && n.y > view.y0 - 5 && n.y < view.y1 + 5);
   const marks = Mg.sceneMarks({ view, k, towns, avoid, max: Mg.SCENE_MAX * 2 }); // 1.6.4：描く範囲が広がったぶん上限も
-  const f = (v) => v.toFixed(1);
-  const blobs = towns.flatMap(Mg.sprawlBlobs).map((b) => `<circle cx="${b.x.toFixed(2)}" cy="${b.y.toFixed(2)}" r="${b.r.toFixed(3)}"/>`).join('');
-  const html = `${SCENE_SYM}<g data-scenetf><g transform="${baseTf()}" clip-path="url(#gjclip)"><g class="gurban">${blobs}</g></g>
-    <g class="gsmarks">${marks.map((m) => `<use href="#gs-${m.kind}" x="${f((m.x - VIEW.x) * k)}" y="${f((m.y - VIEW.y) * k)}"/>`).join('')}</g></g>`;
-  sceneCache = { key, html, view: { x: VIEW.x, y: VIEW.y, k } }; // 1.7.1：作ったときの見え方（動かしている間に動かすため）
-  return html;
+  sceneCache = { key, blobs: towns.flatMap(Mg.sprawlBlobs), marks }; // 印・広がりは地図の座標
+  return sceneCache;
 }
 // 1.6.2 地形の凡例：地図の左下の小さなボタン。押すと色見本が開く（開いたかどうかは画面を開いている間だけ覚える）
 let keyOpen = false;
@@ -1207,23 +1230,19 @@ function drawMap() {
   if (!wrap) return;
   const g = G();
   ensureView(g);
-  if (VIEW.base !== baseKeyOf(g)) wrap.querySelector('[data-base]').outerHTML = baseSvg(g);
-  const base = wrap.querySelector('[data-base]');
-  base.setAttribute('viewBox', mapVB());
-  base.querySelector('[data-basetf]').setAttribute('transform', baseTf());
-  // 1.6.3 景色の層：見えている範囲が変わったときだけ作り直す
-  // 1.7.1：指で動かしている間（途中の描き直し・時間が進んだときの描き直し）は作り直さず、作ったときの見え方から
-  // 今の見え方へ動かすだけにする（指を離したときに作り直す）。画面の点 p' ＝ (k'／k)・p ＋ (x − x')・k'
-  const scene = wrap.querySelector('[data-scene]');
-  scene.setAttribute('viewBox', mapVB());
-  const stf = scene.querySelector('[data-scenetf]');
-  if (GS.pts.size && stf && sceneCache.view) {
-    const v = sceneCache.view, k = scaleK();
-    stf.setAttribute('transform', `translate(${((v.x - VIEW.x) * k).toFixed(2)} ${((v.y - VIEW.y) * k).toFixed(2)}) scale(${(k / v.k).toFixed(5)})`);
-  } else {
-    const sh = sceneInner(g);
-    if (scene.dataset.k !== (sh ? sceneCache.key : '')) (scene.innerHTML = sh), (scene.dataset.k = sh ? sceneCache.key : '');
-    else scene.querySelector('[data-scenetf]')?.removeAttribute('transform');
+  // 1.7.3 日本列島：下の層と景色の層は 1 枚の canvas に描く（見え方・景色・色が変わったときだけ。paintBase）。古い島は SVG
+  const jp = Gm.isJapan(g);
+  let base = wrap.querySelector('[data-base]');
+  if (jp !== ('cv' in base.dataset)) {
+    if (!jp) Mc.release(base);
+    base.outerHTML = jp ? CANVAS_HTML : baseSvg(g);
+    base = wrap.querySelector('[data-base]');
+  }
+  if (jp) paintBase(g, base);
+  else {
+    if (VIEW.base !== baseKeyOf(g)) (base.outerHTML = baseSvg(g)), (base = wrap.querySelector('[data-base]'));
+    base.setAttribute('viewBox', mapVB());
+    base.querySelector('[data-basetf]').setAttribute('transform', baseTf());
   }
   const top = wrap.querySelector('[data-top]');
   top.setAttribute('viewBox', mapVB());
