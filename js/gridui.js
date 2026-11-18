@@ -886,7 +886,7 @@ function baseInner(g) {
       <g clip-path="url(#gjclip)"><path d="${JAPAN_TERRAIN.hill}" class="gter t1"/><path d="${JAPAN_TERRAIN.mount}" class="gter t2"/><path d="${JAPAN_TERRAIN.high}" class="gter t3"/></g>
       ${water}
       <use href="#gjcoast" class="gcoasts" vector-effect="non-scaling-stroke"/>
-      <path d="${JAPAN_PREF_LINES}" class="gprefl" vector-effect="non-scaling-stroke"/>
+      <path d="${Mg.prefPath(JAPAN_PREF_LINES, reg)}" class="gprefl" vector-effect="non-scaling-stroke"/>
       ${rivers}${hz}`;
   }
   // 古い島：地形（雪の地域（北西）・山・川・海岸）
@@ -954,9 +954,9 @@ function sceneInner(g) {
   const marks = Mg.sceneMarks({ view, k, towns, avoid, max: Mg.SCENE_MAX * 2 }); // 1.6.4：描く範囲が広がったぶん上限も
   const f = (v) => v.toFixed(1);
   const blobs = towns.flatMap(Mg.sprawlBlobs).map((b) => `<circle cx="${b.x.toFixed(2)}" cy="${b.y.toFixed(2)}" r="${b.r.toFixed(3)}"/>`).join('');
-  const html = `${SCENE_SYM}<g transform="${baseTf()}" clip-path="url(#gjclip)"><g class="gurban">${blobs}</g></g>
-    <g class="gsmarks">${marks.map((m) => `<use href="#gs-${m.kind}" x="${f((m.x - VIEW.x) * k)}" y="${f((m.y - VIEW.y) * k)}"/>`).join('')}</g>`;
-  sceneCache = { key, html };
+  const html = `${SCENE_SYM}<g data-scenetf><g transform="${baseTf()}" clip-path="url(#gjclip)"><g class="gurban">${blobs}</g></g>
+    <g class="gsmarks">${marks.map((m) => `<use href="#gs-${m.kind}" x="${f((m.x - VIEW.x) * k)}" y="${f((m.y - VIEW.y) * k)}"/>`).join('')}</g></g>`;
+  sceneCache = { key, html, view: { x: VIEW.x, y: VIEW.y, k } }; // 1.7.1：作ったときの見え方（動かしている間に動かすため）
   return html;
 }
 // 1.6.2 地形の凡例：地図の左下の小さなボタン。押すと色見本が開く（開いたかどうかは画面を開いている間だけ覚える）
@@ -1212,10 +1212,19 @@ function drawMap() {
   base.setAttribute('viewBox', mapVB());
   base.querySelector('[data-basetf]').setAttribute('transform', baseTf());
   // 1.6.3 景色の層：見えている範囲が変わったときだけ作り直す
+  // 1.7.1：指で動かしている間（途中の描き直し・時間が進んだときの描き直し）は作り直さず、作ったときの見え方から
+  // 今の見え方へ動かすだけにする（指を離したときに作り直す）。画面の点 p' ＝ (k'／k)・p ＋ (x − x')・k'
   const scene = wrap.querySelector('[data-scene]');
   scene.setAttribute('viewBox', mapVB());
-  const sh = sceneInner(g);
-  if (scene.dataset.k !== (sh ? sceneCache.key : '')) (scene.innerHTML = sh), (scene.dataset.k = sh ? sceneCache.key : '');
+  const stf = scene.querySelector('[data-scenetf]');
+  if (GS.pts.size && stf && sceneCache.view) {
+    const v = sceneCache.view, k = scaleK();
+    stf.setAttribute('transform', `translate(${((v.x - VIEW.x) * k).toFixed(2)} ${((v.y - VIEW.y) * k).toFixed(2)}) scale(${(k / v.k).toFixed(5)})`);
+  } else {
+    const sh = sceneInner(g);
+    if (scene.dataset.k !== (sh ? sceneCache.key : '')) (scene.innerHTML = sh), (scene.dataset.k = sh ? sceneCache.key : '');
+    else scene.querySelector('[data-scenetf]')?.removeAttribute('transform');
+  }
   const top = wrap.querySelector('[data-top]');
   top.setAttribute('viewBox', mapVB());
   top.innerHTML = topInner(g);

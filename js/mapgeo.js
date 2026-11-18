@@ -181,6 +181,14 @@ export const riverPath = (i, reg = null) => pathOf(`r${i}|${reg?.key}`, () => in
 // 湖：引いて見たとき（区域なし）は 4 km² 以上の湖だけ
 const LAKE_FAR_MIN = 4;
 export const lakePath = (reg = null) => pathOf(`lk|${reg?.key}`, () => intsToPath(reg ? inRegion('lk', DATA().lakes, reg, true) : DATA().lakes.filter((x) => ringAreaKm2(x.L) >= LAKE_FAR_MIN).map((x) => x.L), true));
+// 県境（1.7.1）：拡大したときは区域で切り出す。県境は細かい点線（stroke-dasharray）なので、全国分を描くと
+// 拡大したときに点の数が何万にもなり、描き直すたびに重い（拡大して動かすとカクつく原因だった）。d は japan_terrain.js の形
+let prefData = null;
+export function prefPath(d, reg = null) {
+  if (!reg) return d;
+  if (prefData?.d !== d) prefData = { d, items: pathToRings(d).map((R) => withBox(R.flatMap(([x, y]) => [Math.round(x * 10), Math.round(y * 10)]))) };
+  return pathOf(`pf|${reg.key}`, () => intsToPath(inRegion('pf', prefData.items, reg, false), false));
+}
 export const riverAreaPath = (reg = null) => pathOf(`ra|${reg?.key}`, () => intsToPath(inRegion('ra', DATA().areas, reg, true), true));
 
 // ---- 点が面の中か（輪の辺を横の帯に分けて、近い辺だけを数える。偶奇）。輪は km の点の配列 ----
