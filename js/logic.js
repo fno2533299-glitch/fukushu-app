@@ -447,8 +447,111 @@ export function validateQuestionFile(json) {
       if (!(typeof e.points === 'number' && e.points > 0)) errors.push(`${id}: examItem の points が不正です`);
       else if (!papers.has(paperKey(e))) errors.push(`${id}: 外部試験 ${e.examId} ${e.year}年 ${e.subject} が exams に定義されていません`);
     }
+    if (q.steps != null) errors.push(...validateSteps(q.steps).map((e) => `${id}: ${e}`));
   }
   return errors;
+}
+
+// ---- 段階問題（小問。1.7.0：要件定義書 4.1・4.2、設計図 1.12） ----
+// q.steps = { guided: [小問 1〜4], light: [小問 1] }。小問 = { stepId, title, kind, stem, choices, correctChoiceId, explanation }
+// 誘導の段階：2＝誘導あり（guided の小問 → 元の問題）、1＝誘導少なめ（light の小問 → 元の問題）、0＝誘導なし（元の問題だけ）
+
+export const STEP_KINDS = ['値', '式', '代入'];
+export const ASSIST_OF_LEVEL = { 2: 'guided', 1: 'light', 0: null };
+const LEVEL_OF_ASSIST = { guided: 2, light: 1 };
+export const ASSIST_LABEL = { guided: '誘導あり', light: '誘導少なめ' };
+
+// 回答記録が誘導つき（誘導あり・誘導少なめ）か。古い記録（assist なし）は誘導なし
+export const isAssisted = (log) => !!log && (log.assist === 'guided' || log.assist === 'light');
+
+export function validateSteps(steps) {
+  const errors = [];
+  const g = steps?.guided, l = steps?.light;
+  if (!Array.isArray(g) || g.length < 1 || g.length > 4) errors.push('steps.guided（誘導ありの小問）は 1〜4 個にします');
+  if (!Array.isArray(l) || l.length !== 1) errors.push('steps.light（誘導少なめの小問）は 1 個にします');
+  const seen = new Set();
+  for (const s of [...(Array.isArray(g) ? g : []), ...(Array.isArray(l) ? l : [])]) {
+    const sid = s?.stepId || '(stepIdなし)';
+    if (!s?.stepId) errors.push('stepId のない小問があります');
+    else if (seen.has(s.stepId)) errors.push(`小問 ${sid}: stepId が重複しています`);
+    seen.add(s?.stepId);
+    if (!STEP_KINDS.includes(s?.kind)) errors.push(`小問 ${sid}: 種類が「値・式・代入」ではありません`);
+    if (!Array.isArray(s?.choices) || s.choices.length !== 4) errors.push(`小問 ${sid}: 選択肢が4つではありません`);
+    else if (!s.choices.some((c) => c.choiceId === s.correctChoiceId)) errors.push(`小問 ${sid}: 正解の選択肢がありません`);
+  }
+  return errors;
+}
+
+// その回の小問（段階 level の小問の列）。誘導なし・steps のない問題は []
+export function stepsFor(q, level) {
+  const a = ASSIST_OF_LEVEL[level];
+  return (a && q?.steps?.[a]) || [];
+}
+
+// 1件の回答記録の「段階」と「全部正解か」（小問と元の問題がすべて正解）
+function assistOutcome(log) {
+  const level = LEVEL_OF_ASSIST[log.assist] || 0;
+  const ok = log.result === '正解' && (level === 0 || (log.steps || []).every((s) => s.result === '正解'));
+  return { level, ok };
+}
+
+// 次に出す誘導の段階（回答記録から計算し、保存しない。logs は古い順）
+//  最初は 2。誘導なしで正解したことがあれば 0
+//  誘導あり・誘導少なめで、小問と元の問題をすべて正解 → 1つ減らす。誘導なしで正解 → 0 のまま
+//  どこかで間違えた・「わからない」→ 同じ段階。同じ段階で2回続けたら1つ戻す（0 → 1 → 2）
+//  誘導なしで答えた記録は、いまの段階が 0 でなければ正解だけを見る（1.7.0 より前の記録が段階を下げないように）
+export function assistLevel(q, logs) {
+  if (!q?.steps) return 0;
+  let level = 2, missLevel = null, misses = 0;
+  for (const l of logs) {
+    if (l.questionId !== q.questionId) continue;
+    const o = assistOutcome(l);
+    if (o.level === 0 && level !== 0 && !o.ok) continue;
+    if (o.ok) {
+      level = Math.max(o.level - 1, 0);
+      misses = 0;
+      missLevel = null;
+      continue;
+    }
+    misses = missLevel === o.level ? misses + 1 : 1;
+    missLevel = o.level;
+    if (misses >= 2) {
+      level = Math.min(o.level + 1, 2);
+      misses = 0;
+      missLevel = null;
+    } else level = o.level;
+  }
+  return level;
+}
+
+// 記録の画面の「計算のつまずき」：小問の種類ごとの正解率と、間違えることの多い小問（3つまで）
+export function stepStats(logs, data) {
+  const qById = new Map((data?.questions || []).map((q) => [q.questionId, q]));
+  const byKind = new Map(STEP_KINDS.map((k) => [k, { kind: k, answered: 0, correct: 0 }]));
+  const bySteps = new Map();
+  for (const l of logs) {
+    if (!isAssisted(l)) continue;
+    const q = qById.get(l.questionId);
+    const defs = new Map([...(q?.steps?.guided || []), ...(q?.steps?.light || [])].map((s) => [s.stepId, s]));
+    for (const a of l.steps || []) {
+      const s = defs.get(a.stepId);
+      if (!s) continue; // 小問が消えた・変わった
+      const k = byKind.get(s.kind);
+      k.answered++;
+      if (a.result === '正解') k.correct++;
+      const key = `${q.questionId}|${s.stepId}`;
+      if (!bySteps.has(key)) bySteps.set(key, { questionId: q.questionId, stepId: s.stepId, title: s.title, kind: s.kind, qTitle: q.title, answered: 0, missed: 0 });
+      const b = bySteps.get(key);
+      b.answered++;
+      if (a.result !== '正解') b.missed++;
+    }
+  }
+  const kinds = [...byKind.values()].map((k) => ({ ...k, rate: k.answered ? k.correct / k.answered : null }));
+  const hard = [...bySteps.values()]
+    .filter((b) => b.missed > 0)
+    .sort((a, b) => b.missed - a.missed || b.missed / b.answered - a.missed / a.answered || a.questionId.localeCompare(b.questionId))
+    .slice(0, 3);
+  return { kinds, hard, answered: kinds.reduce((a, k) => a + k.answered, 0) };
 }
 
 // 取り込み後のデータと、新規・更新・廃止の件数を返す。
@@ -500,12 +603,19 @@ export function daysBetween(a, b) {
 // 回答記録（古い順）をたどって問題ごとの状態を作る。
 // 定着：正解で、1つ前の回答も正解、その間が7日以上。不正解・わからないで定着でなくなる。
 // maxGap は「正解→正解」の間があいた日数の最大。onStep(log, p) で途中経過を見られる
+// 誘導つきの回答（1.7.0）は飛ばす：定着・取れる点はその前の誘導なしの回答で決まる。onStep は誘導つきの回答でも
+// 呼ぶ（継続日数などのため）が、p は変えない（まだ誘導なしで答えていない問題なら、map に入らない空の p）
+const emptyProgress = () => ({ answered: 0, lapses: 0, mastered: false, maxGap: 0, lastResult: null, lastDate: null });
 export function questionProgress(logs, onStep) {
   const map = new Map();
   for (const l of logs) {
+    if (isAssisted(l)) {
+      onStep?.(l, map.get(l.questionId) || emptyProgress());
+      continue;
+    }
     const date = localDate(new Date(l.answeredAt));
     let p = map.get(l.questionId);
-    if (!p) map.set(l.questionId, (p = { answered: 0, lapses: 0, mastered: false, maxGap: 0, lastResult: null, lastDate: null }));
+    if (!p) map.set(l.questionId, (p = emptyProgress()));
     if (l.result === '正解') {
       if (p.lastResult === '正解') {
         const gap = daysBetween(p.lastDate, date);
@@ -636,7 +746,7 @@ export function achievements(logs, data) {
     }
     const q = qById.get(l.questionId);
     if (!q) return;
-    if (l.result === '正解') {
+    if (l.result === '正解' && !isAssisted(l)) {
       hit('first-correct');
       if (q.level === '試験') hit('first-exam');
       if (p.maxGap >= 30) hit('gap30');
@@ -684,7 +794,7 @@ export function sessionSummary(before, after, data, settings) {
   const qs = [...new Set(sessionLogs.map((l) => l.questionId))].map((id) => qById.get(id)).filter(Boolean);
 
   // 前に間違えた問題（セッション前の最後の回答が不正解・わからない）に正解した
-  const recovered = sessionLogs.filter((l) => l.result === '正解' && ['不正解', 'わからない'].includes(pb.get(l.questionId)?.lastResult));
+  const recovered = sessionLogs.filter((l) => l.result === '正解' && !isAssisted(l) && ['不正解', 'わからない'].includes(pb.get(l.questionId)?.lastResult));
   const mastered = qs.filter((q) => pa.get(q.questionId)?.mastered && !pb.get(q.questionId)?.mastered);
 
   const active = activeQuestions(data);
@@ -782,6 +892,7 @@ export const COIN = { correct: 100, mastered: 1000, examPerPoint: 100, gacha: 10
 
 // 通貨をもらったできごと（日付の順）。kind：correct（問題ごとに1日1回）／mastered（定着になった回答ごと）／
 // exam（examItem のある問題に初めて正解。配点×100）／achievement（実績の coin）。不正解・わからないは0で、減ることもない
+// 誘導つきの回答（1.7.0）：元の問題に正解したら correct は同じようにもらえる。exam・mastered は誘導なしの回答だけ
 export function coinEvents(logs, data) {
   const qById = new Map((data?.questions || []).map((q) => [q.questionId, q]));
   const ev = [];
@@ -797,7 +908,7 @@ export function coinEvents(logs, data) {
         ev.push({ kind: 'correct', amount: COIN.correct, date, questionId: l.questionId });
       }
       const e = qById.get(l.questionId)?.examItem;
-      if (e && e.points > 0 && !examDone.has(l.questionId)) {
+      if (e && e.points > 0 && !examDone.has(l.questionId) && !isAssisted(l)) {
         examDone.add(l.questionId);
         ev.push({ kind: 'exam', amount: e.points * COIN.examPerPoint, date, questionId: l.questionId });
       }
@@ -908,7 +1019,7 @@ export function titleDates(titles, { logs, data, gachaLog = [], cards = null }) 
       if (!res.has(u.t.titleId) && u.ids.has(l.questionId) && [...u.ids].every((id) => mastered.has(id))) set(u.t, date);
     }
     const e = examQ.get(l.questionId);
-    if (e) {
+    if (e && !isAssisted(l)) {
       const r = papers.get(paperKey(e));
       const ok = l.result === '正解';
       if (ok !== !!lastOk.get(l.questionId)) r.got += ok ? e.points : -e.points;
