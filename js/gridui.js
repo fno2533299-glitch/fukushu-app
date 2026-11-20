@@ -2843,8 +2843,8 @@ function freeStartDialog() {
       onAll('[data-fstart]', 'click', async (e) => {
         const { S } = A;
         const now = Date.now();
+        const start = e.currentTarget.dataset.fstart; // await の前に読む（await のあとは currentTarget が null）
         await save();
-        const start = e.currentTarget.dataset.fstart;
         Dv.swapMode(S, 'free', () => Gm.newJapan((now % 2147483647) | 0, now, start, { mode: 'free', perfMax: Gm.maxPerf(S.grid?.perfMax) }));
         S.grid.era = learningReal().era; // 今のレベルの時代から（「時代が進んだ」は出さない）
         close();
@@ -3414,5 +3414,5 @@ async function devJump(kind, $) {
   await screen();
   announceDone(G(), before);
   collectAlerts();
-  if (!AL.busy) devSheet(); // 起きたことの演出があれば、そちらを先に
+  if (!AL.busy && !document.querySelector('.gmcard')) devSheet(); // 起きたことの演出・ミッションの答え合わせがあれば、そちらを先に
 }

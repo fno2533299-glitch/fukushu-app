@@ -88,8 +88,8 @@ export function answerOf(m, g) {
     const chosen = info?.hz || g?.plants?.find((p) => p.hz)?.hz || null;
     const now = NOW_HZ[start] || null;
     const label = J.startOf(start)?.label || '始めた町';
-    const side = now === 50 ? '境目の東（50 Hz）' : now === 60 ? '境目の西（60 Hz）' : '';
-    const extra = chosen && now ? `あなたが選んだ周波数：${chosen} Hz ／ ${label}の今の周波数：${now} Hz（${side}）${chosen === now ? '。史実と同じ' : '。史実とは逆'}` : chosen ? `あなたが選んだ周波数：${chosen} Hz` : '';
+    const side = now === 50 ? '今の境目の東' : now === 60 ? '今の境目の西' : '';
+    const extra = chosen && now ? `あなたが選んだ周波数：${chosen} Hz ／ ${label}の今の周波数：${now} Hz（${side}）${chosen === now ? '。今と同じ' : '。今とは逆'}` : chosen ? `あなたが選んだ周波数：${chosen} Hz` : '';
     return { ...base, extra };
   }
   return base;

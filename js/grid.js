@@ -1082,7 +1082,8 @@ export const INCIDENTS = {
   drought: { q: ['Q18'], title: '渇水', units: ['denken3-denryoku-U01', 'power-system-U05'] },
   outOfStep: { q: ['Q19', 'Q20'], title: '周波数の違う網をつないだ（脱調）', units: ['denken3-denryoku-U08', 'denken2-denryoku-U08', 'circuit-b-U13'] }, // 1.8.0
 };
-// 1.8.0 脱調の事故報告書の「なぜ」
+// 1.8.0 脱調の事故報告書の「なぜ」（対処したとき・標準の被害で片づいたとき）
+const incWhy = (key) => (key === 'outOfStep' ? { why: OOS_WHY } : {});
 export const OOS_WHY = '周波数が違うと、両側の電圧の位相のずれが回り続ける（50 Hz と 60 Hz なら毎秒 10 回転）。ずれが 180° に近づくたびに大きな電流が流れ、同期を保てない';
 export const MAX_INCIDENTS = 3;
 const qid = (q) => `${L.GRID_SUBJECT}-${q}`;
@@ -1096,7 +1097,7 @@ export function raise(G, lc, key, info = {}) {
   G.incidents.push(inc);
   while (G.incidents.length > MAX_INCIDENTS) {
     const old = G.incidents.shift(); // 古いものは標準の被害で片づける
-    addReport(G, { title: INCIDENTS[old.key].title, what: `${old.what || ''}対処しないまま、標準の被害で片づいた。`, units: INCIDENTS[old.key].units });
+    addReport(G, { title: INCIDENTS[old.key].title, what: `${old.what || ''}対処しないまま、標準の被害で片づいた。`, ...incWhy(old.key), units: INCIDENTS[old.key].units });
   }
   return inc;
 }
@@ -1217,7 +1218,7 @@ export function resolveIncident(G, id, correct) {
     default:
       text = '';
   }
-  addReport(G, { title: INCIDENTS[inc.key].title, what: `${inc.what || ''}${correct ? '【正しく対処】' : '【対処を誤った】'}${text}`, ...(inc.key === 'outOfStep' ? { why: OOS_WHY } : {}), units: INCIDENTS[inc.key].units, ok: correct });
+  addReport(G, { title: INCIDENTS[inc.key].title, what: `${inc.what || ''}${correct ? '【正しく対処】' : '【対処を誤った】'}${text}`, ...incWhy(inc.key), units: INCIDENTS[inc.key].units, ok: correct });
   return text;
 }
 
@@ -1871,7 +1872,7 @@ export function expireIncidents(G) {
   for (const inc of [...G.incidents]) {
     if (inc.deadline > G.t) continue;
     G.incidents.splice(G.incidents.indexOf(inc), 1);
-    addReport(G, { title: INCIDENTS[inc.key].title, what: `${inc.what || ''}ゲームの1日のあいだ対処せず、標準の被害で片づいた。`, units: INCIDENTS[inc.key].units });
+    addReport(G, { title: INCIDENTS[inc.key].title, what: `${inc.what || ''}ゲームの1日のあいだ対処せず、標準の被害で片づいた。`, ...incWhy(inc.key), units: INCIDENTS[inc.key].units });
   }
 }
 export function catchUp(G, lc, nowMs) {
