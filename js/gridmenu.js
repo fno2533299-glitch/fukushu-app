@@ -282,7 +282,7 @@ export const utilTier = (u) => (u > 1.2 ? 3 : u > 1 ? 2 : u > 0.9 ? 1 : 0);
 // 1.6.0：練習の島を「練習の東京」に（日本列島の東京。日本橋（茅場町）から京橋・銀座へ）
 export const TUT_KEY = 'gridTutorial';
 export const TUT_SEEN = 'gridTutorialSeen';
-export const TUT_COINS = 20000;
+export const TUT_COINS = 60000; // 1.7.4：建設費（コイン）を3倍にしたので、練習のコインも3倍
 export const TUT_HOME = J.TOKYO; // 日本橋（茅場町）
 export const TUT_NEXT = 'tk-kyobashi'; // 京橋・銀座（線を引く先）
 export function tutorialGrid(nowMs) {
@@ -317,7 +317,7 @@ export const TUTORIAL = [
   { id: 'lit', target: `[data-node="${TUT_HOME}"]`, before: 'toEvening', text: '完成して夜になり、町が灯りました（黄色）。足りないと暗い色になります。', next: true },
   { id: 'line1', target: `[data-node="${TUT_HOME}"]`, text: '次は京橋・銀座へ線を引きます。もう一度、日本橋を押します。', on: `menu:${TUT_HOME}` },
   { id: 'line2', target: '[data-mi="line"]', text: '「線を引く」を押します。', on: 'branch:line' },
-  { id: 'line3', target: '[data-mb="line:dc200"]', text: '明治の電灯は直流 200 V で配りました。押します（ほかの種類は、まだ灰色）。', on: 'bmode:line' },
+  { id: 'line3', target: '[data-mb="line:dc200"]', text: '明治の電灯は直流 200 V で配りました。押します（ほかの種類は、まだ灰色）。直流の発電所の電気は直流の線でしか送れず、交流の線（3.3 kV など）には送れません。', on: 'bmode:line' },
   { id: 'line4', target: `[data-node="${TUT_NEXT}"]`, text: '光っている地点が終点に選べます。京橋・銀座を押します。', on: 'line:to' },
   { id: 'line5', target: '[data-bcard]', text: '距離・危険・損失を見て「建設する」。直流は遠くへ送るほど損失が大きくなります。', on: 'built:line' },
   { id: 'line6', target: '[data-line]', text: '線の工事が始まりました（点線）。時間をとばします。', next: 'とばす（開通まで）', after: 'skipWork' },

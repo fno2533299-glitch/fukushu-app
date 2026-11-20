@@ -71,6 +71,10 @@ export const SUB_SIZES = [0.1, 0.5, 1, 2, 5, 10, 30, 100]; // MVA
 export const subCost = (mva) => Math.max(2000, Math.round(mva * 1000));
 export const TR = { iron: 0.005, copper: 0.015, era: 2, build: 24, gates: ['tr'], perf: 'tr' };
 export const CAP_COST = (kw) => Math.max(500, Math.round(kw * 3)); // 進相コンデンサ
+// 1.7.4 コインで払う建設費は、表の値（円の側の基準）の COIN_K 倍。設備の cost（修理費・保守費・撤去で戻る額・経営再建に使う）は表の値のまま。
+// 見積もり（quote*）の cost＝払うコイン、base＝円の側の基準（設備に持つ cost）
+export const COIN_K = 3;
+const coinOf = (base) => Math.round(base * COIN_K);
 
 // ---- 需要（設計 5章） ----
 const H24 = (f) => Array.from({ length: 24 }, (_, h) => f(h));
@@ -90,7 +94,8 @@ export function dmaxKw(level, mastered) {
 }
 
 // ---- 学習との結びつき（設計 6章） ----
-// GATES：建設できる＝どれかの単元で1問正解。PERF：性能の単元（定着の割合の平均、これまでの最大値）
+// GATES：建設できる＝どれかの単元で1問正解。PERF：性能の単元（科目ごとの定着の割合の平均の最大。これまでの最大値）
+// 1.7.4：ここに書くのは 1.7.3 までの分だけ。あとから足す科目の単元は、科目定義.json の単元の grid に書く（gridTables）
 export const GATES = {
   dc: ['denken3-riron-U03', 'circuit-b-U09'],
   gen: ['circuit-b-U01', 'circuit-b-U02', 'circuit-b-U03', 'denken3-riron-U05'],
@@ -130,8 +135,50 @@ export const BLUEPRINTS = {
   petersen: { name: '消弧リアクトル', units: ['denken2-denryoku-U09'] },
 };
 
+// 1.7.4 単元と施設の対応表：上の表（GATES・PERF・BLUEPRINTS。古い問題データでも今までどおり動くように残す）に、
+// 問題データの単元の grid（科目定義.json の単元に書き、md2json で書き出す）を足す。
+// 単元の grid の形：{ gate: ['coal', 'hydro'], perf: ['coal'], blueprint: ['bigCoal'] }（キーは GATES・PERF・BLUEPRINTS のキー。知らないキーは無視）
+// 戻り値：{ gate: { キー: [単元] }, perf: {…}, blueprint: {…} }。設計図の「外部試験の点で開く」は上の表の単元の科目だけ（今のまま）
+const TABLES = new WeakMap();
+const NO_DATA = {};
+export function gridTables(data) {
+  const key = data || NO_DATA;
+  if (TABLES.has(key)) return TABLES.get(key);
+  const T = {
+    gate: Object.fromEntries(Object.entries(GATES).map(([k, v]) => [k, [...v]])),
+    perf: Object.fromEntries(Object.entries(PERF).map(([k, v]) => [k, [...v]])),
+    blueprint: Object.fromEntries(Object.entries(BLUEPRINTS).map(([k, b]) => [k, [...b.units]])),
+  };
+  for (const s of data?.subjects || []) {
+    for (const u of s.units || []) {
+      for (const [kind, keys] of Object.entries(u.grid || {})) {
+        const tab = T[kind];
+        if (!tab || !Array.isArray(keys)) continue;
+        for (const k of keys) if (tab[k] && !tab[k].includes(u.unitId)) tab[k].push(u.unitId);
+      }
+    }
+  }
+  TABLES.set(key, T);
+  return T;
+}
+export const subjectOfUnit = (u) => u.replace(/-U\d+$/, '');
+// 性能（1.7.4）：単元ごとの定着の割合（これまでの最大値）を、科目ごとに平均し、そのうちいちばん高い値。
+// 問題のない単元は 0。どれか1つの科目で定着させれば上がり、新しい科目の単元を足しても伸びにくくならない
+export function perfOf(units, best) {
+  const by = new Map();
+  for (const u of units) {
+    const s = subjectOfUnit(u);
+    if (!by.has(s)) by.set(s, []);
+    by.get(s).push(best.get(u) || 0);
+  }
+  let p = 0;
+  for (const v of by.values()) p = Math.max(p, v.reduce((a, b) => a + b, 0) / v.length);
+  return p;
+}
+
 // 学習の状況（レベル・時代・需要の上限・建設できるか・性能・設計図）。saved：性能の「これまでの最大値」（保存してある分）
 export function learning(logs, data, saved = {}) {
+  const T = gridTables(data);
   const active = L.activeQuestions(data);
   const unitsOf = (q) => [q.unitId, ...(q.subUnitIds || [])];
   const correct = L.correctIdSet(logs);
@@ -163,28 +210,25 @@ export function learning(logs, data, saved = {}) {
   });
   for (const q of active) if (prog.get(q.questionId)?.mastered) mastered++;
   const perf = {};
-  for (const [k, units] of Object.entries(PERF)) {
-    const p = units.reduce((a, u) => a + (best.get(u) || 0), 0) / units.length; // 問題のない単元は 0
-    perf[k] = Math.max(saved[k] || 0, p);
-  }
+  for (const [k, units] of Object.entries(T.perf)) perf[k] = Math.max(saved[k] || 0, perfOf(units, best));
   const gate = {};
-  for (const [k, units] of Object.entries(GATES)) gate[k] = units.some((u) => unitCorrect.has(u));
+  for (const [k, units] of Object.entries(T.gate)) gate[k] = units.some((u) => unitCorrect.has(u));
   // 設計図：外部試験の点（その単元の科目の問題が属する年度・科目のどれかで3割以上）
   const scores = new Map(L.examScores(data, logs).map((r) => [r.key, r]));
   const blueprint = {};
   for (const [k, b] of Object.entries(BLUEPRINTS)) {
     const subjects = new Set(b.units.map((u) => u.replace(/-U\d+$/, '')));
     const papers = new Set(active.filter((q) => q.examItem && subjects.has(q.subjectId)).map((q) => L.paperKey(q.examItem)));
-    blueprint[k] = b.units.some((u) => examCorrect.has(u)) || [...papers].some((key) => scores.get(key) && scores.get(key).got >= 0.3 * scores.get(key).full);
+    blueprint[k] = T.blueprint[k].some((u) => examCorrect.has(u)) || [...papers].some((key) => scores.get(key) && scores.get(key).got >= 0.3 * scores.get(key).full);
   }
   const level = L.levelInfo(L.coinTotals(L.coinEvents(logs, data)).total).level;
   const incidentQs = new Set(L.gameQuestions(data).map((q) => q.questionId));
-  return { level, era: eraOf(level), mastered, dmax: dmaxKw(level, mastered), gate, perf, blueprint, incidentQs };
+  return { level, era: eraOf(level), mastered, dmax: dmaxKw(level, mastered), gate, perf, blueprint, incidentQs, tables: T };
 }
 // テストや仮の表示用：何も学習していない状態
 export function blankLearning(over = {}) {
   const f = (o, v) => Object.fromEntries(Object.keys(o).map((k) => [k, v]));
-  return { level: 1, era: 1, mastered: 0, dmax: dmaxKw(1, 0), gate: f(GATES, false), perf: f(PERF, 0), blueprint: f(BLUEPRINTS, false), incidentQs: new Set(), ...over };
+  return { level: 1, era: 1, mastered: 0, dmax: dmaxKw(1, 0), gate: f(GATES, false), perf: f(PERF, 0), blueprint: f(BLUEPRINTS, false), incidentQs: new Set(), tables: gridTables(null), ...over };
 }
 
 // ---- 乱数（種つき。同じ状態から同じ結果になる） ----
@@ -504,7 +548,7 @@ export function freqOutcome(units, dP, load, f0) {
 
 // 1つの網の1時間分。dem：node → { f（予測）, a（実際）, q（実際の無効電力） }。o.dry：状態を変えない（見込みの計算）
 function runNet(G, lc, t, net, dem, fc, o) {
-  const res = { out: new Map(), served: new Map(), flows: new Map(), loss: 0, waste: 0, x: 0, over: false, shed: 0, black: false, noGen: false, tripped: [], cap: 0, load: 0, f: 0 };
+  const res = { out: new Map(), served: new Map(), flows: new Map(), loss: 0, waste: 0, x: 0, over: false, shed: 0, black: false, noGen: false, tripped: [], cap: 0, load: 0, f: 0, commit: new Map(), readyCap: 0 };
   // 1.6.0：周波数は網ごと（発電機の周波数。古い島は島の周波数）
   const f0 = net.dc ? 0 : net.plants.find((p) => p.hz)?.hz || G.hz || 50;
   res.hz = net.dc ? 0 : f0;
@@ -519,6 +563,7 @@ function runNet(G, lc, t, net, dem, fc, o) {
   // 起動・停止：優先順位の順に、先の需要（予備力の目標つき）をまかなえるまで起動する
   const reserve = net.dc ? Math.min(G.reserve, 0.1) : G.reserve;
   const need = (k) => fc(net, t + k) * (1 + G.lossRatio) * (1 + reserve);
+  const needBare = (k) => fc(net, t + k) * (1 + G.lossRatio); // 予備力の目標を除いた分（1.7.4：起動・運転の理由が予備力だけか）
   // 先に決めた発電機の出力（at：使えるようになる時刻。起動中のものは、その時刻までは数えない）
   const committed = [];
   const accAt = (k) => committed.reduce((a, c) => a + (c.at <= t + k ? c.cap : 0), 0);
@@ -527,12 +572,19 @@ function runNet(G, lc, t, net, dem, fc, o) {
     const D = P(p);
     const cap = capNow(G, p, t, true);
     // want：いま起動すれば間に合う時刻（起動時間のあと）に足りない。keep：これから先のどこかで足りない
-    let want = false, keep = false;
+    // 1.7.4 short：予備力の目標を除いても足りない（予備力のためだけの起動・運転かを画面に出す）
+    let want = false, keep = false, wantShort = false, keepShort = false;
     for (let k = 0; k <= D.start + 4; k++) {
       if (need(k) <= accAt(k) + 1e-9) continue;
       keep = true;
-      if (k >= D.start && k <= D.start + 1) want = true;
+      const bare = needBare(k) > accAt(k) + 1e-9;
+      if (bare) keepShort = true;
+      if (k >= D.start && k <= D.start + 1) {
+        want = true;
+        if (bare) wantShort = true;
+      }
     }
+    res.commit.set(p.id, { want, keep, wantShort, keepShort });
     let on = p.on, onAt = p.onAt;
     if (o.assume) on = true;
     else if (on && !keep) on = false;
@@ -546,6 +598,7 @@ function runNet(G, lc, t, net, dem, fc, o) {
     if (on) online.push(p);
   }
   for (const p of net.plants) if (!o.dry && !ready.includes(p) && !(p.hold > t)) (p.on = false), (p.onAt = null);
+  res.readyCap = ready.reduce((s, p) => s + capNow(G, p, t), 0); // 1.7.4 網ごとの予備力（使える発電機の合計）
   if (A <= 0 && F <= 0) return res;
   if (blackout) {
     res.black = true;
@@ -751,6 +804,12 @@ export function solve(G, lc, t, o = {}) {
   const results = [];
   const served = new Map(); // 町 → 届いた割合
   const rest = new Map();
+  const src = new Map(); // 1.7.4 町 → { dc, ac }（直流・交流から届いた kW）
+  const srcAdd = (n, k, v) => {
+    const x = src.get(n) || { dc: 0, ac: 0 };
+    x[k] += v;
+    src.set(n, x);
+  };
   for (const net of dcNets) {
     if (!net.plants.length) continue;
     const r = runNet(G, lc, t, net, dem, sumTowns, o);
@@ -758,7 +817,7 @@ export function solve(G, lc, t, o = {}) {
     results.push(r);
     const got = [...r.served].reduce((x, [n, ratio]) => x + dem.get(n).a * ratio, 0);
     r.served = share(net, got, (n) => dem.get(n)?.a || 0);
-    for (const [n, ratio] of r.served) served.set(n, ratio);
+    for (const [n, ratio] of r.served) served.set(n, ratio), srcAdd(n, 'dc', (dem.get(n)?.a || 0) * ratio);
   }
   for (const [n, d] of dem) {
     const k = 1 - (served.get(n) || 0);
@@ -774,6 +833,7 @@ export function solve(G, lc, t, o = {}) {
     for (const [n, ratio] of r.served) {
       const d = dem.get(n);
       served.set(n, (served.get(n) || 0) + (d.a > 0 ? (rest.get(n).a * ratio) / d.a : 0));
+      srcAdd(n, 'ac', rest.get(n).a * ratio);
     }
   }
   // 直流だけの町で少し足りないとき：1 割までは電圧の低下（電灯が暗くなる）で済み、3% を超えると品質の低下。それ以上は停電
@@ -785,7 +845,194 @@ export function solve(G, lc, t, o = {}) {
     if (r < 0.97) dim.add(n);
     served.set(n, 1);
   }
-  return { dem, served, results, dim };
+  return { dem, served, results, dim, src };
+}
+
+// ---- 1.7.4 いま何が起きているか：届いていない原因・発電所が全開でない理由・網ごとの予備 ----
+// step で G.last に残す（why：町 → 原因、pw：発電所 → 理由、nets：網ごとのまとめ）。文は whyText・plantWhyText
+// 線でつながった地点と線（工事中・止まっている線も含む。dc：直流の線だけ／交流の線だけ）
+function compOf(G, id, dc) {
+  const adj = new Map();
+  for (const l of G.lines) {
+    if (!!LINES[l.kind].dc !== dc) continue;
+    (adj.get(l.a) || adj.set(l.a, []).get(l.a)).push(l);
+    (adj.get(l.b) || adj.set(l.b, []).get(l.b)).push(l);
+  }
+  const seen = new Set([id]);
+  const lines = new Set();
+  const stack = [id];
+  while (stack.length) {
+    for (const l of adj.get(stack.pop()) || []) {
+      lines.add(l);
+      for (const v of [l.a, l.b]) if (!seen.has(v)) seen.add(v), stack.push(v);
+    }
+  }
+  return { nodes: seen, lines: [...lines] };
+}
+// 発電所1つの今の状態の理由（r：その発電所の網の結果）
+function plantWhy(G, p, r, t) {
+  if (p.readyAt > t) return { k: 'build', h: p.readyAt - t };
+  if (p.downUntil > t) return { k: 'down', h: p.downUntil - t };
+  if (p.idle) return { k: 'idle' };
+  if (p.hold > t) return { k: 'black', h: p.hold - t };
+  const c = r?.commit.get(p.id);
+  if (p.onAt != null) return { k: 'start', h: Math.max(1, p.onAt - t), res: !!c && !c.wantShort };
+  if (!p.on) return { k: r && (r.noGen || (r.load > 0 && [...r.served.values()].some((v) => v < 0.999))) ? 'late' : 'enough', h: P(p).start };
+  const out = r?.out.get(p.id) || 0;
+  const cap = capNow(G, p, t);
+  if (!r || r.load <= 0) return { k: 'noLoad' };
+  if (out >= cap - 1e-6 && cap >= p.kw * 0.999) return { k: 'full' };
+  if (out >= cap - 1e-6) return { k: 'water', cap };
+  const min = Math.min(P(p).min * p.kw, cap);
+  if (min > 0 && out <= min + 1e-6 && r.waste > 0) return { k: 'min' };
+  if (c && !c.keepShort && out <= min + 1e-6) return { k: 'reserve' };
+  return { k: 'demand' };
+}
+// 発電機が動いていない網の原因（いちばん近いうちに戻るもの）
+function netPlantsWhy(G, plants, r, t) {
+  const ws = plants.map((p) => plantWhy(G, p, r, t));
+  for (const k of ['start', 'late', 'build', 'down', 'black', 'idle']) {
+    const hit = ws.filter((w) => w.k === k);
+    if (hit.length) return { k: k === 'black' ? 'blackP' : k, h: Math.min(...hit.map((w) => w.h ?? 0)) };
+  }
+  return { k: 'late', h: 0 };
+}
+// 発電所につながった網に入っていない町の原因：線がない／つながった網に発電所がない（直流と交流の違い）／途中の線が工事中・止まっている・変電所がない
+function linkWhy(G, n, t, only = null) {
+  const has = G.lines.filter((l) => l.a === n || l.b === n);
+  if (!has.length) return { k: 'noLine' };
+  const out = [];
+  for (const dc of [false, true]) {
+    if (only != null && dc !== only) continue;
+    if (!has.some((l) => !!LINES[l.kind].dc === dc)) continue;
+    const c = compOf(G, n, dc);
+    const gens = G.plants.filter((p) => !!P(p).ac !== dc && c.nodes.has(p.site));
+    if (!gens.length) {
+      // その網に、種類の違う発電所（直流の網なら交流の発電所）があれば、送れない理由も添える
+      const other = G.plants.some((p) => !!P(p).ac === dc && c.nodes.has(p.site));
+      out.push({ k: dc ? 'noDcGen' : 'noAcGen', other });
+      continue;
+    }
+    const lack = (id) => nodeOf(G, id).town && !subsAt(G, id, t).length;
+    const subLess = c.lines.find((l) => LINES[l.kind].hv && l.readyAt <= t && [l.a, l.b].some(lack));
+    if (subLess) {
+      out.push({ k: 'noSub', town: [subLess.a, subLess.b].find(lack) });
+      continue;
+    }
+    const down = c.lines.find((l) => l.readyAt <= t && lineCircuits(l, t) <= 0);
+    if (down) {
+      out.push({ k: 'lineDown', line: down.id, h: Math.max(0, down.downUntil - t) });
+      continue;
+    }
+    const work = c.lines.filter((l) => l.readyAt > t);
+    if (work.length) out.push({ k: 'lineWork', line: work[0].id, h: Math.min(...work.map((l) => l.readyAt - t)) });
+  }
+  // 交流の網に発電所がない、より先に、直す手がかりのある原因（変電所・線）を出す
+  return out.find((w) => w.k !== 'noAcGen' && w.k !== 'noDcGen') || out[0] || { k: 'noLine' };
+}
+// 届いていない町の原因（step の solve の結果から）。byNode：地点 → [網の結果]
+function townWhy(G, sol, byNode, n, t) {
+  if ((G.black[n] || 0) > t) return { k: 'black', h: G.black[n] - t };
+  const rs = byNode.get(n) || [];
+  const ac = rs.find((r) => !r.net.dc), dc = rs.find((r) => r.net.dc);
+  if (ac?.black) return { k: 'black', h: Math.max(0, (G.black[n] || t) - t) };
+  if (ac?.shed > 0) return { k: 'shed', v: ac.shed };
+  const d = sol.dem.get(n);
+  const left = d ? d.a * (1 - Math.min(1, sol.served.get(n) || 0)) : 0;
+  if (dc && !dc.noGen && (dc.dim || 0) > 0 && !(ac && !ac.noGen)) return { k: 'dcShort', kw: left };
+  const r = (ac?.noGen && ac) || (dc?.noGen && dc);
+  // 交流の網に入れていない町で、交流の線があれば、その理由も添える（also。例：直流の火力は休止中で、送電線の先には変電所がない）
+  const also = !ac && G.lines.some((l) => !LINES[l.kind].dc && (l.a === n || l.b === n)) ? linkWhy(G, n, t, false) : null;
+  const w = r ? netPlantsWhy(G, r.net.plants, r, t) : !ac && !dc ? linkWhy(G, n, t) : !ac ? { k: 'dcShort', kw: left } : { k: 'short', kw: left };
+  if (also && also.k !== w.k && w.k !== 'noAcGen') w.also = also;
+  return w;
+}
+// step のあとに G.last に残す分を作る
+function explainStep(G, sol, t) {
+  const byNode = new Map();
+  for (const r of sol.results) for (const n of r.net.nodes) (byNode.get(n) || byNode.set(n, []).get(n)).push(r);
+  const why = {};
+  for (const [n, d] of sol.dem) {
+    if (!(d.a > 1e-6)) continue;
+    const ratio = Math.min(1, sol.served.get(n) || 0);
+    if (ratio < 0.999) why[n] = townWhy(G, sol, byNode, n, t);
+    else if (sol.dim.has(n)) why[n] = { k: 'dim' };
+  }
+  const pw = {};
+  for (const p of G.plants) {
+    const r = (byNode.get(p.site) || []).find((x) => x.net.plants.includes(p));
+    const w = plantWhy(G, p, r, t);
+    if (r && (w.k === 'demand' || w.k === 'full')) w.towns = r.net.nodes.filter((n) => (sol.dem.get(n)?.a || 0) > 1e-6).sort((a, b) => sol.dem.get(b).a - sol.dem.get(a).a);
+    pw[p.id] = w;
+  }
+  // 網ごと：需要・届いた量・使える発電機（予備）。発電所のある網と、発電所につながっていない町（まとめて1つ）
+  const nets = [];
+  for (const r of sol.results) {
+    const towns = r.net.nodes.filter((n) => (sol.dem.get(n)?.a || 0) > 1e-6);
+    if (!towns.length && !r.readyCap) continue;
+    const load = towns.reduce((s, n) => s + sol.dem.get(n).a, 0);
+    const got = towns.reduce((s, n) => s + (r.net.dc ? sol.src.get(n)?.dc || 0 : sol.src.get(n)?.ac || 0), 0);
+    const main = towns.sort((a, b) => sol.dem.get(b).a - sol.dem.get(a).a)[0] || r.net.plants[0]?.site;
+    nets.push({ dc: !!r.net.dc, hz: r.hz || 0, main, towns: towns.length, load, got, cap: r.readyCap, plants: r.net.plants.length });
+  }
+  const loose = [...sol.dem.keys()].filter((n) => (sol.dem.get(n).a > 1e-6) && !(byNode.get(n) || []).length);
+  if (loose.length) nets.push({ none: true, main: loose[0], towns: loose.length, load: loose.reduce((s, n) => s + sol.dem.get(n).a, 0), got: 0, cap: 0, plants: 0 });
+  return { why, pw, nets };
+}
+// 原因の文（1行）
+const hoursShort = (h) => (h >= 48 ? `${Math.ceil(h / 24)}日` : `${Math.max(1, Math.ceil(h))}時間`);
+export function whyText(G, w) {
+  if (!w) return '';
+  if (w.also) return `${whyText(G, { ...w, also: null })}。また、${whyText(G, w.also)}`;
+  const nm = (id) => nodeOf(G, id)?.name || '';
+  const ln = (id) => {
+    const l = G.lines.find((x) => x.id === id);
+    return l ? lineName(G, l) : '線';
+  };
+  const hh = hoursShort;
+  switch (w.k) {
+    case 'black': return `全域停電（復旧まで あと${hh(w.h)}）`;
+    case 'blackP': return `発電所が全域停電からの復旧待ち（あと${hh(w.h)}）`;
+    case 'shed': return `負荷遮断：周波数が下がりすぎないよう、需要の ${Math.round(w.v * 100)}% を切り離した（発電所の出力・予備力が足りない）`;
+    case 'start': return `発電所が起動中（あと${hh(w.h)}）`;
+    case 'late': return `発電所が待機中（起動に${hh(w.h)}かかり、起動が終わる時刻には足りる見込みなので起動していない）`;
+    case 'build': return `発電所が工事中（あと${hh(w.h)}）`;
+    case 'down': return `発電所が事故・故障で止まっている（修理 あと${hh(w.h)}）`;
+    case 'idle': return '発電所を休止している（運転のパネルで休止をやめる）';
+    case 'dcShort': return `直流の発電所の出力が足りない（あと ${fmtKw(w.kw)}）。交流からも届いていない`;
+    case 'short': return `発電所の出力が足りない（あと ${fmtKw(w.kw)}）`;
+    case 'noLine': return '発電所につながっていない（線がない）';
+    case 'noAcGen': return `つながった交流の網に発電所がない${w.other ? '（直流の火力は交流の線に送れない）' : ''}`;
+    case 'noDcGen': return `つながった直流の網に発電所がない${w.other ? '（交流の発電所は直流の線に送れない）' : ''}`;
+    case 'noSub': return `${nm(w.town)}に変電所がない（11 kV 以上の送電線は、町の側に変電所が要る）`;
+    case 'lineDown': return `途中の線が止まっている：${ln(w.line)}（事故・過負荷${w.h ? `。あと${hh(w.h)}` : ''}）`;
+    case 'lineWork': return `途中の線が工事中：${ln(w.line)}（あと${hh(w.h)}）`;
+    case 'dim': return '直流の電圧が下がっている（電灯が暗い。品質の低下で料金が少し減る）';
+    default: return '';
+  }
+}
+// 発電所の出力の理由（1行）
+export function plantWhyText(G, p, w) {
+  if (!w) return '';
+  const hh = hoursShort;
+  const towns = (w.towns || []).map((id) => nodeOf(G, id)?.name).filter(Boolean);
+  const to = towns.length ? `${towns.slice(0, 3).join('・')}${towns.length > 3 ? ` ほか${towns.length - 3}か所` : ''}に送っている` : '';
+  switch (w.k) {
+    case 'build': return `工事中（あと${hh(w.h)}）`;
+    case 'down': return `事故・故障で止まっている（修理 あと${hh(w.h)}）`;
+    case 'idle': return '休止している';
+    case 'black': return `全域停電からの復旧待ち（あと${hh(w.h)}）`;
+    case 'start': return `起動中：あと${hh(w.h)}${w.res ? '（予備力の目標のために起動）' : '（このままでは足りなくなるので起動）'}`;
+    case 'late': return `待機：起動に${hh(w.h)}かかる。起動しても間に合う時刻には足りている見込み`;
+    case 'enough': return '待機：ほかの発電所で足りている（または需要がない）';
+    case 'full': return `全開で運転中${to ? `（${to}）` : ''}`;
+    case 'water': return `水が少ない：いま出せるのは ${fmtKw(w.cap)} まで`;
+    case 'noLoad': return 'いまは需要がない時間';
+    case 'min': return '最低出力で運転中（需要が少なく、余りは捨てている）';
+    case 'reserve': return '予備力の目標のために、最低出力で運転中';
+    case 'demand': return `つながった町の需要と損失の分だけ出している${to ? `（${to}）` : ''}`;
+    default: return '';
+  }
 }
 
 // ---- 報告書・事故 ----
@@ -1249,7 +1496,9 @@ export function step(G, lc) {
     const ratio = Math.min(1, sol.served.get(n) || 0);
     demand += d.a;
     served += d.a * ratio;
-    last.towns[n] = { d: d.a, r: ratio };
+    const sv = sol.src.get(n);
+    // 1.7.4 dc・ac：直流・交流から届いた kW（直流の電圧の低下で済んだ分は直流に数える）
+    last.towns[n] = { d: d.a, r: ratio, dc: Math.max(0, d.a * ratio - Math.min(d.a * ratio, sv?.ac || 0)), ac: Math.min(d.a * ratio, sv?.ac || 0) };
     // 停電のあった町は申し込みが減る（1か月で回復）
     if (ratio < 0.95) G.rep[n] = Math.max(0.2, (G.rep[n] ?? 1) - 0.02);
     const k = (f0.get(n) || 0) > 0 ? d.a / f0.get(n) : 0;
@@ -1281,7 +1530,7 @@ export function step(G, lc) {
   y.unserved += unserved;
   y.served += served;
   if (!anyBad && !anyShed && !anyBlack) y.okH++;
-  Object.assign(last, { x: worst, demand, served, loss, rev, fuel, shed: anyShed, black: anyBlack });
+  Object.assign(last, { x: worst, demand, served, loss, rev, fuel, shed: anyShed, black: anyBlack }, explainStep(G, sol, t));
   G.last = last;
   if (demand > 0) G.lossRatio = Math.min(0.5, 0.8 * G.lossRatio + 0.2 * (loss / Math.max(served, 1e-9)));
   G.hist.push([t, Math.round(demand * 10) / 10, Math.round(served * 10) / 10, Math.round(gen.dc * 10) / 10, Math.round(gen.coal * 10) / 10, Math.round(gen.hydro * 10) / 10, Math.round(worst * 100) / 100]);
@@ -1416,13 +1665,13 @@ export function quotePlant(G, lc, { type, kw, site, hz = null }) {
   const proto = st === 'proto';
   let cost = size[1] * (proto ? 3 : 1);
   if (!D.ac && G.buffs.dcDiscount) cost *= 0.8;
-  return { ok: true, cost: Math.round(cost), hours: buildHours(D.build, lc, D.perf), proto, ...(D.ac ? { freq: netF || hz, newHz: !netF } : {}) };
+  return { ok: true, cost: coinOf(cost), base: Math.round(cost), hours: buildHours(D.build, lc, D.perf), proto, ...(D.ac ? { freq: netF || hz, newHz: !netF } : {}) };
 }
 export function buildPlant(G, lc, spec) {
   const q = quotePlant(G, lc, spec);
   if (!q.ok) return q;
   if (!PLANTS[spec.type].ac) G.buffs.dcDiscount = false;
-  const p = { id: `P${G.nextId++}`, type: spec.type, kw: spec.kw, site: spec.site, cost: q.cost, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, on: false, onAt: null, downUntil: 0, idle: false, store: 0, hold: 0, done: false };
+  const p = { id: `P${G.nextId++}`, type: spec.type, kw: spec.kw, site: spec.site, cost: q.base, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, on: false, onAt: null, downUntil: 0, idle: false, store: 0, hold: 0, done: false };
   if (q.freq) p.hz = q.freq; // 交流の発電機の周波数（網が分かれたり、つながったりしても変えない）
   if (q.newHz) addReport(G, { title: `周波数を ${q.freq} Hz に決めた`, what: `${nodeOf(G, spec.site).name}の交流の網は、これから ${q.freq} Hz で動く。周波数の違う網とは線でつなげない（網が分かれたり、つながったりしても、発電機の周波数は変わらない）。`, units: [] });
   G.plants.push(p);
@@ -1472,13 +1721,14 @@ export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {} }) {
   let cost = K.cost * r.km * (1 + OPT_K * nOpts) * (proto ? 3 : 1);
   if (K.dc && G.buffs.dcDiscount) cost *= 0.8;
   const needSub = K.hv ? [a, b].filter((id) => nodeOf(G, id).town && !G.subs.some((s) => s.town === id)) : [];
-  return { ok: true, cost: Math.max(50, Math.round(cost)), km: r.km, hazards: r.hazards, hours: buildHours(12 + Math.min(228, r.km), lc, K.perf), proto, needSub };
+  const base = Math.max(50, Math.round(cost));
+  return { ok: true, cost: coinOf(base), base, km: r.km, hazards: r.hazards, hours: buildHours(12 + Math.min(228, r.km), lc, K.perf), proto, needSub };
 }
 export function buildLine(G, lc, spec) {
   const q = quoteLine(G, lc, spec);
   if (!q.ok) return q;
   if (LINES[spec.kind].dc) G.buffs.dcDiscount = false;
-  const l = { id: `W${G.nextId++}`, a: spec.a, b: spec.b, kind: spec.kind, route: spec.route || 'direct', km: q.km, hazards: q.hazards, opts: { ...(spec.opts || {}) }, n: 1, cost: q.cost, unit: q.cost, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, downUntil: 0, c1Until: 0, graceUntil: 0, overH: 0, saltUntil: 0, done: false };
+  const l = { id: `W${G.nextId++}`, a: spec.a, b: spec.b, kind: spec.kind, route: spec.route || 'direct', km: q.km, hazards: q.hazards, opts: { ...(spec.opts || {}) }, n: 1, cost: q.base, unit: q.base, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, downUntil: 0, c1Until: 0, graceUntil: 0, overH: 0, saltUntil: 0, done: false };
   G.lines.push(l);
   return { ...q, line: l };
 }
@@ -1487,13 +1737,13 @@ export function quoteCircuit(G, lc, id) {
   const l = G.lines.find((x) => x.id === id);
   if (!l) return { ok: false, why: '線がない' };
   if (l.n >= MAX_CIRCUITS) return { ok: false, why: `回線は ${MAX_CIRCUITS} つまで` };
-  return { ok: true, cost: l.unit, line: l };
+  return { ok: true, cost: coinOf(l.unit), base: l.unit, line: l };
 }
 export function addCircuit(G, lc, id) {
   const q = quoteCircuit(G, lc, id);
   if (!q.ok) return q;
   q.line.n++;
-  q.line.cost += q.cost;
+  q.line.cost += q.base;
   return q;
 }
 // 対策の時代・設計図（学習の単元は gates で見る）
@@ -1524,9 +1774,9 @@ export function quoteLineOpt(G, lc, id, o) {
   if (no) return no;
   const proto = eraStatus(lc, K.era, K.level) === 'proto';
   const one = K.cost * l.km * OPT_K * (proto ? 3 : 1); // 建設のときに足す場合の費用（1回線あたり）
-  const cost = Math.max(50, Math.round(one * l.n * RETRO_K));
+  const base = Math.max(50, Math.round(one * l.n * RETRO_K));
   const hours = buildHours(12 + Math.min(228, l.km), lc, K.perf);
-  return { ok: true, cost, hours, line: l, opt: o, readyAt: Math.max(l.readyAt, G.t + hours), unit: Math.round(K.cost * l.km * OPT_K * (l.proto ? 3 : 1)) };
+  return { ok: true, cost: coinOf(base), base, hours, line: l, opt: o, readyAt: Math.max(l.readyAt, G.t + hours), unit: Math.round(K.cost * l.km * OPT_K * (l.proto ? 3 : 1)) };
 }
 export function addLineOpt(G, lc, id, o) {
   const q = quoteLineOpt(G, lc, id, o);
@@ -1534,7 +1784,7 @@ export function addLineOpt(G, lc, id, o) {
   const l = q.line;
   l.opts[o] = true;
   l.optAt = { ...(l.optAt || {}), [o]: q.readyAt };
-  l.cost += q.cost;
+  l.cost += q.base;
   l.unit += q.unit; // これから増やす回線にも、この対策が付く
   return q;
 }
@@ -1547,12 +1797,13 @@ export function quoteSub(G, lc, { town, mva }) {
   if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
   if (G.subs.filter((s) => s.town === town).length >= 2) return { ok: false, why: '変圧器は1つの変電所に2台まで' };
   const proto = st === 'proto';
-  return { ok: true, cost: subCost(mva) * (proto ? 3 : 1), hours: buildHours(TR.build, lc, TR.perf), proto };
+  const base = subCost(mva) * (proto ? 3 : 1);
+  return { ok: true, cost: coinOf(base), base, hours: buildHours(TR.build, lc, TR.perf), proto };
 }
 export function buildSub(G, lc, spec) {
   const q = quoteSub(G, lc, spec);
   if (!q.ok) return q;
-  const s = { id: `S${G.nextId++}`, town: spec.town, mva: spec.mva, cost: q.cost, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, downUntil: 0, lossK: 1, failK: 1, failUntil: 0, done: false };
+  const s = { id: `S${G.nextId++}`, town: spec.town, mva: spec.mva, cost: q.base, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, downUntil: 0, lossK: 1, failK: 1, failUntil: 0, done: false };
   G.subs.push(s);
   return { ...q, sub: s };
 }
@@ -1561,7 +1812,8 @@ export function quoteCap(G, lc, loadId) {
   if (!ld || !LOADS[ld.type].pfFixed || ld.cap) return { ok: false, why: '進相コンデンサを付けられる需要ではない' };
   const miss = missing(lc, ['pf']);
   if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
-  return { ok: true, cost: Math.round(CAP_COST(ld.kw) * (G.buffs.capDiscount ? 0.7 : 1)), load: ld };
+  const base = Math.round(CAP_COST(ld.kw) * (G.buffs.capDiscount ? 0.7 : 1));
+  return { ok: true, cost: coinOf(base), base, load: ld };
 }
 export function addCap(G, lc, loadId) {
   const q = quoteCap(G, lc, loadId);

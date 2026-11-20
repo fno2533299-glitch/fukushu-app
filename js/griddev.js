@@ -64,6 +64,7 @@ export function devLearning(real, opts) {
     blueprint: opts.ignoreGates ? all(Gm.BLUEPRINTS, true) : { ...real.blueprint },
     perf: opts.perf != null ? all(Gm.PERF, Math.min(1, Math.max(0, opts.perf))) : { ...real.perf },
     incidentQs: real.incidentQs,
+    ...(real.tables ? { tables: real.tables } : {}),
   });
 }
 
