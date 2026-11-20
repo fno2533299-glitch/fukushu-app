@@ -96,6 +96,7 @@ export const SOURCES = [
   ['S11', '電気学会「でんきの礎」北海道・本州間電力連系設備', 'https://www.iee.jp/file/foundation/data02/ishi-06/ishi-2021.pdf'],
   ['S12', 'ニュースイッチ（周波数変換所）', 'https://newswitch.jp/p/4177'],
   ['S13', '三菱電機技報 1965（佐久間周波数変換所）', 'https://www.giho.mitsubishielectric.co.jp/giho/pdf/1965/6511.pdf'],
+  ['S14', '電気事業連合会「電気の歴史年表 大正から昭和へ」（1.8.0。1939年の異常渇水と電力調整令）', 'https://www.fepc.or.jp/enterprise/rekishi/taishou/'],
   ['G1', 'Gemini の調査（1回目、2026-11-15）。出典を Claude が確かめていない行は「未確認」', ''],
   ['G2', 'Gemini の調査（2回目、2026-11-16）。出典を Claude が確かめていない行は「未確認」', ''],
 ];

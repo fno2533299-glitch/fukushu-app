@@ -13,6 +13,7 @@ import { JAPAN_TERRAIN, JAPAN_PREF_LINES, JAPAN_PREFS } from './japan_terrain.js
 import * as Mg from './mapgeo.js';
 import * as Mc from './mapcanvas.js';
 import * as J from './gridjapan.js';
+import * as Ms from './gridmission.js';
 
 let A = null; // app.js から渡される部品（S・db・show・on・esc・toast など）
 // チュートリアル（1.5.2）：練習の島（kv「gridTutorial」）で動かす。DEV と同じ仕組み（tut: true）
@@ -27,6 +28,7 @@ let panel = null; // 開いているパネル：build・run・supply・list・ma
 let buildFor = null; // 建設のパネルを地点から開いたとき：{ site } または { from }
 let B = null; // 建設モード：{ kind: 'plant'|'line'|'sub', ... }
 let whyOpen = null; // 建設のパネルで、理由を開いている種類
+let listTab = 'list'; // 1.8.0 一覧のパネルのタブ：list（一覧）／mission（ミッション。史実モードだけ）
 // 1.5.2 地点のメニュー：{ kind: 'node'|'line', id, branch: null|'build'|'line'|'rm', detail: false, anim: 'menu'|'branch'|null }
 let sel = null;
 // 開発者モード（1.5.1）：本番とは別の系統（kv「gridDev」）。入っているかどうかは保存しない（開き直すと本番に戻る）
@@ -242,6 +244,7 @@ export async function screen(p, entering = false) {
       if (entering || AL.g !== G()) markSeen(); // 閉じていた間に起きたもの・切り替えた系統のものは、演出ではなく前回からの結果・状態の札で
       if (entering) offerTutorial();
       drainAlerts();
+      drainMissions(); // 1.8.0 閉じていた間に達成したミッションも、開いたときに答え合わせのカード
     },
   );
 }
@@ -274,6 +277,7 @@ function live() {
   const dbusy = q('[data-detail]')?.contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
   if (sel?.detail && !dbusy && Date.now() - detailAt > 4000) drawDetail(true);
   if (!!g.rebuild !== !!q('[data-rebuild]')) screen();
+  drainMissions(); // 1.8.0
 }
 
 // ---- 上の帯：日付と時代・コイン・収益・需要と届いた量・周波数・状態（375px で2行まで） ----
@@ -377,7 +381,8 @@ function effects(g) {
     const E = Gm.ERAS[g.eraUp - 1];
     // 1.6.0：開いたエリアと、その時代の史実（確かめたものだけ。自分の選び方と比べられるように）
     const opened = Gm.openedAreas(g, g.eraUpFrom ?? g.eraUp - 1, g.eraUp);
-    const lines = Gm.isJapan(g) ? [...(opened.length ? [`${opened.join('・')}が開いた（建てられる範囲が広がった）`] : []), ...(J.ERA_FACTS[g.eraUp] || []).map((f) => `史実：${f}`)] : [];
+    const ms = Gm.newMissions(g, g.eraUpFrom ?? g.eraUp - 1, g.eraUp); // 1.8.0 新しく出たミッション（史実モード）
+    const lines = Gm.isJapan(g) ? [...(opened.length ? [`${opened.join('・')}が開いた（建てられる範囲が広がった）`] : []), ...(J.ERA_FACTS[g.eraUp] || []).map((f) => `史実：${f}`), ...ms.map((m) => `新しいミッション：${m.name}（一覧の「ミッション」）`)] : [];
     overlay(`era${g.eraUp}`, `時代が進んだ：${E.name}`, `${E.year}　新しい設備と需要が登場する。${g.eraUp === 2 && !Gm.hzList(g).length && !g.hz ? '交流の発電機を、まだ周波数のない網に初めて建てるとき、周波数（50 Hz／60 Hz）を選ぶ。' : ''}`, [523.3, 659.3, 784, 1046.5], lines);
     delete g.eraUp;
     delete g.eraUpFrom;
@@ -456,6 +461,7 @@ async function drainAlerts() {
   } finally {
     AL.busy = false;
     if (AL.queue.length) setTimeout(drainAlerts, 0); // 出している間に起きたもの
+    else setTimeout(drainMissions, 0); // 1.8.0 演出のあとに、達成したミッションの答え合わせ
   }
 }
 function alertPic(id) {
@@ -2493,6 +2499,27 @@ function devSupplyHtml(g, lc) {
 // ---- 一覧のパネル：事故・申し込み・発電所と線の一覧・報告書 ----
 function listPanel(g, lc) {
   const t = g.t;
+  // 1.8.0 史実モード：一覧のパネルに「ミッション」のタブ
+  const mOn = Gm.missionsOn(g);
+  if (!mOn) listTab = 'list';
+  const left = mOn ? Ms.MISSIONS.filter((m) => Gm.missionOpen(g, m) && !Gm.missionDone(g, m.id)).length : 0;
+  const tabs = mOn ? `<div class="gseg gltabs">${[['list', '一覧'], ['mission', `ミッション${left ? `（${left}）` : ''}`]].map(([k, n]) => `<button class="btn small ${listTab === k ? 'on' : ''}" data-ltab="${k}">${n}</button>`).join('')}</div>` : '';
+  const bindTabs = (onAll) => onAll('[data-ltab]', 'click', (e) => {
+    listTab = e.currentTarget.dataset.ltab;
+    drawPanel();
+  });
+  if (listTab === 'mission') {
+    const body = missionsHtml(g);
+    return {
+      title: '一覧',
+      html: `${tabs}${body}`,
+      bind: ({ onAll }) => {
+        bindTabs(onAll);
+        onAll('[data-mcard]', 'click', (e) => missionCard(e.currentTarget.dataset.mcard));
+        onAll('[data-sources]', 'click', sourcesSheet);
+      },
+    };
+  }
   const incs = g.incidents.map((i) => `<div class="gitem"><p class="spread"><b>${A.esc(Gm.INCIDENTS[i.key].title)}</b><small>あと ${Math.max(0, i.deadline - t)}時間</small></p><p class="small">${A.esc(i.what || '')}</p><button class="btn primary" data-inc="${i.id}">対処を選ぶ</button></div>`).join('');
   const apps = g.apps
     .map((a) => {
@@ -2515,13 +2542,14 @@ function listPanel(g, lc) {
     .join('');
   return {
     title: '一覧',
-    html: `<h3>事故（対処待ち ${g.incidents.length}／最大 ${Gm.MAX_INCIDENTS}件）</h3>${incs || '<p class="note">いまはありません</p>'}
+    html: `${tabs}<h3>事故（対処待ち ${g.incidents.length}／最大 ${Gm.MAX_INCIDENTS}件）</h3>${incs || '<p class="note">いまはありません</p>'}
       <p class="small">正しく対処すると被害が小さく、誤ると大きくなります。ゲームの1日（現実の1時間）答えなければ、標準の被害で片づきます。</p>
       <h3>接続の申し込み（${g.apps.length}件）</h3>${apps || `<p class="note">${Gm.overview(g, lc).accepted >= lc.dmax - 1 ? '需要の上限に達しています。レベルと定着が増えると、また届きます' : 'いまはありません（1日に1件ほど届きます）'}</p>`}
       <h3>発電所（${g.plants.length}）</h3>${plants || '<p class="note">ありません</p>'}
       <h3>送電線・配電線・変電所（${g.lines.length + g.subs.length}）</h3>${lines + subs || '<p class="note">まだありません（建設から建てます）</p>'}
       <h3>報告書</h3>${reports || '<p class="note">まだありません</p>'}`,
     bind: ({ onAll, g: gg }) => {
+      bindTabs(onAll);
       onAll('[data-inc]', 'click', (e) => incidentScreen(e.currentTarget.dataset.inc));
       onAll('[data-accept]', 'click', async (e) => {
         const a = gg.apps.find((x) => x.id === e.currentTarget.dataset.accept);
@@ -2545,6 +2573,75 @@ function listPanel(g, lc) {
       onAll('[data-goline]', 'click', (e) => (setPanel(null), openSel('line', e.currentTarget.dataset.goline, true)));
     },
   };
+}
+
+// ---- 1.8.0 史実モードのミッション：一覧のタブ・答え合わせのカード ----
+function missionsHtml(g) {
+  const open = Ms.MISSIONS.filter((m) => Gm.missionOpen(g, m));
+  const todo = open.filter((m) => !Gm.missionDone(g, m.id));
+  const done = open.filter((m) => Gm.missionDone(g, m.id));
+  const later = Ms.MISSIONS.filter((m) => !Gm.missionOpen(g, m));
+  const row = (m) => `<div class="gitem gmission"><p class="spread"><b>${A.esc(m.name)}</b><small>${eraName(m.era)}${m.level ? `（Lv${m.level}）` : ''}</small></p>
+    <p class="small">${A.esc(m.goal)}</p>
+    <p class="small gmprog">進み具合：${A.esc(Gm.missionProgress(g, m))}</p>
+    <p class="small gmhint">ヒント：${A.esc(m.hint)}</p>
+    ${unitButtons(m.units)}</div>`;
+  const drow = (m) => `<button class="gitem grow2 gmdone" data-mcard="${m.id}"><span><b>✓ ${A.esc(m.name)}</b><small>${A.esc(doneWhen(g, m.id))} ・ 答え合わせを見る</small></span><span class="go">›</span></button>`;
+  return `<p class="small">史実モードのミッション：日本の電気の歴史の大事なところを、自分の系統でたどる。時代が進む条件ではない（いつでも続きができる）。判定はゲームの1日（0時）に、前の日の結果で。達成すると答え合わせ（史実）と、ご褒美の収益（直近 7 日の売電の平均の 5 日分）。</p>
+    <h3>ミッション（${todo.length}）</h3>${todo.map(row).join('') || '<p class="note">いま出ているミッションは、すべて達成した</p>'}
+    ${later.length ? `<p class="small">これからの時代に出るミッション：${later.length}</p>` : ''}
+    ${done.length ? `<h3>達成した（${done.length}）</h3>${done.map(drow).join('')}` : ''}
+    <p class="small"><button class="link" data-sources>出典の一覧</button></p>`;
+}
+const doneWhen = (g, id) => {
+  const d = g.missions?.done?.[id];
+  return d ? `ゲームの ${Gm.yearOf(d.t) + 1}年目・${eraName(d.era || 1)}に達成` : '';
+};
+// 答え合わせのカード（地図に重ねる半透明のカード）：史実の年・内容・出典・確かめたかどうか・物理の説明
+function missionCard(id) {
+  const g = G(), m = Ms.missionOf(id);
+  const mid = document.querySelector('[data-mid]');
+  if (!m || !mid) return;
+  const a = Ms.answerOf(m, g);
+  const d = g.missions?.done?.[id];
+  mid.querySelector('.gmcard')?.remove();
+  const el = document.createElement('div');
+  el.className = 'gmcard';
+  el.setAttribute('role', 'dialog');
+  el.innerHTML = `<div class="gmcardin">
+    <p class="gmhead">${d ? 'ミッション達成 ・ 答え合わせ' : '答え合わせ'}</p>
+    <h2>${A.esc(m.name)}</h2>
+    ${a.year ? `<p class="gmyear">史実 ${a.year}年</p>` : a.physics ? '<p class="gmyear">物理</p>' : ''}
+    <p>${A.esc(a.text)}</p>
+    ${a.extra ? `<p class="gmextra">${A.esc(a.extra)}</p>` : ''}
+    <p class="small">出典 ${A.esc(a.src)}（${J.confText(a.conf)}）${a.physics ? ' ・ 物理の説明つき' : ''} <button class="link" data-sources>出典の一覧</button></p>
+    ${d ? `<p class="small">${A.esc(doneWhen(g, id))}${d.reward ? ` ・ ご褒美 収益 +${yen(d.reward)}` : ''}</p>` : ''}
+    ${unitButtons(m.units)}
+    <button class="btn primary gwide" data-mclose>閉じる</button></div>`;
+  mid.append(el);
+  el.querySelector('[data-mclose]').onclick = () => {
+    el.remove();
+    drainMissions();
+    drainAlerts();
+  };
+  el.querySelector('[data-sources]').onclick = sourcesSheet;
+  el.querySelectorAll('[data-unitgo]').forEach((b) => (b.onclick = () => goUnit(b.dataset.unitgo)));
+  if (A.fx() && d) A.playNotes([[659.3, 0], [784, 0.1], [1046.5, 0.2]]);
+}
+// 新しく達成したミッション：したことの帯「ミッション達成：◯◯」と答え合わせのカード（1つずつ。演出・ほかのカードがあれば待つ）
+function drainMissions() {
+  const g = G();
+  const fresh = g?.missions?.fresh;
+  if (!fresh?.length || !onGrid() || tutOn() || DEV.running || document.querySelector('.modal, .goverlay, .galert, .gtut, .gmcard')) return;
+  const id = fresh.shift();
+  if (!fresh.length) delete g.missions.fresh;
+  const m = Ms.missionOf(id);
+  if (m) {
+    band(`ミッション達成：${m.name}`);
+    missionCard(id);
+  }
+  save();
+  if (panel?.startsWith('list')) drawPanel(true);
 }
 
 // 1.6.4 この系統で再現した史実（史実と同じ区間を結んだもの）。まだ再現していないものは出さない（答えを先に見せない）

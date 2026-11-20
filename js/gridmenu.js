@@ -3,6 +3,7 @@
 // 地点・手順はデータなので、1.6.0（日本列島）では中身を差し替えるだけでよい
 import * as Gm from './grid.js';
 import * as J from './gridjapan.js';
+import * as Ms from './gridmission.js';
 
 const eraName = (n) => Gm.ERAS[Math.min(n, Gm.ERAS.length) - 1].name;
 const gateText = (keys) => `「${keys.map((k) => Gm.GATE_NAMES[k]).join('」「')}」の単元で、まだ1問も正解していない`;
@@ -264,12 +265,15 @@ export function recordFact(g, fact) {
   return true;
 }
 // 年表の行：史実の年の順。[{ year, text, game }]（game：ゲームの中の年と時代）。知らない id（史実の一覧から外したもの）は出さない
+// 1.8.0：達成したミッション（g.missions.done。年は達成したときの答え合わせの年。年のない物理のミッションは出さない）も入る
 export function factTimeline(g) {
-  return (g.facts || [])
-    .map((f) => ({ f, d: J.LINE_FACTS.find((x) => x.id === f.id) }))
+  const ms = Object.entries(g.missions?.done || {}).filter(([, d]) => d.year).map(([id, d]) => ({ id, t: d.t, era: d.era, year: d.year, mission: true }));
+  return [...(g.facts || []), ...ms]
+    .map((f) => ({ f, d: f.mission ? Ms.missionFact(f.id) : J.LINE_FACTS.find((x) => x.id === f.id) }))
     .filter((x) => x.d)
-    .sort((a, b) => a.d.year - b.d.year || a.f.t - b.f.t)
-    .map(({ f, d }) => ({ year: d.year, text: d.short, game: `${Gm.yearOf(f.t) + 1}年目・${Gm.ERAS[(f.era || 1) - 1]?.name || ''}`, conf: d.conf }));
+    .map((x) => ({ ...x, year: x.f.year || x.d.year || 0 }))
+    .sort((a, b) => a.year - b.year || a.f.t - b.f.t)
+    .map(({ f, d, year }) => ({ year, text: d.short, game: `${Gm.yearOf(f.t) + 1}年目・${Gm.ERAS[(f.era || 1) - 1]?.name || ''}`, conf: d.conf, mission: !!f.mission }));
 }
 // 1.6.4 昼と夜：地図の暗さ（0〜1）。18〜5時は夜、17時・6時は中間。見た目だけ（需要の形は変えない）
 export function nightOf(hour) {

@@ -4,6 +4,7 @@
 import * as L from './logic.js';
 import { JAPAN_NODES } from './japan.js';
 import * as J from './gridjapan.js';
+import * as Ms from './gridmission.js';
 
 // ---- 時間 ----
 export const HOUR_MS = 150000; // ゲームの1時間＝現実の2.5分（1日＝1時間）
@@ -1230,12 +1231,16 @@ export const EVENTS = {
   priceWar: { name: '電力戦', days: 60, text: '競争で料金が 20% 下がる' },
   drought: { name: '渇水', days: 30, text: '水力の出力が 4 割に落ちる' },
 };
-export function startEvent(G, lc, key) {
+// o.y1939：史実モードの 1939 年の渇水（5章。報告書に「1939年の渇水に準じる」）
+export function startEvent(G, lc, key, o = {}) {
   if (evOn(G, key)) return;
   const E = EVENTS[key];
-  G.events.push({ key, at: G.t, until: G.t + 24 * E.days });
-  note(G, `${E.name}（${E.text}）`);
-  addReport(G, { title: E.name, what: `${E.text}。${E.days}日間。`, units: key === 'drought' ? INCIDENTS.drought.units : [] });
+  const ev = { key, at: G.t, until: G.t + 24 * E.days, ...(o.y1939 ? { y1939: true } : {}) };
+  // 1.8.0 ミッション M08（渇水をしのぐ）：始まったときにミッションが出ていれば、渇水の間の負荷遮断・全域停電を数える
+  if (key === 'drought' && missionsOn(G) && G.era >= Ms.missionOf('M08').era && !G.missions?.done?.M08) Object.assign(ev, { mWatch: true, mBad: 0, mServed: 0 });
+  G.events.push(ev);
+  note(G, `${E.name}（${E.text}）${o.y1939 ? '・1939年の渇水に準じる' : ''}`);
+  addReport(G, { title: o.y1939 ? `${E.name}（1939年の渇水に準じる）` : E.name, what: `${E.text}。${E.days}日間。${o.y1939 ? '史実モード：昭和前期に入ったあとの夏に、1939年の渇水に準じて決まって起きる。' : ''}`, units: key === 'drought' ? INCIDENTS.drought.units : [] });
   if (key === 'coalSpike') G.fuel.base = 1.8;
   if (key === 'drought' && G.plants.some((p) => !P(p).coal && p.readyAt <= G.t)) raise(G, lc, 'drought', { what: '渇水で水力の出力が 4 割まで落ちた。', cool: 24 * 30 });
 }
@@ -1245,6 +1250,7 @@ function daily(G, lc) {
   const t = G.t;
   const day = Math.floor(t / 24);
   const s = seasonOf(t);
+  missionDaily(G); // 1.8.0 ミッションの判定（前の日の結果で）。終わった渇水の判定があるので、出来事を片づける前に
   G.events = G.events.filter((e) => e.until > t || (e.key === 'coalSpike' && ((G.fuel.base = 1), false)));
   // 季節の出来事・時代の出来事
   const roll = (p) => rnd(G) < p;
@@ -1255,6 +1261,11 @@ function daily(G, lc) {
   if (G.era >= 3 && roll(0.003)) startEvent(G, lc, 'coalSpike');
   if (G.era >= 3 && roll(0.002)) startEvent(G, lc, 'priceWar');
   if (G.era >= 4 && roll(0.003)) startEvent(G, lc, 'drought');
+  // 1.8.0 史実モード（日本列島）：E4 に入ったあとの最初の夏に、1939 年の渇水に準じた渇水を1回、決まって起こす（ほかの出来事は今の確率のまま）
+  if (G.era >= 4 && s === 1 && isJapan(G) && modeOf(G) === 'history' && G.drought1939 == null && !evOn(G, 'drought')) {
+    G.drought1939 = t;
+    startEvent(G, lc, 'drought', { y1939: true });
+  }
   // 燃料：スポットは毎日 ±30%（平均は長期契約の 0.85 倍）。長期契約は1年ごとに見直し
   G.fuel.spot = G.fuel.base * 0.85 * (0.7 + 0.6 * rnd(G));
   if (day % YEAR_DAYS === 0) G.fuel.contract = G.fuel.base;
@@ -1514,6 +1525,169 @@ export function recloseLine(G, lc, id) {
   return { ok: true, again, live: !again && lineActive(G, l, G.t) };
 }
 
+// ---- 1.8.0 史実モードのミッション（データと答え合わせの文は gridmission.js） ----
+// 出すのは史実モードの日本列島の系統だけ（古い島・自由モード・デモ・練習の東京では出さない）。時代が進む条件にはしない
+// 判定はゲームの1日（0時）に、前の日の結果（G.day：町ごとの需要・届いた量・直流から届いた量、発電所ごとの発電量、売電）で確かめる
+export const missionsOn = (G) => !!G && isJapan(G) && modeOf(G) === 'history' && !G.noMissions;
+export const missionOpen = (G, m) => m.era <= G.era;
+export const missionDone = (G, id) => !!G?.missions?.done?.[id];
+export const newMissions = (G, from, to) => (missionsOn(G) ? Ms.MISSIONS.filter((m) => m.era > from && m.era <= to) : []);
+const newDay = () => ({ h: 0, rev: 0, towns: {}, plants: {} });
+// 1刻みごとに、その日の結果を積み上げる（step の最後）
+function missionHour(G, last, bad) {
+  const d = (G.day ||= newDay());
+  d.h++;
+  d.rev += last.rev || 0;
+  for (const [n, x] of Object.entries(last.towns)) {
+    const v = (d.towns[n] ||= [0, 0, 0]);
+    v[0] += x.d;
+    v[1] += x.d * x.r;
+    v[2] += x.dc || 0;
+  }
+  for (const [id, o] of Object.entries(last.plants)) if (o > 0) d.plants[id] = (d.plants[id] || 0) + o;
+  const e = G.events.find((x) => x.key === 'drought' && x.mWatch && x.until > last.t);
+  if (e) {
+    if (bad) e.mBad++;
+    e.mServed += last.served || 0;
+  }
+}
+function missionDaily(G) {
+  if (!missionsOn(G)) {
+    if (G.day) delete G.day;
+    return;
+  }
+  const day = G.day?.h > 0 ? G.day : null;
+  G.day = newDay();
+  G.missions ||= { done: {} };
+  if (day) G.revDays = [...(G.revDays || []), Math.round(day.rev)].slice(-7);
+  for (const m of Ms.MISSIONS) {
+    if (!missionOpen(G, m) || G.missions.done[m.id]) continue;
+    const r = missionCheck(G, m, day);
+    if (r) achieveMission(G, m, r);
+  }
+}
+const servedDay = (day, n, k = 0.9) => {
+  const v = day?.towns[n];
+  return !!v && v[0] > 1e-9 && v[1] >= k * v[0] - 1e-9;
+};
+// 発電所から、線をたどって町に届く道（木の形なので道は1つ）。その道のうち cond.kv 以上の線の長さの合計（直流は直流の線）。
+// live：電気が入っている線だけ・前の日に発電した発電所だけ・前の日の需要の 90% 以上に届いた町だけ（達成の判定）。
+// そうでなければ、今ある線（工事中を含む。周波数違いで切れている線は除く）で、いちばん長い道（進み具合）
+export function deliverBest(G, cond, { live = false, day = null } = {}) {
+  const dc = cond.src === 'dc';
+  const t = G.t;
+  const adj = new Map();
+  for (const l of G.lines) {
+    if (!!LINES[l.kind].dc !== dc || l.hzTrip || (live && !lineActive(G, l, t))) continue;
+    (adj.get(l.a) || adj.set(l.a, []).get(l.a)).push([l.b, l]);
+    (adj.get(l.b) || adj.set(l.b, []).get(l.b)).push([l.a, l]);
+  }
+  const srcOk = (p) => (dc ? !PLANTS[p.type].ac : PLANTS[p.type].ac && (cond.src !== 'hydro' || !PLANTS[p.type].coal));
+  const best = { km: 0, ok: false, plant: null, town: null };
+  for (const p of G.plants) {
+    if (!srcOk(p) || (live && !((day?.plants[p.id] || 0) > 0))) continue;
+    const seen = new Set([p.site]);
+    const stack = [[p.site, 0]];
+    while (stack.length) {
+      const [v, km] = stack.pop();
+      for (const [w, l] of adj.get(v) || []) {
+        if (seen.has(w)) continue;
+        seen.add(w);
+        const q = km + (dc || LINES[l.kind].kv >= cond.kv ? l.km : 0);
+        stack.push([w, q]);
+        if (!nodeOf(G, w)?.town) continue;
+        if (live && !servedDay(day, w)) continue;
+        if (q > best.km + 1e-9) Object.assign(best, { km: q, plant: p.id, town: w });
+        if (q >= cond.km - 1e-9) best.ok = true;
+      }
+    }
+  }
+  return best;
+}
+export function missionCheck(G, m, day) {
+  const c = m.cond;
+  switch (c.kind) {
+    case 'dcLamp': {
+      if (!day) return null;
+      const towns = [...new Set(G.loads.filter((l) => l.type === 'lamp').map((l) => l.town))];
+      const n = towns.find((x) => {
+        const v = day.towns[x];
+        return v && v[0] > 1e-9 && v[2] >= 0.9 * v[0] - 1e-9;
+      });
+      return n ? { info: { town: n } } : null;
+    }
+    case 'acPlant': {
+      const p = G.plants.find((x) => PLANTS[x.type].ac && x.hz);
+      return p ? { info: { hz: p.hz, site: p.site } } : null;
+    }
+    case 'deliver': {
+      if (!day) return null;
+      const b = deliverBest(G, c, { live: true, day });
+      return b.ok ? { info: { plant: b.plant, town: b.town, km: Math.round(b.km) } } : null;
+    }
+    case 'drought': {
+      // 見ていた渇水が終わったら判定する（負荷遮断・全域停電が1時間もなく、電気を届けていたら達成）
+      let hit = null;
+      for (const e of G.events) {
+        if (e.key !== 'drought' || !e.mWatch || e.mJudged || e.until > G.t) continue;
+        e.mJudged = true;
+        if (!e.mBad && e.mServed > 0) hit = { info: { y1939: !!e.y1939 } };
+        else {
+          G.missions.tries = (G.missions.tries || 0) + 1;
+          addReport(G, { title: 'ミッション「渇水をしのぐ」は次の渇水で', what: `今回の渇水の間に、負荷遮断・全域停電が ${e.mBad}時間あった${e.mServed > 0 ? '' : '（電気を届けていなかった）'}。次の渇水で、また挑戦できる（火力の予備を用意しておく）。`, units: m.units });
+        }
+      }
+      return hit;
+    }
+    default:
+      return null;
+  }
+}
+// ご褒美：収益（円）に「直近 7 日の売電の平均の 5 日分」（収益は学習通貨に換えられないので、学習の釣り合いは変わらない）
+export function missionReward(G) {
+  const d = G.revDays || [];
+  return d.length ? Math.round((d.reduce((a, b) => a + b, 0) / d.length) * 5) : 0;
+}
+function achieveMission(G, m, r) {
+  const reward = missionReward(G);
+  G.yen += reward;
+  G.missions.done[m.id] = { t: G.t, era: G.era, info: r.info || {}, reward };
+  (G.missions.fresh ||= []).push(m.id); // 画面：したことの帯と答え合わせのカード（見せたら消す）
+  const ans = Ms.answerOf(m, G);
+  if (ans.year) G.missions.done[m.id].year = ans.year; // 再現した史実の年表に出す年（gridmenu.js の factTimeline。年のない物理のミッションは出さない）
+  note(G, `ミッション達成：${m.name}`);
+  addReport(G, { title: `ミッション達成：${m.name}`, what: `${m.goal}。ご褒美：収益 +${reward.toLocaleString('ja-JP')} 円（直近 7 日の売電の平均の 5 日分）。答え合わせ：${ans.text}${ans.extra ? `。${ans.extra}` : ''}`, units: m.units, ok: true });
+}
+// 進み具合の1行（一覧のパネル）
+export function missionProgress(G, m) {
+  const c = m.cond;
+  if (missionDone(G, m.id)) return '達成';
+  switch (c.kind) {
+    case 'dcLamp': {
+      const n = G.plants.filter((p) => !PLANTS[p.type].ac).length;
+      const k = new Set(G.loads.filter((l) => l.type === 'lamp').map((l) => l.town)).size;
+      return `直流の火力 ${n} ・ 電灯の需要のある町 ${k}`;
+    }
+    case 'acPlant':
+      return `交流の発電機 ${G.plants.filter((p) => PLANTS[p.type].ac).length ? 1 : 0} / 1`;
+    case 'deliver': {
+      const b = deliverBest(G, c);
+      const what = c.src === 'dc' ? '直流 200 V の線' : `${c.src === 'hydro' ? '水力から ' : ''}${c.kv} kV 以上の線`;
+      const km = b.km >= 10 ? Math.floor(b.km) : Math.floor(b.km * 10) / 10;
+      return `${what} ${km} / ${c.km} km${b.km >= c.km ? '（線は足りている。町に1日の需要の 90% 以上が届けば、次の 0 時に達成）' : ''}`;
+    }
+    case 'drought': {
+      const e = G.events.find((x) => x.key === 'drought' && x.mWatch && !x.mJudged && x.until > G.t);
+      if (e) return `渇水の間：あと${Math.ceil((e.until - G.t) / 24)}日 ・ 負荷遮断と全域停電 ${e.mBad}時間`;
+      if (G.missions?.tries) return '前の渇水では負荷遮断・全域停電があった。次の渇水で、また挑戦できる';
+      if (G.drought1939 == null && G.era >= 4) return '昭和前期に入ったあとの夏に、渇水が起きる（史実モード）';
+      return '渇水が起きるのを待つ';
+    }
+    default:
+      return '';
+  }
+}
+
 // ---- 1刻み（ゲームの1時間）進める ----
 export function step(G, lc) {
   const t = G.t;
@@ -1654,6 +1828,7 @@ export function step(G, lc) {
   if (!anyBad && !anyShed && !anyBlack) y.okH++;
   Object.assign(last, { x: worst, demand, served, loss, rev, fuel, shed: anyShed, black: anyBlack }, explainStep(G, sol, t));
   G.last = last;
+  if (missionsOn(G)) missionHour(G, last, anyShed || anyBlack);
   if (demand > 0) G.lossRatio = Math.min(0.5, 0.8 * G.lossRatio + 0.2 * (loss / Math.max(served, 1e-9)));
   G.hist.push([t, Math.round(demand * 10) / 10, Math.round(served * 10) / 10, Math.round(gen.dc * 10) / 10, Math.round(gen.coal * 10) / 10, Math.round(gen.hydro * 10) / 10, Math.round(worst * 100) / 100]);
   if (G.hist.length > 168) G.hist.shift();
@@ -1675,7 +1850,9 @@ export function applyLearning(G, lc) {
     const opened = openedAreas(G, before, lc.era);
     if (opened.length) note(G, `${opened.join('・')}が開いた`);
     const facts = isJapan(G) ? J.ERA_FACTS[lc.era] || [] : [];
-    addReport(G, { title: `時代が進んだ：${E.name}（${E.year}）`, what: `新しい設備と需要が登場する。${opened.length ? `建てられる範囲が広がった（${opened.join('・')}）。` : ''}${facts.length ? `史実：${facts.join('。')}（確かめた）。` : ''}`, units: [] });
+    const ms = newMissions(G, before, lc.era); // 1.8.0 新しく出たミッション
+    if (ms.length) note(G, `新しいミッション：${ms.map((m) => m.name).join('・')}`);
+    addReport(G, { title: `時代が進んだ：${E.name}（${E.year}）`, what: `新しい設備と需要が登場する。${opened.length ? `建てられる範囲が広がった（${opened.join('・')}）。` : ''}${facts.length ? `史実：${facts.join('。')}（確かめた）。` : ''}${ms.length ? `新しいミッション：${ms.map((m) => m.name).join('・')}（一覧の「ミッション」）。` : ''}`, units: [] });
   }
 }
 // 時代 from → to で新しく開いたエリア（日本列島。エリアの町か水力の地点のどれかが開いたら）
