@@ -1103,3 +1103,8 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gmodetag.m-history { color: var(--lv3); }
 .gmodetag.m-free { color: var(--ok); }
 .gmodeseg .btn.on { font-weight: 700; }
+/* 周波数の違う網を結んだ線：建設のカードの赤い警告・切れている線（赤い点線） */
+.gwarnhz { margin: 6px 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--ng); background: var(--ng-bg); color: var(--ng); font-size: 0.78rem; line-height: 1.5; }
+.gwarnhz small { color: var(--text); }
+.gmap .glabel.gtrip { fill: var(--ng); font-weight: 700; }
+.gterbox i.kht { height: 0; border: 0; border-top: 3px dotted var(--ng); border-radius: 0; }

@@ -402,7 +402,7 @@ export function fuelPrice(G, t = G.t) {
 export const lineCircuits = (l, t) => (l.downUntil > t ? 0 : l.n - (l.c1Until > t ? 1 : 0));
 const subsAt = (G, town, t) => G.subs.filter((s) => s.town === town && s.readyAt <= t && s.downUntil <= t);
 function lineActive(G, l, t) {
-  if (l.readyAt > t || lineCircuits(l, t) <= 0) return false;
+  if (l.hzTrip || l.readyAt > t || lineCircuits(l, t) <= 0) return false; // 1.8.0 周波数違いで切れている線は網に入れない
   if (!LINES[l.kind].hv) return true;
   // 送電線（11 kV 以上）は、町の側に動いている変電所がないとつながらない
   return [l.a, l.b].every((id) => !nodeOf(G, id).town || subsAt(G, id, t).length > 0);
@@ -930,6 +930,11 @@ function linkWhy(G, n, t, only = null) {
       out.push({ k: 'noSub', town: [subLess.a, subLess.b].find(lack) });
       continue;
     }
+    const hzT = c.lines.find((l) => l.hzTrip); // 1.8.0 周波数違いで切れている線
+    if (hzT) {
+      out.push({ k: 'lineHz', line: hzT.id });
+      continue;
+    }
     const down = c.lines.find((l) => l.readyAt <= t && lineCircuits(l, t) <= 0);
     if (down) {
       out.push({ k: 'lineDown', line: down.id, h: Math.max(0, down.downUntil - t) });
@@ -1018,6 +1023,7 @@ export function whyText(G, w) {
     case 'noSub': return `${nm(w.town)}に変電所がない（11 kV 以上の送電線は、町の側に変電所が要る）`;
     case 'lineDown': return `途中の線が止まっている：${ln(w.line)}（事故・過負荷${w.h ? `。あと${hh(w.h)}` : ''}）`;
     case 'lineWork': return `途中の線が工事中：${ln(w.line)}（あと${hh(w.h)}）`;
+    case 'lineHz': return `途中の線が切れている（周波数違い）：${ln(w.line)}（50 Hz と 60 Hz の網を交流の線でつなぐと、脱調して保護装置で切れる）`;
     case 'dim': return '直流の電圧が下がっている（電灯が暗い。品質の低下で料金が少し減る）';
     default: return '';
   }
@@ -1073,7 +1079,10 @@ export const INCIDENTS = {
   backFlash: { q: ['Q16'], title: '架空地線があるのに雷事故', units: ['denken3-denryoku-U06', 'denken3-denryoku-U10'] },
   arc: { q: ['Q17'], title: '地絡のアークが消えない', units: ['denken3-denryoku-U09'] },
   drought: { q: ['Q18'], title: '渇水', units: ['denken3-denryoku-U01', 'power-system-U05'] },
+  outOfStep: { q: ['Q19', 'Q20'], title: '周波数の違う網をつないだ（脱調）', units: ['denken3-denryoku-U08', 'denken2-denryoku-U08', 'circuit-b-U13'] }, // 1.8.0
 };
+// 1.8.0 脱調の事故報告書の「なぜ」
+export const OOS_WHY = '周波数が違うと、両側の電圧の位相のずれが回り続ける（50 Hz と 60 Hz なら毎秒 10 回転）。ずれが 180° に近づくたびに大きな電流が流れ、同期を保てない';
 export const MAX_INCIDENTS = 3;
 const qid = (q) => `${L.GRID_SUBJECT}-${q}`;
 // 事故を対処待ちに入れる。問題データに問題がなければ入れない（標準の被害のまま）
@@ -1192,6 +1201,11 @@ export function resolveIncident(G, id, correct) {
       scaleOutage(G, inc, correct ? 0 : 1.5, correct ? 0.5 : 1.5);
       ok('アークが消えて、送電を続けられた。', '事故が広がり、送電線が止まる時間が延びた。');
       break;
+    case 'outOfStep':
+      // 標準の被害（答えずに1日）＝いちばん大きい交流の発電機の修理 1 日。正解＝その被害もなし（線は切れたまま）、誤答＝入れ直して修理 2 日
+      scaleOutage(G, inc, correct ? 0 : 2);
+      ok('周波数が違うままでは入れ直さず、線は切ったままにした。ほかに被害はない。', '線を入れ直してしまい、また脱調した。いちばん大きい発電機が衝撃で傷んだ（修理 2 日）。線は切れたまま。');
+      break;
     case 'drought': {
       const e = evOn(G, 'drought');
       if (correct && e) e.eased = true;
@@ -1202,7 +1216,7 @@ export function resolveIncident(G, id, correct) {
     default:
       text = '';
   }
-  addReport(G, { title: INCIDENTS[inc.key].title, what: `${inc.what || ''}${correct ? '【正しく対処】' : '【対処を誤った】'}${text}`, units: INCIDENTS[inc.key].units, ok: correct });
+  addReport(G, { title: INCIDENTS[inc.key].title, what: `${inc.what || ''}${correct ? '【正しく対処】' : '【対処を誤った】'}${text}`, ...(inc.key === 'outOfStep' ? { why: OOS_WHY } : {}), units: INCIDENTS[inc.key].units, ok: correct });
   return text;
 }
 
@@ -1359,7 +1373,7 @@ function failures(G, lc, prev) {
     p._fail = { dur, cost };
   }
   for (const l of G.lines) {
-    if (l.readyAt > t || lineCircuits(l, t) <= 0) continue;
+    if (l.hzTrip || l.readyAt > t || lineCircuits(l, t) <= 0) continue;
     const hz = lineHazard(G, l, t, lc);
     if (rnd(G) >= hz.perDay / 24) continue;
     if (shielded()) continue;
@@ -1405,6 +1419,101 @@ export function lineName(G, l) {
   return `${nodeOf(G, l.a).name}〜${nodeOf(G, l.b).name}の${LINES[l.kind].short}`;
 }
 
+// ---- 1.8.0 周波数の違う網と脱調（禁止はしない。結果は物理で返す） ----
+// 交流の線に電気が入るとき（完成・修理のあと・変電所ができたとき・入れ直し）、その線が「交流の発電機のある網どうしで周波数の違うもの」を
+// 結ぶ形になったら、その線は保護装置で切れる（l.hzTrip。網の計算から外す。撤去・入れ直しはできる）。
+// 判定の順：前から電気が入っていた線（l.inAt の古い順）を先に、新しく入る線をあとに。発電機は完成したものだけを数える
+// （工事中の発電機が完成して網が2つの周波数になったときは、あとからつながる側の線が切れる）。
+// 事故 outOfStep は同じ線で 24 時間に1回まで。切れた刻みは、両側の網の周波数の乱れ（±0.5 Hz。品質の低下と同じ扱い。負荷遮断はしない）
+export const OOS_X = 0.5;
+function hzCheck(G, lc, t) {
+  const live = G.lines.filter((l) => !LINES[l.kind].dc && !l.hzTrip && lineActive(G, l, t));
+  for (const l of G.lines) if (l.inAt != null && !live.includes(l)) delete l.inAt;
+  if (!live.length) return [];
+  const up = new Map(), hz = new Map();
+  const find = (x) => {
+    if (!up.has(x)) up.set(x, x);
+    let r = x;
+    while (up.get(r) !== r) r = up.get(r);
+    while (up.get(x) !== r) {
+      const n = up.get(x);
+      up.set(x, r);
+      x = n;
+    }
+    return r;
+  };
+  for (const p of G.plants) if (PLANTS[p.type].ac && p.hz && p.readyAt <= t && !hz.has(find(p.site))) hz.set(find(p.site), p.hz);
+  live.sort((a, b) => (a.inAt ?? Infinity) - (b.inAt ?? Infinity) || 0);
+  const out = [];
+  for (const l of live) {
+    const ra = find(l.a), rb = find(l.b);
+    if (ra === rb) continue;
+    const ha = hz.get(ra), hb = hz.get(rb);
+    if (ha && hb && ha !== hb) {
+      // つながっていた両側の地点（このときの網。あとの線でつながる分は含めない）
+      const side = new Set([...up.keys()].filter((v) => find(v) === ra || find(v) === rb));
+      out.push({ l, ha, hb, side });
+      continue;
+    }
+    up.set(ra, rb);
+    if (!hb && ha) hz.set(rb, ha);
+    if (l.inAt == null) l.inAt = t;
+  }
+  for (const x of out) tripHz(G, lc, t, x);
+  return out;
+}
+function tripHz(G, lc, t, { l, ha, hb, side }) {
+  l.hzTrip = true;
+  l.hzAt = t;
+  l.hzPair = [nodeOf(G, l.a).name, ha, nodeOf(G, l.b).name, hb];
+  delete l.inAt;
+  (G._oos ||= []).push({ a: l.a, b: l.b, ha, hb }); // この刻みの周波数の乱れ（oosDisturb）
+  const name = lineName(G, l);
+  note(G, `${name}が脱調で切れた（${ha} Hz と ${hb} Hz の網をつないだ）`);
+  if (l.oosAt != null && t - l.oosAt < 24) return; // 同じ線の事故は 24 時間に1回まで
+  l.oosAt = t;
+  const what = `${name}に電気が入り、${ha} Hz の網と ${hb} Hz の網がつながった。脱調して、保護装置が線を切った。`;
+  // 標準の被害（答えずに1日）：つながっていた両側で、いちばん大きい交流の発電機の修理 1 日
+  const big = G.plants.filter((p) => PLANTS[p.type].ac && plantReady(p, t) && side.has(p.site)).sort((a, b) => b.kw - a.kw)[0];
+  const inc = raise(G, lc, 'outOfStep', { line: l.id, what, cool: 1 });
+  if (inc && big) {
+    const cost = big.cost * 0.05;
+    Object.assign(inc, { plant: big.id, dur: 24, cost, what: `${what}${nodeOf(G, big.site).name}の${P(big).short}（${fmtKw(big.kw)}）が脱調の衝撃を受け、点検で止まっている。` });
+    big.downUntil = t + 24;
+    big.on = false;
+    big.onAt = null;
+    G.yen -= cost;
+    G.acc.repair += cost;
+    G.yr.profit -= cost;
+  }
+  if (!inc) addReport(G, { title: `${name}が脱調で切れた`, what: `${what}線は切れたまま（線の詳細から入れ直せる）。`, why: OOS_WHY, units: INCIDENTS.outOfStep.units });
+}
+// 切れた刻み：両側の網（50 Hz・60 Hz）の周波数の乱れ。高い周波数の網は下がり、低い網は上がる向き
+function oosDisturb(G, sol) {
+  const list = G._oos;
+  if (!list?.length) return;
+  delete G._oos;
+  for (const r of sol.results) {
+    if (r.net.dc || !r.net.plants.length) continue;
+    const hit = list.find((o) => r.net.nodes.includes(o.a) || r.net.nodes.includes(o.b));
+    if (!hit) continue;
+    const sign = r.hz === Math.max(hit.ha, hit.hb) ? -1 : 1;
+    r.x = sign * Math.max(Math.abs(r.x || 0), OOS_X);
+    r.oos = true;
+  }
+}
+// 線の詳細の「入れ直す」：周波数が違うままなら、すぐにまた切れる（事故は同じ線で 24 時間に1回まで）。そろっていれば入る
+export function recloseLine(G, lc, id) {
+  const l = G.lines.find((x) => x.id === id);
+  if (!l || !l.hzTrip) return { ok: false, why: '切れている線ではない' };
+  delete l.hzTrip;
+  delete l.hzAt;
+  delete l.hzPair;
+  const out = hzCheck(G, lc, G.t);
+  const again = out.some((x) => x.l === l);
+  return { ok: true, again, live: !again && lineActive(G, l, G.t) };
+}
+
 // ---- 1刻み（ゲームの1時間）進める ----
 export function step(G, lc) {
   const t = G.t;
@@ -1423,8 +1532,10 @@ export function step(G, lc) {
   }
   for (const l of G.lines) if (!l.done && l.readyAt <= t) (l.done = true), note(G, `${lineName(G, l)}が開通した`);
 
+  hzCheck(G, lc, t); // 1.8.0 電気が入る交流の線が、周波数の違う網どうしを結ぶ形なら、脱調して切れる
   const trip = failures(G, lc, G.last);
   const sol = solve(G, lc, t, { trip });
+  oosDisturb(G, sol);
   const tripNet = new Map();
   for (const r of sol.results) for (const id of r.tripped) tripNet.set(id, r);
   for (const p of G.plants) {
@@ -1631,10 +1742,11 @@ export function siteAllows(G, type, siteId) {
 }
 // 発電所の見積もり。{ ok, cost, hours, proto, why }
 // 交流の網（線でつながった地点。工事中・止まっている線も含む）の地点の集まり
+// 1.8.0：周波数違いで切れている線は含めない
 export function acComponent(G, id) {
   const adj = new Map();
   for (const l of G.lines) {
-    if (LINES[l.kind].dc) continue;
+    if (LINES[l.kind].dc || l.hzTrip) continue;
     (adj.get(l.a) || adj.set(l.a, []).get(l.a)).push(l.b);
     (adj.get(l.b) || adj.set(l.b, []).get(l.b)).push(l.a);
   }
@@ -1644,15 +1756,39 @@ export function acComponent(G, id) {
   return seen;
 }
 // その地点の交流の網の周波数（1.6.0：系統ごと）。網の中の交流の発電機の周波数。なければ古い島の周波数（G.hz）、それもなければ null
+// 1.8.0：網の中に周波数が2つあるとき（工事中の線が 50 Hz と 60 Hz の網を結んでいるときなど）は、近い地点の発電機の周波数（線の数で数えた近さ）
 export function netHz(G, id) {
   const c = acComponent(G, id);
-  return G.plants.find((p) => PLANTS[p.type].ac && p.hz && c.has(p.site))?.hz || G.hz || null;
+  const hzAt = new Map();
+  for (const p of G.plants) if (PLANTS[p.type].ac && p.hz && c.has(p.site) && !hzAt.has(p.site)) hzAt.set(p.site, p.hz);
+  if (!hzAt.size) return G.hz || null;
+  if (hzAt.has(id)) return hzAt.get(id);
+  const adj = new Map();
+  for (const l of G.lines) {
+    if (LINES[l.kind].dc || l.hzTrip) continue;
+    (adj.get(l.a) || adj.set(l.a, []).get(l.a)).push(l.b);
+    (adj.get(l.b) || adj.set(l.b, []).get(l.b)).push(l.a);
+  }
+  const seen = new Set([id]);
+  let ring = [id];
+  while (ring.length) {
+    const next = [];
+    for (const v of ring) for (const m of adj.get(v) || []) if (!seen.has(m)) seen.add(m), next.push(m);
+    const hit = next.filter((v) => hzAt.has(v)).map((v) => hzAt.get(v)).sort();
+    if (hit.length) return hit[0];
+    ring = next;
+  }
+  return G.hz || null;
 }
 // 画面に出す周波数：いちばん乱れている網（なければ古い島の周波数）。使っている周波数の一覧
 export const freqNow = (G) => G.last?.hz || G.hz || null;
 export const hzList = (G) => [...new Set(G.plants.filter((p) => PLANTS[p.type].ac && p.hz).map((p) => p.hz))].sort();
-export const HZ_WHY = '周波数が違う網どうしはつなげない（周波数変換所ができるのは 1965 年の佐久間から）';
-export const SEA_WHY = '海をこえて島どうしをつなぐ線は、まだ作れない（1945 年の九州と本州の連系から）';
+// 1.8.0：周波数の違う網も交流の線で結べる（禁止はしない）。つないだ瞬間に脱調して、保護装置で切れる（hzCheck）
+export const HZ_WARN = 'この線は 50 Hz の網と 60 Hz の網をつなぐ。つないだ瞬間に脱調して、保護装置で切れる（電気は送れない）';
+// 海をこえる線は、史実の禁止ではなく、まだ開いていない技術（海峡線が開くのは戦後復興の版から）。史実モードだけ史実の年を添える
+export const SEA_WHY = '海をこえる線（海峡を渡る鉄塔・海底ケーブル）の技術は、まだない（この先の時代に開く）';
+export const SEA_FACT = '史実では 1945 年に関門で本州と九州がつながった';
+export const seaWhy = (G) => (modeOf(G) === 'history' ? `${SEA_WHY}。${SEA_FACT}` : SEA_WHY);
 export function quotePlant(G, lc, { type, kw, site, hz = null }) {
   const D = PLANTS[type];
   const size = D.sizes.find((s) => s[0] === kw);
@@ -1684,7 +1820,7 @@ export function buildPlant(G, lc, spec) {
   if (!PLANTS[spec.type].ac) G.buffs.dcDiscount = false;
   const p = { id: `P${G.nextId++}`, type: spec.type, kw: spec.kw, site: spec.site, cost: q.base, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, on: false, onAt: null, downUntil: 0, idle: false, store: 0, hold: 0, done: false };
   if (q.freq) p.hz = q.freq; // 交流の発電機の周波数（網が分かれたり、つながったりしても変えない）
-  if (q.newHz) addReport(G, { title: `周波数を ${q.freq} Hz に決めた`, what: `${nodeOf(G, spec.site).name}の交流の網は、これから ${q.freq} Hz で動く。周波数の違う網とは線でつなげない（網が分かれたり、つながったりしても、発電機の周波数は変わらない）。`, units: [] });
+  if (q.newHz) addReport(G, { title: `周波数を ${q.freq} Hz に決めた`, what: `${nodeOf(G, spec.site).name}の交流の網は、これから ${q.freq} Hz で動く。周波数の違う網と交流の線でつなぐと、脱調して切れる（網が分かれたり、つながったりしても、発電機の周波数は変わらない）。`, units: [] });
   G.plants.push(p);
   // 燃料のいらない水力は、優先順位の先頭に入れる（あとで並べ替えられる）
   if (PLANTS[spec.type].coal) G.priority.push(p.id);
@@ -1711,10 +1847,12 @@ export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {} }) {
   if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
   if (K.dc && !(nodeOf(G, a).town && nodeOf(G, b).town)) return { ok: false, why: '直流の配電線は、町と町の間だけ' };
   for (const id of [a, b]) if (!nodeOpen(G, id)) return { ok: false, why: closedWhy(G, nodeOf(G, id)), closed: true };
-  if (nodeOf(G, a).island && nodeOf(G, a).island !== nodeOf(G, b).island) return { ok: false, why: SEA_WHY, sea: true };
+  if (nodeOf(G, a).island && nodeOf(G, a).island !== nodeOf(G, b).island) return { ok: false, why: seaWhy(G), sea: true };
+  // 1.8.0：周波数の違う網どうしでも見積もりは ok。警告（hzDiff）を付ける
+  let hzw = null;
   if (!K.dc) {
     const ha = netHz(G, a), hb = netHz(G, b);
-    if (ha && hb && ha !== hb) return { ok: false, why: `${HZ_WHY}。${nodeOf(G, a).name}は ${ha} Hz、${nodeOf(G, b).name}は ${hb} Hz`, hzDiff: true };
+    if (ha && hb && ha !== hb) hzw = { hzDiff: true, warn: `${HZ_WARN}。${nodeOf(G, a).name}は ${ha} Hz、${nodeOf(G, b).name}は ${hb} Hz`, hzPair: [ha, hb] };
   }
   const gates = [...K.gates, ...Object.keys(opts).filter((o) => opts[o]).flatMap((o) => LINE_OPTS[o].gates)];
   const miss = [...new Set(missing(lc, gates))];
@@ -1733,7 +1871,7 @@ export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {} }) {
   if (K.dc && G.buffs.dcDiscount) cost *= 0.8;
   const needSub = K.hv ? [a, b].filter((id) => nodeOf(G, id).town && !G.subs.some((s) => s.town === id)) : [];
   const base = Math.max(50, Math.round(cost));
-  return { ok: true, cost: coinOf(base), base, km: r.km, hazards: r.hazards, hours: buildHours(12 + Math.min(228, r.km), lc, K.perf), proto, needSub };
+  return { ok: true, cost: coinOf(base), base, km: r.km, hazards: r.hazards, hours: buildHours(12 + Math.min(228, r.km), lc, K.perf), proto, needSub, ...(hzw || {}) };
 }
 export function buildLine(G, lc, spec) {
   const q = quoteLine(G, lc, spec);

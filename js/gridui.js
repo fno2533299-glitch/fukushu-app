@@ -649,6 +649,7 @@ function nowSheet() {
   const bad = rows.filter((r) => r.w.k !== 'dim');
   const dim = rows.filter((r) => r.w.k === 'dim');
   const over = g.lines.filter((x) => (l.lines[x.id]?.util || 0) > 1).sort((a, b) => l.lines[b.id].util - l.lines[a.id].util);
+  const trips = g.lines.filter((x) => x.hzTrip); // 1.8.0
   const row = (focus, head, sub, text) => `<button class="gwhyrow" data-focus="${focus}"><span class="spread"><b>${head}</b><small>${sub}</small></span><small>${text}</small></button>`;
   const name = (id) => A.esc(Gm.nodeOf(g, id)?.name || '');
   const MAX = 30;
@@ -657,6 +658,7 @@ function nowSheet() {
     <p class="small">${timeLabel(g)} の1時間。行を押すと、その場所へ地図が寄ります。</p>
     ${bad.length ? `<h3>届いていない町（${bad.length}）</h3>${bad.slice(0, MAX).map((r) => row(`node:${r.n}`, name(r.n), `届いていない ${kw(r.miss)}（${pct(1 - r.st.r)}）`, A.esc(Gm.whyText(g, r.w)))).join('')}${bad.length > MAX ? `<p class="small">ほか ${bad.length - MAX}か所</p>` : ''}` : '<p>いまは、需要のある町すべてに届いています。</p>'}
     ${dim.length ? `<h3>電圧の低下（${dim.length}）</h3>${dim.slice(0, MAX).map((r) => row(`node:${r.n}`, name(r.n), '届いている', A.esc(Gm.whyText(g, r.w)))).join('')}` : ''}
+    ${trips.length ? `<h3>周波数違いで切れている線（${trips.length}）</h3>${trips.slice(0, MAX).map((x) => row(`line:${x.id}`, A.esc(Gm.lineName(g, x)), '切れている', `${x.hzPair ? `${A.esc(x.hzPair[0])} ${x.hzPair[1]} Hz と ${A.esc(x.hzPair[2])} ${x.hzPair[3]} Hz。` : ''}つないだ瞬間に脱調して、保護装置で切れた`)).join('')}` : ''}
     ${over.length ? `<h3>使用率が 100% を超えている線（${over.length}）</h3>${over.slice(0, MAX).map((x) => row(`line:${x.id}`, A.esc(Gm.lineName(g, x)), `使用率 ${pct(l.lines[x.id].util)}`, '120% を2時間超えると保護装置で切れる。回線を増やすか、別の道を作る')).join('')}` : ''}
     ${netsHtml(g)}`,
     ({ onAll, close }) =>
@@ -1064,7 +1066,7 @@ function sceneData(g) {
 let keyOpen = false;
 function terrainKeyHtml() {
   const sw = (cls, name) => `<span><i class="${cls}"></i>${name}</span>`;
-  return `<div class="gterkey${keyOpen ? ' open' : ''}" data-terkey><button class="btn small" data-terkeybtn aria-expanded="${keyOpen}">凡例</button>${keyOpen ? `<div class="gterbox">${sw('k0', '平野')}${sw('k1', '丘陵 100 m〜')}${sw('k2', '山地 500 m〜')}${sw('k3', '高い山 1,500 m〜')}${sw('kl', '湖')}${sw('kr', '川')}${sw('kp', '県境')}<small>拡大すると</small>${sw('kf', '田畑')}${sw('kt', '林')}${sw('ku', '市街地')}<small>線の使用率</small>${sw('ku0', '〜90%')}${sw('ku1', '90% 超で注意')}${sw('ku2', '100% 超')}${sw('ku3', '120% 超')}<small>網の周波数</small>${sw('kh50', '50 Hz')}${sw('kh60', '60 Hz')}<small>線の対策の印</small>${Object.keys(OPT_HAZ).map((o) => `<span>${optKey(o)}</span>`).join('')}</div>` : ''}</div>`;
+  return `<div class="gterkey${keyOpen ? ' open' : ''}" data-terkey><button class="btn small" data-terkeybtn aria-expanded="${keyOpen}">凡例</button>${keyOpen ? `<div class="gterbox">${sw('k0', '平野')}${sw('k1', '丘陵 100 m〜')}${sw('k2', '山地 500 m〜')}${sw('k3', '高い山 1,500 m〜')}${sw('kl', '湖')}${sw('kr', '川')}${sw('kp', '県境')}<small>拡大すると</small>${sw('kf', '田畑')}${sw('kt', '林')}${sw('ku', '市街地')}<small>線の使用率</small>${sw('ku0', '〜90%')}${sw('ku1', '90% 超で注意')}${sw('ku2', '100% 超')}${sw('ku3', '120% 超')}${sw('kht', '切れている（周波数違い）')}<small>網の周波数</small>${sw('kh50', '50 Hz')}${sw('kh60', '60 Hz')}<small>線の対策の印</small>${Object.keys(OPT_HAZ).map((o) => `<span>${optKey(o)}</span>`).join('')}</div>` : ''}</div>`;
 }
 // 表示の細かさ（1.6.0）：縮めたときは「大」の町の名前だけ。中・小の町・水力の地点は拡大すると出す。東京の区は町の中まで拡大したときだけ
 // （それより縮めたときは、いちばん目立つ区に「東京」とだけ出す）。建設モードで光る地点・選んだ地点はいつも出す
@@ -1099,20 +1101,21 @@ function topInner(g) {
     const K = Gm.LINES[l.kind];
     const L2 = linePath(a, b, l.route, K.dc);
     const building = l.readyAt > t;
-    const down = !building && Gm.lineCircuits(l, t) <= 0;
-    const fl = g.last?.lines[l.id];
+    const hzT = !building && !!l.hzTrip; // 1.8.0 周波数違いで切れている：赤い点線（黄色い点線は流さない）
+    const down = !building && (hzT || Gm.lineCircuits(l, t) <= 0);
+    const fl = hzT ? null : g.last?.lines[l.id];
     const u = fl?.util || 0;
     const flowing = !building && !down && !!fl && fl.p > 1e-3;
     // 1.7.4：直流の線も、使用率が 90% を超えたら使用率の色
     const col = building ? 'var(--muted)' : down ? 'var(--ng)' : K.dc && Mn.utilTier(u) === 0 ? 'var(--gdc)' : utilColor(u);
     const wdt = K.dc ? 2 : K.kv >= 66 ? 3.6 : K.kv >= 11 ? 2.8 : 2;
     // 1.7.4：拡大して線の名前が出るときは、いま送っている量も
-    const label = building ? `${K.short} 工事 あと${hoursText(l.readyAt - t)}` : `${K.short}${l.n > 1 ? `×${l.n}` : ''}${flowing ? ` ${kw(fl.p)}` : ''}`;
+    const label = building ? `${K.short} 工事 あと${hoursText(l.readyAt - t)}` : hzT ? `${K.short} 切れている（周波数違い）` : `${K.short}${l.n > 1 ? `×${l.n}` : ''}${flowing ? ` ${kw(fl.p)}` : ''}`;
     const mk = markOf(l.id);
     const showLabel = L2.len > 70 || selLine === l.id;
-    const hz = !K.dc && hzN.get(l.a);
-    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${L2.d}" fill="none" stroke="transparent" stroke-width="22"/>${hz ? `<path d="${L2.d}" class="ghzhalo h${hz}" stroke-width="${wdt + 5}"/>` : ''}${selLine === l.id ? `<path d="${L2.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${mk === 'glow' ? `<path d="${L2.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : ''}<path d="${L2.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : down ? 'stroke-dasharray="7 5"' : ''}/>${flowing ? flowArrow(L2, a, b, fl.to !== l.a, wdt, u) : ''}
-      ${showLabel ? `<text x="${L2.lx.toFixed(1)}" y="${(L2.ly - (flowing ? 9 : 4)).toFixed(1)}" class="glabel${building ? ' gwork' : ''}">${label}</text>` : ''}${building && showLabel ? cone(L2.lx, L2.ly + 8, mk === 'work') : ''}${building ? '' : showLabel ? optMarks(l, L2.lx + textW7(label) / 2 + 9, L2.ly - 6.5, t, false, true) : optMarks(l, L2.lx, L2.ly, t, true)}</g>`;
+    const hz = !K.dc && !hzT && hzN.get(l.a);
+    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${L2.d}" fill="none" stroke="transparent" stroke-width="22"/>${hz ? `<path d="${L2.d}" class="ghzhalo h${hz}" stroke-width="${wdt + 5}"/>` : ''}${selLine === l.id ? `<path d="${L2.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${mk === 'glow' ? `<path d="${L2.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : ''}<path d="${L2.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : hzT ? 'stroke-dasharray="1.5 4.5" class="ghztrip"' : down ? 'stroke-dasharray="7 5"' : ''}/>${flowing ? flowArrow(L2, a, b, fl.to !== l.a, wdt, u) : ''}
+      ${showLabel ? `<text x="${L2.lx.toFixed(1)}" y="${(L2.ly - (flowing ? 9 : 4)).toFixed(1)}" class="glabel${building ? ' gwork' : hzT ? ' gtrip' : ''}">${label}</text>` : ''}${building && showLabel ? cone(L2.lx, L2.ly + 8, mk === 'work') : ''}${building ? '' : showLabel ? optMarks(l, L2.lx + textW7(label) / 2 + 9, L2.ly - 6.5, t, false, true) : optMarks(l, L2.lx, L2.ly, t, true)}</g>`;
     flows += flowPath(g, l, a, b, L2, mk === 'glow');
   }
   s += `<g class="gflows${B ? ' gdim' : ''}" aria-hidden="true">${flows}</g>`;
@@ -1194,7 +1197,7 @@ function hzOfNodes(g) {
     const ra = find(a), rb = find(b);
     if (ra !== rb) up.set(ra, rb);
   };
-  for (const l of g.lines) if (!Gm.LINES[l.kind].dc) join(l.a, l.b);
+  for (const l of g.lines) if (!Gm.LINES[l.kind].dc && !l.hzTrip) join(l.a, l.b); // 1.8.0 周波数違いで切れている線は網に入れない
   const acPlants = g.plants.filter((p) => Gm.PLANTS[p.type].ac && p.hz);
   for (const p of acPlants) if (!up.has(p.site)) up.set(p.site, p.site);
   const hzRoot = new Map();
@@ -1942,12 +1945,12 @@ function candidates(g, lc) {
     if (!B.from) {
       for (const n of nodes) if (nodes.some((o) => o.id !== n.id && ok(n.id, o.id))) m.set(n.id, 'can');
     } else {
-      m.hz = new Set(); // 1.6.4：周波数が違うためにつなげない地点（札「周波数違い」）
+      m.hz = new Set(); // 1.6.4：周波数が違う地点（札「周波数違い」）。1.8.0：引けるが、つなぐと脱調して切れる（警告）
       for (const n of nodes) {
         if (n.id === B.from) continue;
         const q = Gm.quoteLine(g, lc, { a: B.from, b: n.id, kind: B.lk });
         if (q.ok) m.set(n.id, 'can');
-        else if (q.hzDiff) m.hz.add(n.id);
+        if (q.hzDiff) m.hz.add(n.id);
       }
       m.set(B.from, 'sel');
       if (B.to) m.set(B.to, 'sel');
@@ -2070,6 +2073,7 @@ function drawBuildCard() {
       <div class="gseg groute">${['direct', 'detour'].map((k) => `<button class="btn small ${B.route === k ? 'on' : ''}" data-broute="${k}">${k === 'direct' ? 'まっすぐ' : '回り道'}<small>${r[k].km.toFixed(1)} km ・ 危険：${hazardText(r[k].hazards)}</small></button>`).join('')}</div>
       <p class="small">1回線で送れる量 ${kw(K.cap)} ・ いっぱいに流すと損失 ${(lossFull * 100).toFixed(1)}%${lossFull > 0.1 ? '（<b class="gneg">大きい</b>）' : ''}</p>
       ${opts ? `<details class="gopts"><summary>対策（${Object.values(B.opts).filter(Boolean).length}）${r[B.route].hazards.length ? `<span class="ghaz">この区間：${hazardText(r[B.route].hazards, true)}</span>` : ''}</summary>${opts}</details>` : ''}
+      ${q.ok && q.hzDiff ? `<p class="gwarnhz">${A.esc(q.warn)}</p>` : ''}
       ${q.ok && q.needSub.length ? `<p class="warn small">建設はできますが、${q.needSub.map((x) => Gm.nodeOf(g, x).name).join('・')}に変電所（建設 → 変圧器）を建てるまで電気は流れません。</p>` : ''}
       ${quoteHtml(q)}`;
     what = `${K.short}（${(q.km || 0).toFixed(1)} km）`;
@@ -2254,7 +2258,7 @@ function sourcesSheet() {
 function hzDialog(after) {
   sheet(
     `<h2>周波数を選ぶ</h2>
-    <p>交流の発電機を、どこから買うか。建てると<b>この網（線でつながった範囲）の周波数</b>になり、あとから変えられません。周波数の違う網とは、線でつなげません。</p>
+    <p>交流の発電機を、どこから買うか。建てると<b>この網（線でつながった範囲）の周波数</b>になり、あとから変えられません。周波数の違う網と交流の線でつなぐと、脱調して保護装置で切れます（電気は送れません）。</p>
     <div class="gbtns2">
       <button class="btn big" data-hz="50">ドイツ製<small>50 Hz</small></button>
       <button class="btn big" data-hz="60">アメリカ製<small>60 Hz</small></button>
@@ -2321,17 +2325,28 @@ function linePanel(g, lc, id) {
     title: A.esc(Gm.lineName(g, l)),
     html: `<p class="small glinehead">${linePic(l.kind)}<span>${K.name} ・ ${l.km.toFixed(1)} km（${l.route === 'detour' ? '回り道' : 'まっすぐ'}）・ ${l.n}回線${l.proto ? ' ・ 試作' : ''}</span></p>
     ${fact ? `<p class="small gfact">史実：${A.esc(fact.text)}（出典 ${A.esc(fact.src)}・${J.confText(fact.conf)}） <button class="link" data-sources>出典の一覧</button></p>` : ''}
-    <p class="small">状態：${stateOf(l, t) || (l.c1Until > t ? `1回線が修理中（あと ${l.c1Until - t}時間）` : '送電中')}${f ? ` ・ 流れ ${kw(f.p)}（送れる量 ${kw(K.cap * Math.max(1, Gm.lineCircuits(l, t)))}）・ 使用率 <b class="${f.util > 1 ? 'gneg' : f.util > 0.9 ? 'gcaut' : ''}">${pct(f.util)}</b>${f.util > 0.9 && f.util <= 1 ? '（90% 超で注意）' : ''} ・ 損失 ${kw(f.loss)}${dir}` : ''}</p>
+    ${l.hzTrip ? `<div class="gwarnhz"><b>切れている（周波数違い）</b><br>${l.hzPair ? `${A.esc(l.hzPair[0])}側は ${l.hzPair[1]} Hz、${A.esc(l.hzPair[2])}側は ${l.hzPair[3]} Hz の網。` : ''}周波数が違うと、両側の電圧の位相のずれが回り続け（50 Hz と 60 Hz なら毎秒 10 回転）、ずれが 180° に近づくたびに大きな電流が流れる。同期を保てないので、保護装置が線を切った（電気は送れない）。<br><small>入れ直しても、周波数が違うままなら、すぐにまた切れる。どちらかの網から交流の発電機がなくなるなど、周波数がそろえば入る。</small></div>` : ''}
+    <p class="small">状態：${l.hzTrip && !stateOf(l, t) ? '切れている（周波数違い）' : stateOf(l, t) || (l.c1Until > t ? `1回線が修理中（あと ${l.c1Until - t}時間）` : '送電中')}${f && !l.hzTrip ? ` ・ 流れ ${kw(f.p)}（送れる量 ${kw(K.cap * Math.max(1, Gm.lineCircuits(l, t)))}）・ 使用率 <b class="${f.util > 1 ? 'gneg' : f.util > 0.9 ? 'gcaut' : ''}">${pct(f.util)}</b>${f.util > 0.9 && f.util <= 1 ? '（90% 超で注意）' : ''} ・ 損失 ${kw(f.loss)}${dir}` : ''}</p>
     <p class="small">危険：${hazardText(l.hazards)} ・ 対策：${optNames.length ? optNames.join('・') : 'なし'} ・ 故障の目安 1日あたり ${(hz.perDay * 100).toFixed(2)}%</p>
     ${optOnKeys.length ? `<p class="small">地図の印：${optOnKeys.map(optKey).join(' ／ ')}</p>` : ''}
     <p class="small">送れる量を超えて 120% までは温度が上がるだけ（故障しやすくなる）。120% を2時間超えると保護装置で切れる。</p>
     <div class="gbtns2">
+      ${l.hzTrip ? '<button class="btn" data-reclose>入れ直す<small>周波数が違うままなら、また切れる</small></button>' : ''}
       <button class="btn" data-circ>回線を増やす<small>${qc.ok ? `${A.num(qc.cost)} コイン` : A.esc(qc.why)}</small></button>
       ${canOpt ? '<button class="btn" data-addopts>対策を足す<small>後から（費用は割増）</small></button>' : ''}
       <button class="btn" data-rm>撤去</button>
     </div>`,
     bind: ({ onAll }) => {
       onAll('[data-circ]', 'click', () => circuitDialog(id));
+      onAll('[data-reclose]', 'click', async () => {
+        const g2 = G();
+        const r = Gm.recloseLine(g2, learningNow(), id);
+        if (!r.ok) return A.toast(r.why);
+        await save();
+        await screen();
+        act('reclose', { line: g2.lines.find((x) => x.id === id), again: r.again, live: r.live });
+        collectAlerts();
+      });
       onAll('[data-addopts]', 'click', () => optDialog(id));
       onAll('[data-sources]', 'click', sourcesSheet);
       onAll('[data-rm]', 'click', () => removeDialog('line', id));

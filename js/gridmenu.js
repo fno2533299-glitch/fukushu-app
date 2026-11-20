@@ -193,6 +193,8 @@ export function actText(g, kind, x = {}) {
       return `${x.name}を撤去した（収益に ${yenText(x.back)} 戻った）`;
     case 'circuit':
       return `${Gm.lineName(g, x)}の回線を増やした（${x.n}回線）`;
+    case 'reclose':
+      return x.again ? `${Gm.lineName(g, x.line)}を入れ直した。周波数が違うままなので、また脱調して切れた` : `${Gm.lineName(g, x.line)}を入れ直した${x.live ? '（電気が入った）' : '（工事中・変電所なしなどで、まだ電気は入らない）'}`;
     case 'cap':
       return `${nodeName(g, x.town)}の工場に進相コンデンサを付けた（力率 0.95）`;
     case 'lineOpt':
@@ -371,7 +373,7 @@ export function tutorialAction(g, lc, name, advance) {
 
 // ---- 1.5.3 事故・出来事が起きたときの演出：見出し・絵・新しく起きたものの見つけ方 ----
 // 事故の絵は7つにまとめる（I01〜I07。試作/系統ゲーム_画像プロンプト.md）。渇水は出来事の絵（G18）。絵がない間は fallback の G の絵
-export const INC_PIC = { lightning: 'I01', backFlash: 'I01', arc: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18' };
+export const INC_PIC = { lightning: 'I01', backFlash: 'I01', arc: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18', outOfStep: 'I04' };
 export const PIC_FALLBACK = { I01: 'G11', I02: 'G11', I03: 'G15', I04: 'G06', I05: 'G10', I06: 'G11', I07: 'G01', L01: 'G11', L02: 'G11', L03: 'G11' };
 // 1.6.1 線の階級ごとの絵：町の電柱（L01）・木柱の送電線（L02）・中くらいの鉄塔（L03）・大きな鉄塔（G11）。L の絵がない間は G11
 export const LINE_PIC = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11' };
@@ -379,7 +381,7 @@ export const LINE_PIC = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac
 export const isReport = (key) => !/発生$/.test(INC_HEAD[key] || '');
 export const EV_PIC = { heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18' };
 // 赤い太字の見出し（「◯◯発生」。起きたことではなく判断を求めるものは、それに合う言い方）
-export const INC_HEAD = { dcDrop: '電圧低下発生', parallelIn: '並列投入の判断', salt: '塩害発生', gallop: 'ギャロッピング発生', genTrip: '発電機故障発生', genShort: '発電機故障・予備力不足', reserve: '予備力不足', trLoss: '変圧器の損失報告', trParallel: '循環電流発生', trShare: '変圧器過負荷発生', lineOver: '送電線過負荷発生', factoryPf: '低力率の申し込み', motor: '電灯のちらつき発生', lightning: '落雷事故発生', backFlash: '逆フラッシオーバ発生', arc: '地絡アーク発生', drought: '渇水発生' };
+export const INC_HEAD = { dcDrop: '電圧低下発生', parallelIn: '並列投入の判断', salt: '塩害発生', gallop: 'ギャロッピング発生', genTrip: '発電機故障発生', genShort: '発電機故障・予備力不足', reserve: '予備力不足', trLoss: '変圧器の損失報告', trParallel: '循環電流発生', trShare: '変圧器過負荷発生', lineOver: '送電線過負荷発生', factoryPf: '低力率の申し込み', motor: '電灯のちらつき発生', lightning: '落雷事故発生', backFlash: '逆フラッシオーバ発生', arc: '地絡アーク発生', drought: '渇水発生', outOfStep: '脱調発生' };
 export const EV_HEAD = { heat: '猛暑到来', cold: '厳冬到来', typhoon: '台風発生', snowstorm: '大雪発生', coalSpike: '石炭価格高騰', priceWar: '電力戦勃発', drought: '渇水発生' };
 const evId = (e) => `${e.key}@${e.at}`;
 // いまある事故と出来事の印（これと比べて、新しく起きたものを見つける）
