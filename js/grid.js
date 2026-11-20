@@ -329,10 +329,11 @@ export function routeInfo(G, a, b, route) {
 
 // ---- 最初の状態（設計 12章） ----
 // terrain：'japan'（1.6.0 から新しく始めるのはこれ。start＝始める町）。古い島（standard など）はテストと古い記録のため
-export function newGrid(seed = 1, nowMs = 0, { terrain = 'standard', start = null, islandNo = 1, perfMax = {}, past = [] } = {}) {
+// 1.8.0 mode：'history'（史実モード。今までの本番の系統）／'free'（自由モード）
+export function newGrid(seed = 1, nowMs = 0, { terrain = 'standard', start = null, islandNo = 1, perfMax = {}, past = [], mode = 'history' } = {}) {
   const home = terrain === 'japan' ? start || J.TOKYO : 'T1';
   const G = {
-    v: 2, islandNo, terrain, seed, rng: seed | 0,
+    v: 2, mode: mode === 'free' ? 'free' : 'history', islandNo, terrain, seed, rng: seed | 0,
     ...(terrain === 'japan' ? { start: home } : {}),
     t: 6, realAt: nowMs, era: 1, hz: null,
     yen: 10000, loanUntil: 0, negHours: 0, rebuild: false,
@@ -360,7 +361,17 @@ export function upgrade(G) {
     for (const p of G.plants || []) if (PLANTS[p.type]?.ac && !p.hz && G.hz) p.hz = G.hz;
     G.v = 2;
   }
+  if (G.mode !== 'free') G.mode = 'history'; // 1.8.0：mode のない古い保存データは史実モード
   return G;
+}
+// ---- 1.8.0 史実モードと自由モード ----
+export const MODES = { history: { name: '史実モード', tag: '史実' }, free: { name: '自由モード', tag: '自由' } };
+export const modeOf = (G) => (G?.mode === 'free' ? 'free' : 'history');
+// 性能の上乗せの「これまでの最大値」を両モードで共通にする：2つの大きいほう（下がらない）
+export function maxPerf(a = {}, b = {}) {
+  const out = { ...(a || {}) };
+  for (const [k, v] of Object.entries(b || {})) out[k] = Math.max(out[k] || 0, v || 0);
+  return out;
 }
 const newAcc = () => ({ hours: 0, rev: 0, fuel: 0, maint: 0, repair: 0, loan: 0, unserved: 0, shedH: 0, blackH: 0, badH: 0, fails: 0, apps: 0, notes: [] });
 const newYear = (idx) => ({ idx, profit: 0, unserved: 0, okH: 0, hours: 0, served: 0 });
@@ -1886,7 +1897,9 @@ export function rebuildSell(G, items) {
 // 1.6.0：「別の地方から始める」＝terrain 'japan' と始める町（start）。古い島の地形も選べる（開発者モード）
 export function newIsland(G, terrain, nowMs, seed = (G.seed * 31 + 7) | 0, start = null) {
   const past = [...(G.past || []), { islandNo: G.islandNo, terrain: G.terrain, start: G.start || null, hours: G.t, years: G.years, best: G.best, last: G.yr, peak: G.loads.reduce((a, l) => a + l.kw, 0) }].slice(-10);
-  return newGrid(seed, nowMs, { terrain, start, islandNo: G.islandNo + 1, perfMax: G.perfMax, past });
+  const g = newGrid(seed, nowMs, { terrain, start, islandNo: G.islandNo + 1, perfMax: G.perfMax, past, mode: modeOf(G) }); // 1.8.0：今のモードの系統だけをやり直す
+  if (G.noMissions) g.noMissions = true; // デモ・練習の東京はミッションを出さない
+  return g;
 }
 // 系統の名前（経営のパネル・開発者モード）：日本列島は始めた町、古い島は地形
 export function placeName(G) {

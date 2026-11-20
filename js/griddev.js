@@ -202,6 +202,56 @@ export function triggerEvent(G, lc, key) {
   return { ok: true };
 }
 
+// ---- 1.8.0 史実モードと自由モード：本番の系統は2つ（kv「grid」＝史実、kv「gridFree」＝自由）。いま遊んでいるほうは kv「gridMode」 ----
+// アプリの状態：S.grid＝いまのモードの系統、S.gridOther＝もう一方（自由モードをまだ始めていなければ null）、S.gridMode
+export const MODE_KEY = 'gridMode';
+export const FREE_KEY = 'gridFree';
+export const gridKey = (mode) => (mode === 'free' ? FREE_KEY : 'grid');
+// 読み込んだ kv から、いまのモードと2つの系統を決める。mode がない・自由モードの系統がないときは史実モード
+export function pickModes({ grid = null, gridFree = null, gridMode = null } = {}, upgrade = Gm.upgrade) {
+  const hist = upgrade(grid || null);
+  const free = upgrade(gridFree || null);
+  if (hist) hist.mode = 'history';
+  if (free) free.mode = 'free';
+  const mode = gridMode === 'free' && free ? 'free' : 'history';
+  return mode === 'free' ? { mode, grid: free, other: hist } : { mode, grid: hist, other: free };
+}
+// 性能の上乗せの最大値を2つの系統でそろえる（大きいほう）
+export function sharePerf(a, b) {
+  if (!a || !b) return;
+  const m = Gm.maxPerf(a.perfMax, b.perfMax);
+  a.perfMax = { ...m };
+  b.perfMax = { ...m };
+}
+// 切り替え：いまの系統を S.gridOther に回し、もう一方を S.grid に。もう一方がなければ make() で作る（make がなければ null）
+export function swapMode(S, mode, make = null) {
+  mode = mode === 'free' ? 'free' : 'history';
+  if ((S.gridMode || 'history') === mode) return false;
+  let next = S.gridOther;
+  if (!next) {
+    if (!make) return null;
+    next = make();
+    next.mode = mode;
+  }
+  sharePerf(S.grid, next);
+  S.gridOther = S.grid;
+  S.grid = next;
+  S.gridMode = mode;
+  return true;
+}
+// 両方の系統とモードを保存する（切り替えたとき）
+export async function saveModes(db, S) {
+  const mode = S.gridMode || 'history';
+  if (S.grid) await db.putKV(gridKey(mode), S.grid);
+  if (S.gridOther) await db.putKV(gridKey(mode === 'free' ? 'history' : 'free'), S.gridOther);
+  await db.putKV(MODE_KEY, mode);
+}
+// バックアップに入れる分：史実の系統（grid）・自由の系統（gridFree）・いまのモード（gridMode）
+export function backupGrids(S) {
+  const free = S.gridMode === 'free';
+  return { grid: (free ? S.gridOther : S.grid) || null, gridFree: (free ? S.grid : S.gridOther) || null, gridMode: S.gridMode || 'history' };
+}
+
 // ---- 書き込み先（本番／開発者モード）。画面からの書き込みはすべてここを通す ----
 // db：putKV・saveAnswer・put を持つもの。S：アプリの状態（S.grid・S.gacha・S.logs など）。dev：{ on, state, key }
 // key：別の系統を保存する kv の名前（開発者モード「gridDev」、1.5.2 のチュートリアルの練習の島「gridTutorial」）
@@ -210,7 +260,12 @@ export function makeStore(db, S, dev) {
   return {
     grid: () => (dev.on ? dev.state.grid : S.grid),
     setGrid: (g) => (dev.on ? (dev.state.grid = g) : (S.grid = g)),
-    save: () => (dev.on ? db.putKV(key(), dev.state) : db.putKV('grid', S.grid)),
+    // 1.8.0：本番は、いまのモードの系統（史実 kv「grid」／自由 kv「gridFree」）。性能の最大値はもう一方とそろえる
+    save: () => {
+      if (dev.on) return db.putKV(key(), dev.state);
+      if (S.grid && S.gridOther) S.grid.perfMax = Gm.maxPerf(S.grid.perfMax, S.gridOther.perfMax);
+      return db.putKV(gridKey(S.gridMode), S.grid);
+    },
     // コインの残高。開発者モードでは本番のコインを使わない
     balance: (real) => (!dev.on ? real : dev.state.opts.coins === 'unlimited' ? Infinity : dev.state.opts.devCoins),
     async spend(coins, what, entry) {
@@ -218,7 +273,8 @@ export function makeStore(db, S, dev) {
         if (dev.state.opts.coins !== 'unlimited') dev.state.opts.devCoins = Math.max(0, dev.state.opts.devCoins - coins);
         return db.putKV(key(), dev.state);
       }
-      S.gacha.push({ ...entry, kind: 'grid', cardId: null, paid: 'coin', coins, what });
+      // 1.8.0 財布は1つ（両モード共通）。台帳の行に mode（どちらのモードで建てたか）
+      S.gacha.push({ ...entry, kind: 'grid', cardId: null, paid: 'coin', coins, what, mode: Gm.modeOf(S.grid) });
       return db.putKV('gachaLog', S.gacha);
     },
     // 事故の問題の回答：開発者モードでは回答記録・復習状態・セッションに残さない（正誤だけをゲームに反映する）

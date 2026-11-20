@@ -290,6 +290,7 @@ export function tutorialGrid(nowMs) {
   // 最初の発電所はなし（自分で建てて町を灯す）
   g.plants = [];
   g.priority = [];
+  g.noMissions = true; // 1.8.0：練習の東京は史実モード。ミッションは出さない
   return g;
 }
 export function tutorialState(nowMs) {

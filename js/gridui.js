@@ -63,8 +63,9 @@ function yenShort(v) {
 // 学習の状況（記録が変わったときだけ計算し直す）。本番の系統の分
 function learningReal() {
   const { S } = A;
-  const key = `${S.logs.length}|${S.data?.importedAt}|${S.data?.questions.length}`;
-  if (!lcCache || lcCache.key !== key) lcCache = { key, lc: Gm.learning(S.logs, S.data, S.grid?.perfMax || {}) };
+  const key = `${S.logs.length}|${S.data?.importedAt}|${S.data?.questions.length}|${S.gridMode}`;
+  // 1.8.0：性能の上乗せの最大値は両モードで共通（2つの系統の大きいほう）
+  if (!lcCache || lcCache.key !== key) lcCache = { key, lc: Gm.learning(S.logs, S.data, Gm.maxPerf(S.grid?.perfMax, S.gridOther?.perfMax)) };
   return lcCache.lc;
 }
 // 開発者モード・デモの学習の状況の元（デモは問題データを使わない）
@@ -87,9 +88,11 @@ export async function sync(now = Date.now()) {
   }
   const era = S.grid.era;
   const steps = Gm.catchUp(S.grid, learningReal(), now);
-  if (steps > 0 || fresh || S.grid.era !== era) await A.db.putKV('grid', S.grid);
+  if (steps > 0 || fresh || S.grid.era !== era) await A.db.putKV(Dv.gridKey(S.gridMode), S.grid); // 1.8.0：いまのモードの系統だけ進める（もう一方は止めておく）
   return steps;
 }
+// 1.8.0 バックアップに入れる系統（史実 grid・自由 gridFree・いまのモード gridMode）
+export const backupGrids = () => Dv.backupGrids(A.S);
 // いま出している系統を保存する（開発者モードでは kv「gridDev」）
 const save = () => store.save();
 const onGrid = () => A.S.view === 'grid' && !!document.querySelector('.gscreen');
@@ -161,7 +164,7 @@ export function homeCard() {
   const o = Gm.overview(g, learningReal());
   const chips = [g.rebuild ? '<span class="tag gng">経営再建</span>' : '', g.incidents.length ? `<span class="tag gng">事故の対処待ち ${g.incidents.length}件</span>` : '', g.apps.length ? `<span class="tag">申し込み ${g.apps.length}件</span>` : ''].join('');
   return `<button class="mapcard gridcard" data-go="grid">
-      <span class="spread"><b>動く系統</b><span class="go">開く ›</span></span>
+      <span class="spread"><b>動く系統<i class="gmodetag m-${Gm.modeOf(g)}">${Gm.MODES[Gm.modeOf(g)].tag}</i></b><span class="go">開く ›</span></span>
       <span class="spread small"><span>${eraName(g.era)} ・ ${timeLabel(g)}</span><span>収益 ${yen(g.yen)}</span></span>
       <span class="small">受けている需要 ${kw(o.accepted)} ／ 上限 ${kw(o.dmax)}</span>
       ${chips ? `<span class="gchips">${chips}</span>` : ''}
@@ -286,6 +289,8 @@ function gridState(g) {
   if (Gm.freqNow(g) && Math.abs(l.x) > Gm.FREQ.ok) return { text: '周波数の乱れ', cls: 'warn' };
   return { text: '正常', cls: 'ok' };
 }
+// 1.8.0 上の帯の時代の横に、小さく「史実」「自由」（練習の東京では出さない）
+const modeTag = (g) => (DEV.tut ? '' : `<i class="gmodetag m-${Gm.modeOf(g)}">${Gm.MODES[Gm.modeOf(g)].tag}</i>`);
 function hudHtml(g) {
   const l = g.last;
   const st = gridState(g);
@@ -294,7 +299,7 @@ function hudHtml(g) {
   const ds = du === su ? `需要 <b>${dv}</b>／届 <b>${sv}</b> ${du}` : `需要 <b>${dv}</b> ${du}／届 <b>${sv}</b> ${su}`;
   // 1.7.4：札（正常以外）を押すと「いま起きていること」（届いていない町と原因）。帯のほかの所は今までどおり需給
   const tap = st.cls === 'bad' || st.cls === 'warn';
-  return `<span class="hr"><span class="hcell grow1">${eraName(g.era)} ${timeShort(g)}</span><span class="hstate ${st.cls}"${tap ? ' data-hstate' : ''}>${st.text}${tap ? ' ›' : ''}</span></span>
+  return `<span class="hr"><span class="hcell grow1">${eraName(g.era)}${modeTag(g)} ${timeShort(g)}</span><span class="hstate ${st.cls}"${tap ? ' data-hstate' : ''}>${st.text}${tap ? ' ›' : ''}</span></span>
     <span class="hr"><span class="hcell"><i class="hcoin" aria-label="コイン"></i><b>${coinText(balance())}</b></span><span class="hcell" data-yencell><i class="hyen" aria-hidden="true">¥</i>収益 <b class="${g.yen < 0 ? 'gneg' : ''}" data-yen>${yenShort(g.yen)}</b></span><span class="hcell grow1">${ds}</span>${Gm.freqNow(g) ? `<span class="hcell">${(Gm.freqNow(g) + (l?.x || 0)).toFixed(2)}Hz</span>` : ''}</span>`;
 }
 
@@ -2551,6 +2556,7 @@ function managePanel(g, lc) {
     html: `<p class="spread grow"><span>収益の残高</span><b class="${g.yen < 0 ? 'gneg' : ''}">${yen(g.yen)}</b></p>
       ${g.loanUntil > g.t ? `<p class="small">借入れの返済中（あと ${Math.ceil((g.loanUntil - g.t) / 24)}日。収入の 20%）</p>` : ''}
       ${g.rebuild ? '<button class="btn primary gwide gwarn" data-rebuild2>経営再建：手放すか、借入れを選ぶ</button>' : ''}
+      ${modeHtml(g)}
       <h3>収益の推移（年ごとの利益）</h3>
       <div class="gyears">${bars}</div>
       ${yrow(yr, `${yr.idx + 1}年目（途中）`)}
@@ -2578,6 +2584,7 @@ function managePanel(g, lc) {
     bind: ({ onAll }) => {
       onAll('[data-rebuild2]', 'click', rebuildDialog);
       onAll('[data-newisland]', 'click', islandDialog);
+      onAll('[data-gmode]', 'click', (e) => switchMode(e.currentTarget.dataset.gmode));
       onAll('[data-tutagain]', 'click', startTutorial);
       onAll('[data-minion]', 'change', async (e) => {
         await setMini(e.target.checked);
@@ -2674,6 +2681,67 @@ async function answerIncident(inc, q, order, choiceId) {
   if (rec) await A.syncCollection();
 }
 
+// ---- 1.8.0 史実モードと自由モード：経営のパネルで切り替える。時代・学習で開くもの・コインの財布は共通 ----
+function modeHtml(g) {
+  if (DEV.tut || DEV.demo) return '';
+  const m = Gm.modeOf(g);
+  const btn = (k) => `<button class="btn small ${m === k ? 'on' : ''}" data-gmode="${k}">${Gm.MODES[k].name}</button>`;
+  const other = DEV.on ? true : !!A.S.gridOther;
+  return `<h3>モード</h3>
+    <div class="gseg gmodeseg">${btn('history')}${btn('free')}</div>
+    <p class="small">${m === 'history' ? '史実モード：日本の電気の歴史をたどるミッションがある（一覧の「ミッション」）。' : '自由モード：ミッションはなく、開いた設備をどこに・どうつないでもよい。'}時代・学習で開く設備・コインの財布は両方で共通。${DEV.on ? '開発者の系統のモードを切り替える（系統はそのまま）。' : other ? '切り替えると、今の系統を保存してから、もう一方の系統を開く（開いていない側は進まない）。' : '自由モードは、まだ始めていない（史実モードの系統はそのまま残る）。'}</p>`;
+}
+async function switchMode(mode) {
+  const { S } = A;
+  if (DEV.running) return A.toast('早送りの途中です');
+  if (DEV.on) {
+    // 開発者モード：開発者の系統のモードだけを変える
+    if (Gm.modeOf(G()) === mode) return;
+    G().mode = mode;
+    await save();
+    await screen();
+    return band(`開発者の系統を${Gm.MODES[mode].name}にした`);
+  }
+  if ((S.gridMode || 'history') === mode) return;
+  if (mode === 'free' && !S.gridOther) return freeStartDialog();
+  await save();
+  Dv.swapMode(S, mode);
+  await openMode();
+  band(`${Gm.MODES[mode].name}に切り替えた`);
+}
+// 切り替えたあと：保存して、開いた系統を前に閉じたときから進める（閉じていた分の計算。上限は現実の14日）
+async function openMode() {
+  lcCache = null;
+  summary = null;
+  B = null;
+  sel = null;
+  panel = null;
+  await Dv.saveModes(A.db, A.S);
+  await screen(null, true);
+}
+// 自由モードを新しく始める：確認の文のあと、始める町を選ぶ（「別の地方から始める」と同じ画面）
+function freeStartDialog() {
+  sheet(
+    `<h2>自由モードを始める</h2>
+    ${pic('island', 'wide')}
+    <p>自由モードを新しく始める。史実モードの系統はそのまま残る（いつでも経営のパネルから戻れる）。</p>
+    <p class="small">時代（レベル）・学習で開いた設備・設計図・性能の上乗せ・コインの財布は共通。ミッションはない。建てられるのは、今までどおり学習で開いたものだけ。始める町を選ぶ：</p>
+    ${startButtons('data-fstart')}`,
+    ({ onAll, close }) =>
+      onAll('[data-fstart]', 'click', async (e) => {
+        const { S } = A;
+        const now = Date.now();
+        await save();
+        const start = e.currentTarget.dataset.fstart;
+        Dv.swapMode(S, 'free', () => Gm.newJapan((now % 2147483647) | 0, now, start, { mode: 'free', perfMax: Gm.maxPerf(S.grid?.perfMax) }));
+        S.grid.era = learningReal().era; // 今のレベルの時代から（「時代が進んだ」は出さない）
+        close();
+        await openMode();
+        band(`自由モードを始めた（日本列島の${J.startOf(start)?.label || ''}から）`);
+      }),
+  );
+}
+
 // 1.6.0：始める町を選ぶボタン（史実の1行と「確かめた／未確認」。未確認の町は「年は未確認」とだけ出す）
 function startButtons(attr) {
   return J.START_TOWNS.map((s) => `<button class="btn gwide gstartbtn" ${attr}="${s.id}"><b>${A.esc(s.label)}</b><small>${s.conf ? `${A.esc(s.fact)}（${A.esc(s.src)}・確かめた）` : '年は未確認（史実の調べが出典で確かめられていない）'}</small></button>`).join('');
@@ -2685,6 +2753,7 @@ function islandDialog() {
     ${pic('island', 'wide')}
     <p class="small">日本列島の、始める町を選びます。明治の小さな発電所から、時代とともに建てられる範囲が広がります。時代（レベル）・設計図・性能の上乗せは引き継ぎます。</p>
     <p class="warn small">いまの${Gm.isJapan(G()) ? '系統' : '島'}の設備と収益はなくなります（記録は残ります。使ったコインは戻りません）。</p>
+    ${!DEV.on && A.S.gridOther ? `<p class="small">やり直すのは${Gm.MODES[Gm.modeOf(G())].name}の系統だけです（もう一方のモードの系統は変わりません）。</p>` : ''}
     ${startButtons('data-start')}`,
     ({ onAll, close }) =>
       onAll('[data-start]', 'click', async (e) => {
@@ -3030,6 +3099,7 @@ export async function enterDemo() {
   const now = Date.now();
   DEV.state = Dv.normalize(await A.db.getKV(Dv.DEMO_KEY), now);
   DEV.state.grid.realAt = now; // デモの系統は、開いている間だけ進む
+  Object.assign(DEV.state.grid, { mode: 'history', noMissions: true }); // 1.8.0：デモは史実モード（ミッションは出さない）
   Object.assign(DEV, { on: true, tut: false, demo: true, key: Dv.DEMO_KEY });
   summary = null;
   B = null;
@@ -3114,6 +3184,7 @@ function devSheet() {
   sheet(
     `<h2>${DEV.demo ? 'デモの操作' : '開発者モードの操作'}</h2>
     <p class="small" data-devclock>${timeLabel(g)} ・ 島 ${g.islandNo}（${A.esc(Gm.placeName(g))}）</p>
+    ${DEV.demo ? '' : `<h3>モード</h3><div class="gseg">${['history', 'free'].map((k) => `<button class="btn small ${Gm.modeOf(g) === k ? 'on' : ''}" data-devmode="${k}">${Gm.MODES[k].name}</button>`).join('')}</div><p class="small">開発者の系統のモード（史実モードではミッションと 1939 年の渇水が出る）。系統はそのまま。</p>`}
     <h3>時間</h3>
     <div class="gseg">${Dv.SPEEDS.map((v) => `<button class="btn small ${o.speed === v ? 'on' : ''}" data-speed="${v}">${v ? `×${v}` : '一時停止'}</button>`).join('')}</div>
     <div class="gseg"><button class="btn small" data-jump="day">1日進める</button><button class="btn small" data-jump="week">1週間進める</button><button class="btn small" data-jump="year">1年進める</button></div>
@@ -3155,6 +3226,13 @@ function devSheet() {
         set({ speed: Number(e.currentTarget.dataset.speed) });
       });
       onAll('[data-jump]', 'click', (e) => devJump(e.currentTarget.dataset.jump, $));
+      onAll('[data-devmode]', 'click', async (e) => {
+        G().mode = e.currentTarget.dataset.devmode === 'free' ? 'free' : 'history';
+        await save();
+        close();
+        await screen();
+        devSheet();
+      });
       $('[data-coins]').onchange = (e) => set(e.target.checked ? { coins: 'unlimited' } : { coins: 'limited', devCoins: o.devCoins || (DEV.demo ? 300000 : A.walletNow().balance) });
       onAll('[data-devcoins]', 'change', (e) => set({ devCoins: Math.max(0, Number(e.target.value) || 0) }));
       $('[data-gates]').onchange = (e) => set({ ignoreGates: e.target.checked });
@@ -3185,6 +3263,8 @@ function devSheet() {
         const [terrain, start] = e.currentTarget.dataset.devreset.split(':');
         const g2 = Dv.freshGrid(Date.now(), terrain, undefined, start || null);
         g2.era = learningNow().era;
+        g2.mode = DEV.demo ? 'history' : Gm.modeOf(G()); // 1.8.0：開発者の系統はモードを引き継ぐ。デモは史実モード（ミッションなし）
+        if (DEV.demo) g2.noMissions = true;
         store.setGrid(g2);
         DEV.state.money = [];
         summary = null;

@@ -2,7 +2,7 @@
 import * as db from './db.js';
 import * as L from './logic.js';
 import * as GU from './gridui.js';
-import { upgrade as upgradeGrid } from './grid.js';
+import { pickModes } from './griddev.js';
 
 const app = document.getElementById('app');
 const banner = document.getElementById('banner');
@@ -18,7 +18,9 @@ const S = {
   cards: null, // カードと称号のデータ { series, cards, titles }（1.4.0）
   gacha: [], // ガチャの記録
   collection: { titles: {}, awakened: {} }, // 称号を手に入れた日・カードが覚醒した日（一度入ったら消えない）
-  grid: null, // 動く系統の状態（1.5.0。js/grid.js）
+  grid: null, // 動く系統の状態（1.5.0。js/grid.js）。1.8.0：いまのモードの系統
+  gridOther: null, // 1.8.0：もう一方のモードの系統（自由モードをまだ始めていなければ null）
+  gridMode: 'history', // 1.8.0：いま遊んでいるモード（'history' 史実／'free' 自由）
   view: null, // いま出している画面（'grid'＝系統。時間が進んだら描き直すため）
 };
 
@@ -1751,8 +1753,8 @@ async function exportBackup() {
     cardData: S.cards,
     gachaLog: S.gacha,
     collection: S.collection,
-    // 1.5.0：動く系統の状態（学習通貨の支出は gachaLog に入っている）
-    grid: S.grid,
+    // 1.5.0：動く系統の状態（学習通貨の支出は gachaLog に入っている）。1.8.0：史実モード grid・自由モード gridFree・いまのモード gridMode
+    ...GU.backupGrids(),
   };
   await saveFile(`復習アプリ_バックアップ_${stamp()}.json`, JSON.stringify(backup));
   S.lastBackup = backup.exportedAt;
@@ -1824,7 +1826,11 @@ async function load() {
   S.cards = all.cardData;
   S.gacha = [...all.gachaLog].sort((a, b) => a.at.localeCompare(b.at));
   S.collection = { titles: { ...(all.collection?.titles || {}) }, awakened: { ...(all.collection?.awakened || {}) } };
-  S.grid = upgradeGrid(all.grid || null); // 1.6.0：古い記録の島の周波数を、交流の発電機に配る
+  // 1.6.0：古い記録の島の周波数を、交流の発電機に配る（upgrade）。1.8.0：S.grid＝いまのモードの系統、S.gridOther＝もう一方
+  const md = pickModes(all);
+  S.grid = md.grid;
+  S.gridOther = md.other;
+  S.gridMode = md.mode;
   S.preview = null;
   applyTheme();
 }
