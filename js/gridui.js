@@ -12,6 +12,7 @@ import { JAPAN_BOUNDS, JAPAN_HZ_LINE } from './japan.js';
 import { JAPAN_TERRAIN, JAPAN_PREF_LINES, JAPAN_PREFS } from './japan_terrain.js';
 import * as Mg from './mapgeo.js';
 import * as Mc from './mapcanvas.js';
+import * as Rc from './gridrec.js';
 import * as J from './gridjapan.js';
 import * as Ms from './gridmission.js';
 
@@ -91,10 +92,52 @@ export async function sync(now = Date.now()) {
   const era = S.grid.era;
   const steps = Gm.catchUp(S.grid, learningReal(), now);
   if (steps > 0 || fresh || S.grid.era !== era) await A.db.putKV(Dv.gridKey(S.gridMode), S.grid); // 1.8.0：いまのモードの系統だけ進める（もう一方は止めておく）
+  await recordNow();
   return steps;
 }
-// 1.8.0 バックアップに入れる系統（史実 grid・自由 gridFree・いまのモード gridMode）
-export const backupGrids = () => Dv.backupGrids(A.S);
+// 1.8.0 バックアップに入れる系統（史実 grid・自由 gridFree・いまのモード gridMode）。1.8.2 系統の記録 gridRecord も
+export const backupGrids = () => ({ ...Dv.backupGrids(A.S), ...(A.S.gridRec ? { gridRecord: A.S.gridRec } : {}) });
+
+// ---- 1.8.2 系統の記録（kv「gridRecord」）：絵のアルバムと、系統で初めて起きたこと（称号の種類 grid）----
+// 本番の系統だけ（チュートリアル・デモ・開発者モードで出た絵・起きたことは数えない）。初めて作るときは、今までの系統からわかるものを取り込む
+const todayStr = () => L.localDate(new Date());
+function rec() {
+  const S = A.S;
+  if (!S.gridRec || S.gridRec.v !== 1 || !S.gridRec.album) S.gridRec = Rc.normalizeRec(S.gridRec);
+  return S.gridRec;
+}
+let recBusy = false;
+async function recordNow() {
+  const S = A.S;
+  if (!S.grid || recBusy) return;
+  recBusy = true;
+  try {
+    const r = rec();
+    const imp = Rc.importPast(r, [S.grid, S.gridOther], todayStr());
+    const fresh = Rc.recordGrid(r, S.grid, todayStr());
+    // 建てた設備の種類の絵（詳細の見出し・建設で出る）と、いまの時代までの時代の絵（時代の演出・上の帯）
+    const t = S.grid.t;
+    const ids = [...S.grid.plants.filter((p) => p.readyAt <= t).map((p) => PIC[p.type]), ...S.grid.lines.filter((l) => l.readyAt <= t).map((l) => Mn.LINE_PIC[l.kind]), ...(S.grid.subs.some((x) => x.readyAt <= t) ? ['G10'] : []), ...Array.from({ length: Math.min(S.grid.era, 4) }, (_, i) => PIC[`era${i + 1}`])];
+    const pics = ids.filter((id) => Rc.seePic(r, id, todayStr())).length;
+    if (imp || fresh.length || pics) await recSaved();
+  } finally {
+    recBusy = false;
+  }
+}
+// 保存して、新しく手に入った称号を知らせる
+async function recSaved() {
+  await A.db.putKV('gridRecord', rec());
+  const got = await A.syncCollection();
+  for (const t of got?.titles || []) {
+    if (onGrid()) band(`称号「${t.name}」を手に入れた`);
+    else A.toast(`称号「${t.name}」を手に入れた`);
+  }
+}
+// 絵に出会った（演出・見出しで実際に出たとき）。本番の系統のときだけ
+function seen(id) {
+  if (DEV.on || !id || !A.S.grid) return;
+  if (Rc.seePic(rec(), id, todayStr())) recSaved();
+}
 // いま出している系統を保存する（開発者モードでは kv「gridDev」）
 const save = () => store.save();
 const onGrid = () => A.S.view === 'grid' && !!document.querySelector('.gscreen');
@@ -146,6 +189,52 @@ const eraImg = (g) => {
   const src = GRID_IMAGES[PIC[`era${g.era}`]];
   return src ? `--eraimg:url('${src}')` : '';
 };
+// 1.8.2 番号 → 画像（なければ代わりの絵の番号の画像）
+const picSrc = (id) => GRID_IMAGES[id] || GRID_IMAGES[Mn.PIC_FALLBACK[id]] || '';
+// 1.8.2 詳細の見出しの絵：町はいまの時代の町の絵、発電所がある地点はいちばん大きい発電所の種類の絵、水力の地点・石炭の用地で発電所がないときは G08・G06。
+// 線は線の階級の絵。切れている・事故中なら、その事故の絵
+const LINE_DOWN_PIC = { thunder: 'I01', coast: 'I02', snow: 'I03', other: 'I06', over: 'I06' };
+function headPic(g, kind, id) {
+  let k = null;
+  if (kind === 'node') {
+    const n = Gm.nodeOf(g, id);
+    if (!n) return null;
+    const plants = g.plants.filter((p) => p.site === id);
+    if (plants.length) k = PIC[plants.reduce((a, b) => (b.kw > a.kw ? b : a)).type];
+    else if (n.town) k = PIC[`era${Math.min(g.era, 4)}`];
+    else k = n.hydro ? 'G08' : 'G06';
+  } else {
+    const l = g.lines.find((x) => x.id === id);
+    if (!l) return null;
+    const inc = g.incidents.find((i) => i.line === l.id);
+    const down = l.readyAt <= g.t && Gm.lineCircuits(l, g.t) < l.n;
+    k = inc ? Mn.INC_PIC[inc.key] : l.hzTrip ? 'I04' : down ? LINE_DOWN_PIC[l.downCause] || 'I06' : Mn.LINE_PIC[l.kind];
+  }
+  return k && picSrc(k) ? k : null;
+}
+// 1.8.2 絵を大きく見る（見出しの帯・絵のアルバム）。何の絵か・初めて出会った日
+function picViewer(id) {
+  const d = rec().album[id];
+  const ov = document.createElement('div');
+  ov.className = 'goverlay gview';
+  ov.innerHTML = `<div class="gviewin"><img src="${picSrc(id)}" alt="${A.esc(Rc.albumName(id))}"><p><b>${id}</b> ${A.esc(Rc.albumName(id))}</p>${d ? `<p class="small">初めて出会った日：${d.split('-').map(Number).join('/')}</p>` : ''}<button class="btn primary" data-close>閉じる</button></div>`;
+  document.body.append(ov);
+  const close = () => ov.remove();
+  ov.querySelector('[data-close]').onclick = close;
+  ov.addEventListener('click', (e) => e.target === ov && close());
+}
+// 1.8.2 絵のアルバム（G・I・L の 32 枚）：出会った絵は表示、まだの絵は影と「？」。押すと大きく見られる
+function albumSheet() {
+  const r = rec();
+  const n = Rc.albumCount(r);
+  const cells = Rc.ALBUM.map(([id, name]) => (r.album[id] ? `<button class="galb" data-alb="${id}" aria-label="${A.esc(name)}"><img src="${picSrc(id)}" alt="" loading="lazy"><small>${id}</small></button>` : `<span class="galb no" aria-label="まだ出会っていない絵"><img src="${picSrc(id)}" alt="" loading="lazy"><b>？</b><small>${id}</small></span>`)).join('');
+  sheet(
+    `<h2>絵のアルバム（${n}／${Rc.ALBUM.length}）</h2>
+    <p class="small">時代に入ったとき・出来事や事故が起きたとき・その種類の設備を建てたときなど、演出や詳細の見出しで出た絵が集まる（史実モード・自由モード共通。チュートリアル・デモ・開発者モードの分は数えない）。押すと大きく見られる。</p>
+    <div class="galbum">${cells}</div>`,
+    ({ onAll }) => onAll('[data-alb]', 'click', (e) => picViewer(e.currentTarget.dataset.alb)),
+  );
+}
 function pic(key, cls = '') {
   const src = GRID_IMAGES[PIC[key]];
   if (src) return `<span class="gpic ${cls}"><img src="${src}" alt=""></span>`;
@@ -165,7 +254,8 @@ export function homeCard() {
   if (!g) return '';
   const o = Gm.overview(g, learningReal());
   const chips = [g.rebuild ? '<span class="tag gng">経営再建</span>' : '', g.incidents.length ? `<span class="tag gng">事故の対処待ち ${g.incidents.length}件</span>` : '', g.apps.length ? `<span class="tag">申し込み ${g.apps.length}件</span>` : ''].join('');
-  return `<button class="mapcard gridcard" data-go="grid">
+  const bg = eraImg(g); // 1.8.2 いまの時代の絵を薄く（上の帯と同じ絵）
+  return `<button class="mapcard gridcard${bg ? ' hasimg' : ''}" data-go="grid" style="${bg}">
       <span class="spread"><b>動く系統<i class="gmodetag m-${Gm.modeOf(g)}">${Gm.MODES[Gm.modeOf(g)].tag}</i></b><span class="go">開く ›</span></span>
       <span class="spread small"><span>${eraName(g.era)} ・ ${timeLabel(g)}</span><span>収益 ${yen(g.yen)}</span></span>
       <span class="small">受けている需要 ${kw(o.accepted)} ／ 上限 ${kw(o.dmax)}</span>
@@ -373,6 +463,7 @@ function drawPanel(keep = false) {
   onAll('[data-pclose]', 'click', () => setPanel(null));
   onAll('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo));
   body.bind?.({ $, onAll, g, lc });
+  bindOutlook(pin);
 }
 
 // 時代が進んだとき・全域停電からの復旧（演出ありでは少し派手に）
@@ -383,7 +474,8 @@ function effects(g) {
     const opened = Gm.openedAreas(g, g.eraUpFrom ?? g.eraUp - 1, g.eraUp);
     const ms = Gm.newMissions(g, g.eraUpFrom ?? g.eraUp - 1, g.eraUp); // 1.8.0 新しく出たミッション（史実モード）
     const lines = Gm.isJapan(g) ? [...(opened.length ? [`${opened.join('・')}が開いた（建てられる範囲が広がった）`] : []), ...(J.ERA_FACTS[g.eraUp] || []).map((f) => `史実：${f}`), ...ms.map((m) => `新しいミッション：${m.name}（一覧の「ミッション」）`)] : [];
-    overlay(`era${g.eraUp}`, `時代が進んだ：${E.name}`, `${E.year}　新しい設備と需要が登場する。${g.eraUp === 2 && !Gm.hzList(g).length && !g.hz ? '交流の発電機を、まだ周波数のない網に初めて建てるとき、周波数（50 Hz／60 Hz）を選ぶ。' : ''}`, [523.3, 659.3, 784, 1046.5], lines);
+    overlay(`era${g.eraUp}`, `時代が進んだ：${E.name}`, `新しい設備と需要が登場する。${g.eraUp === 2 && !Gm.hzList(g).length && !g.hz ? '交流の発電機を、まだ周波数のない網に初めて建てるとき、周波数（50 Hz／60 Hz）を選ぶ。' : ''}`, [523.3, 659.3, 784, 1046.5], lines);
+    document.querySelector('.goverlay.gbig .gbigcap small')?.replaceChildren(E.year.replace('〜', '年〜'));
     delete g.eraUp;
     delete g.eraUpFrom;
     save();
@@ -394,11 +486,17 @@ function effects(g) {
   }
 }
 // lines：本文の下に出す短い行（1.6.0：開いたエリア・その時代の史実）
+// 1.8.2：絵を画面いっぱいに大きく。絵の上に名前と年、少しずつ寄っていく動き（演出あり。動きを減らす設定・シンプルでは止めた絵）。そのあと文と行
 function overlay(picKey, title, text, notes, lines = []) {
   const ov = document.createElement('div');
-  ov.className = 'goverlay';
-  ov.innerHTML = `<div class="gov">${pic(picKey, 'wide')}<h2>${A.esc(title)}</h2><p>${A.esc(text)}</p>${lines.length ? `<ul class="govlines">${lines.map((v) => `<li>${A.esc(v)}</li>`).join('')}</ul>` : ''}<button class="btn primary" data-close>閉じる</button></div>`;
+  const src = GRID_IMAGES[PIC[picKey]];
+  ov.className = `goverlay${src ? ' gbig' : ''}`;
+  const body = `<h2>${A.esc(title)}</h2><p>${A.esc(text)}</p>${lines.length ? `<ul class="govlines">${lines.map((v) => `<li>${A.esc(v)}</li>`).join('')}</ul>` : ''}<button class="btn primary" data-close>閉じる</button>`;
+  ov.innerHTML = src
+    ? `<div class="gbigpic"><img src="${src}" alt=""><div class="gbigcap"><small></small><b>${A.esc(title.replace(/^.*：/, ''))}</b></div></div><div class="gov">${body}</div>`
+    : `<div class="gov">${pic(picKey, 'wide')}${body}</div>`;
   document.body.append(ov);
+  seen(PIC[picKey]);
   if (A.fx()) A.playNotes(notes.map((f, i) => [f, i * 0.12]));
   ov.querySelector('[data-close]').onclick = () => {
     ov.remove();
@@ -466,6 +564,7 @@ async function drainAlerts() {
 }
 function alertPic(id) {
   const src = id && (GRID_IMAGES[id] || GRID_IMAGES[Mn.PIC_FALLBACK[id]]);
+  if (src) seen(GRID_IMAGES[id] ? id : Mn.PIC_FALLBACK[id]);
   return src ? `<img src="${src}" alt="">` : `<svg viewBox="0 0 48 36" aria-hidden="true">${PH.storm}</svg>`;
 }
 // 1枚の演出。戻り値（Promise）：押したボタン（go・list・close）
@@ -1100,6 +1199,8 @@ function topInner(g) {
   // 線（下の色は使用率・直流・止まっている）
   const hzN = hzOfNodes(g); // 1.6.4 周波数の色
   let flows = '';
+  const lineLabs = [];
+  let lineDots = '';
   for (const l of g.lines) {
     const a = P.get(l.a), b = P.get(l.b);
     if (!a || !b) continue;
@@ -1118,10 +1219,11 @@ function topInner(g) {
     // 1.7.4：拡大して線の名前が出るときは、いま送っている量も
     const label = building ? `${K.short} 工事 あと${hoursText(l.readyAt - t)}` : hzT ? `${K.short} 切れている（周波数違い）` : `${K.short}${l.n > 1 ? `×${l.n}` : ''}${flowing ? ` ${kw(fl.p)}` : ''}`;
     const mk = markOf(l.id);
-    const showLabel = L2.len > 70 || selLine === l.id;
+    // 1.8.1：名前を出すか・どこに置くかは、地点の名前を決めたあと（placeLineLabels）。ここでは候補に入れるだけ
+    if (L2.len > 70 || selLine === l.id) lineLabs.push({ l, K, L2, a, b, label, building, hzT, flowing, mk, sel: selLine === l.id });
+    else if (!building) lineDots += optMarks(l, L2.lx, L2.ly, t, true);
     const hz = !K.dc && !hzT && hzN.get(l.a);
-    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${L2.d}" fill="none" stroke="transparent" stroke-width="22"/>${hz ? `<path d="${L2.d}" class="ghzhalo h${hz}" stroke-width="${wdt + 5}"/>` : ''}${selLine === l.id ? `<path d="${L2.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${mk === 'glow' ? `<path d="${L2.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : ''}<path d="${L2.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : hzT ? 'stroke-dasharray="1.5 4.5" class="ghztrip"' : down ? 'stroke-dasharray="7 5"' : ''}/>${flowing ? flowArrow(L2, a, b, fl.to !== l.a, wdt, u) : ''}
-      ${showLabel ? `<text x="${L2.lx.toFixed(1)}" y="${(L2.ly - (flowing ? 9 : 4)).toFixed(1)}" class="glabel${building ? ' gwork' : hzT ? ' gtrip' : ''}">${label}</text>` : ''}${building && showLabel ? cone(L2.lx, L2.ly + 8, mk === 'work') : ''}${building ? '' : showLabel ? optMarks(l, L2.lx + textW7(label) / 2 + 9, L2.ly - 6.5, t, false, true) : optMarks(l, L2.lx, L2.ly, t, true)}</g>`;
+    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${L2.d}" fill="none" stroke="transparent" stroke-width="22"/>${hz ? `<path d="${L2.d}" class="ghzhalo h${hz}" stroke-width="${wdt + 5}"/>` : ''}${selLine === l.id ? `<path d="${L2.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${mk === 'glow' ? `<path d="${L2.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : ''}<path d="${L2.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : hzT ? 'stroke-dasharray="1.5 4.5" class="ghztrip"' : down ? 'stroke-dasharray="7 5"' : ''}/>${flowing ? flowArrow(L2, a, b, fl.to !== l.a, wdt, u) : ''}</g>`;
     flows += flowPath(g, l, a, b, L2, mk === 'glow');
   }
   s += `<g class="gflows${B ? ' gdim' : ''}" aria-hidden="true">${flows}</g>`;
@@ -1137,6 +1239,7 @@ function topInner(g) {
   const prio2 = (n) => prio(n) + (inView(P.get(n.id)) ? 10000 : 0);
   const vis = nodes.filter((n) => onScreen(P.get(n.id))).sort((a, b) => prio2(b) - prio2(a));
   const placed = [], labels = [];
+  const iconBoxes = []; // 1.8.1 町・用地の横の発電所・変電所のアイコン（線の名前を重ねない）
   let wardNamed = false;
   const out = [];
   for (const n of vis) {
@@ -1145,7 +1248,17 @@ function topInner(g) {
     const force = selId === n.id || !!c;
     const near = placed.some((q) => Math.hypot(q.x - x, q.y - y) < DOT_GAP);
     const full = force || !near;
-    if (full) placed.push({ x, y });
+    if (full) {
+      placed.push({ x, y });
+      const ng = Art.assetGroups(g, n.id).length;
+      if (ng) {
+        const S = Art.slotsFor(Art.iconSide(nodes, n.id));
+        for (let i = 0; i < ng; i++) {
+          const [dx, dy] = S[i % S.length];
+          iconBoxes.push({ x0: x + dx - 12, y0: y + dy - 12, x1: x + dx + 12, y1: y + dy + 12 });
+        }
+      }
+    }
     const open = Gm.nodeOpen(g, n);
     // 名前
     let name = null;
@@ -1184,8 +1297,59 @@ function topInner(g) {
       s += `<text x="${q.x.toFixed(1)}" y="${(q.y + 3.5).toFixed(1)}" class="gpref">${A.esc(p.name)}</text>`;
     }
   }
+  // 1.8.1 線の名前：地点の名前・絵とぶつからない位置に（placeLineLabels）。地点より下に描く
+  s += `<g class="${B ? 'gdim' : ''}">${lineDots}${placeLineLabels(lineLabs, labels, placed, iconBoxes, inView, t)}</g>`;
   // 目立つものを上に重ねる（描く順は逆）
   s += out.reverse().join('');
+  return s;
+}
+// 1.8.1 線の名前の置き方：選んでいる線 → 画面の中の線 → 電圧の高い線 → 長い線 の順に、
+// 線の中点、線に沿って 35%・65%・25%・75% の点（それぞれ線の上側・下側）の候補から、すでに決めた名前（地点・線）の箱と地点の絵に
+// ぶつからない最初の位置に置く。どこにも置けなければ名前は出さず、対策の印は小さな点で。選んでいる線はいつも出す（置けなければ中点）。
+// 名前の箱は、右に並べる対策の印・左に置く工事の三角コーンの幅も含める。labels：地点の名前の箱（線の名前の箱も足していく）
+const LAB_T = [0.5, 0.35, 0.65, 0.25, 0.75];
+function lineLabelSpots(L2, a, b) {
+  // linePath と同じ2次ベジェの上の点（t は線の長さの割合の近似）
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  const cx = 2 * L2.lx - mx, cy = 2 * L2.ly - my; // lx = (mx + cx) / 2
+  const out = [];
+  for (const u of LAB_T) {
+    const v = 1 - u;
+    const x = v * v * a.x + 2 * v * u * cx + u * u * b.x, y = v * v * a.y + 2 * v * u * cy + u * u * b.y;
+    out.push({ x, y, side: 'up' }, { x, y, side: 'down' });
+  }
+  return out;
+}
+function placeLineLabels(labs, labels, placed, iconBoxes, inView, t) {
+  if (!labs.length) return '';
+  const icon = [...placed.map((q) => ({ x0: q.x - 12, y0: q.y - 12, x1: q.x + 12, y1: q.y + 12 })), ...iconBoxes];
+  const kv = (o) => (o.K.dc ? 0 : o.K.kv);
+  labs.sort((p, q) => (q.sel - p.sel) || (inView({ x: q.L2.lx, y: q.L2.ly }) - inView({ x: p.L2.lx, y: p.L2.ly })) || kv(q) - kv(p) || q.L2.len - p.L2.len);
+  const hit = (r) => labels.some((q) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0) || icon.some((q) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0);
+  let s = '';
+  for (const o of labs) {
+    const { l, L2, label, building } = o;
+    const nOpt = building ? 0 : Object.keys(Gm.LINE_OPTS).filter((k) => Gm.optOn(l, k, t)).length;
+    const tw = textW7(label);
+    const left = building ? 16 : 0, right = nOpt ? nOpt * 12 + 3 : 0;
+    // 名前の文字の基準線（y）と、そこからの箱
+    const boxOf = (x, y) => ({ x0: x - tw / 2 - left - 1, y0: y - 8, x1: x + tw / 2 + right + 1, y1: y + 3 });
+    const spots = lineLabelSpots(L2, o.a, o.b).map((p) => {
+      const up = p.side === 'up';
+      const y = up ? p.y - (o.flowing ? 9 : 4) : p.y + (o.flowing ? 14 : 10);
+      return { x: p.x, y };
+    });
+    let pick = spots.find((p) => !hit(boxOf(p.x, p.y)));
+    if (!pick && o.sel) pick = spots[0];
+    if (!pick) {
+      if (!building) s += optMarks(l, L2.lx, L2.ly, t, true);
+      continue;
+    }
+    const { x, y } = pick;
+    labels.push(boxOf(x, y));
+    const cls = building ? ' gwork' : o.hzT ? ' gtrip' : '';
+    s += `<g class="gline glab${o.sel ? ' sel' : ''}" data-line="${l.id}"><text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="glabel${cls}">${label}</text>${building ? cone(x - tw / 2 - 8, y - 3, o.mk === 'work') : optMarks(l, x + tw / 2 + 9, y - 2.5, t, false, true)}</g>`;
+  }
   return s;
 }
 // 1.6.4 50 Hz 網と 60 Hz 網の色分け（日本列島・交流の時代）：交流の線でつながった地点の集まりごとに、その中の交流の発電機の周波数。
@@ -1240,6 +1404,14 @@ function optMarks(l, x, y, t, dot, left = false) {
   const x0 = left ? x : x - ((os.length - 1) * 12) / 2;
   return os.map((o, i) => `<g class="gopt o-${o}" transform="translate(${(x0 + i * 12).toFixed(1)},${y.toFixed(1)})"><circle r="6.2" class="goptbg"/>${optGlyph(o)}</g>`).join('');
 }
+// 1.8.2 記念の建物：拡大したとき（日本列島は景色を描く幅 60 km 以下。古い島はいつも）、町のまわりの空いたアイコンの場所に小さな絵。見た目だけ
+function decorsSvg(g, n, x, y) {
+  const ds = Gm.decorsOf(g, n.id);
+  if (!ds.length || (Gm.isJapan(g) && !Mg.sceneLevel(VIEW.w))) return '';
+  // 町の絵の上（名前は下、発電所・変電所のアイコンは左右なので、上の真ん中を空けてある）
+  const POS = [[0, -31], [-19, -29], [19, -29]];
+  return ds.map((d, i) => Art.decorSvg(d.kind, x + POS[i][0], y + POS[i][1], 0.85)).join('');
+}
 // 1.6.4 発電所の稼働の光：引いて見たとき（点になる地点・幅 150 km 以上）も、動いている発電所に出力に応じた光彩。
 // 止まっている・休止・待機は光らない。渇水で出力が落ちている水力は薄いオレンジ
 function plantGlow(g, n, x, y, plants) {
@@ -1285,6 +1457,7 @@ function nodeSvg(g, n, x, y, { full, c, selId, lines, open, pos = 'b', hz = null
   // 1.5.3：町は家並み（灯ると窓が光り、まわりに光の輪）、用地は菱形。発電所・変電所は種類のアイコンを横に出し、短い線でつなぐ（gridart.js）
   let body = n.town ? Art.townSvg(x, y, Art.townLook(g, n)) : `<path d="M${f(x)},${f(y - 9)} L${f(x + 9)},${f(y)} L${f(x)},${f(y + 9)} L${f(x - 9)},${f(y)}Z" class="gsitebody${plants.length ? ' has' : ''}"/>`;
   body += Art.assetsSvg(g, n, x, y, Art.iconSide(Gm.nodesOf(g), n.id));
+  if (n.town && full) body += decorsSvg(g, n, x, y);
   // 工事中の発電所・変圧器：残りの時間を小さく添える
   const work = [...plants, ...subs].filter((v) => v.readyAt > t).map((v) => v.readyAt - t);
   if (work.length) body += `<text x="${f(x)}" y="${f(y - 25)}" class="glabel gwork">工事 あと${hoursText(Math.min(...work))}</text>${cone(x + 14, y + 13, markOf(n.id) === 'work')}`;
@@ -1833,10 +2006,14 @@ function drawDetail(keep = false) {
   const g = G(), lc = learningNow();
   const body = (sel.kind === 'node' ? nodePanel : linePanel)(g, lc, sel.id);
   const top = keep ? el.scrollTop : 0;
-  el.innerHTML = `<div class="gphead"><h2>${body.title}</h2><button class="btn small" data-dclose>閉じる</button></div>${body.html}`;
+  const hp = headPic(g, sel.kind, sel.id);
+  el.innerHTML = `${hp ? `<button class="gdband" data-gdband="${hp}" aria-label="絵を大きく見る"><img src="${picSrc(hp)}" alt=""></button>` : ''}<div class="gphead"><h2>${body.title}</h2><button class="btn small" data-dclose>閉じる</button></div>${body.html}`;
+  el.classList.toggle('hasband', !!hp);
+  if (hp) seen(hp);
   el.classList.add('open');
   const $ = (q) => el.querySelector(q);
   const onAll = (q, ev, fn) => el.querySelectorAll(q).forEach((x) => x.addEventListener(ev, fn));
+  onAll('[data-gdband]', 'click', (e) => picViewer(e.currentTarget.dataset.gdband));
   onAll('[data-dclose]', 'click', () => {
     sel.detail = false;
     drawMenu();
@@ -1844,6 +2021,7 @@ function drawDetail(keep = false) {
   });
   onAll('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo));
   body.bind?.({ $, onAll, g, lc });
+  bindOutlook(el);
   const a = selAnchor();
   placeCardAt(el, menuSpan ? [a, { y: menuSpan.top }, { y: menuSpan.bottom }] : [a]);
   el.scrollTop = top;
@@ -2062,7 +2240,7 @@ function drawBuildCard() {
     const D = Gm.PLANTS[B.type];
     const sizes = D.sizes.filter((z) => Gm.eraStatus(lc, Math.max(D.era, z[2]?.era || 0)) !== 'no');
     q = Gm.quotePlant(g, lc, { type: B.type, kw: B.size, site: B.site, hz: B.hz });
-    const eff = D.coal ? `熱効率 ${(D.eff[0] * 100).toFixed(0)}〜${(D.eff[1] * 100).toFixed(0)}%（いま ${(Gm.plantEff({ type: B.type, proto: q.proto }, lc) * 100).toFixed(1)}%）・起動 ${D.start}時間・最低出力 ${pct(D.min)}` : B.type === 'ror' ? '燃料なし。出力は川の流量しだい（春 1.3・夏 1.0・秋 0.9・冬 0.6）' : '燃料なし。1日分の水をためて、時間をずらして使う（池＝出力の6時間分）';
+    const eff = D.coal ? `熱効率 ${(D.eff[0] * 100).toFixed(0)}〜${(D.eff[1] * 100).toFixed(0)}%（いま ${(Gm.plantEff({ type: B.type, proto: q.proto }, lc, g) * 100).toFixed(1)}%）・起動 ${D.start}時間・最低出力 ${pct(D.min)}` : B.type === 'ror' ? '燃料なし。出力は川の流量しだい（春 1.3・夏 1.0・秋 0.9・冬 0.6）' : '燃料なし。1日分の水をためて、時間をずらして使う（池＝出力の6時間分）';
     h = `<p class="gbch"><b>${A.esc(Gm.nodeOf(g, B.site).name)}</b>：${D.name}</p>
       <div class="gseg gsizes">${sizes.map((z) => `<button class="btn small ${z[0] === B.size ? 'on' : ''}" data-bsize="${z[0]}">${kw(z[0])}</button>`).join('')}</div>
       <p class="small">${eff} ・ ${D.bs ? 'ブラックスタートできる' : 'ブラックスタートできない'}</p>
@@ -2193,6 +2371,91 @@ function plantWhy(g, p) {
   return Gm.plantWhyText(g, p, w);
 }
 // 1.7.4 町に、どこから届いているか（直流・交流・届いていない）
+// ---- 1.8.1 町の次の24時間の需給（申し込みのカード・町の詳細）----
+// 計算（Gm.townOutlook）はカードが見えたときに。ゲームの時刻と設備が変わるまで覚えておく（fcCache）。
+// 2 時間おき（12 回）：1 時間おきは CPU 4 倍遅くで 1 枚 98〜134 ms（関東の系統。ツール/測る_需給の見込み.mjs）、2 時間おきは 35〜39 ms
+const fcCache = new Map();
+const FC_STEP = 2;
+const fcKey = (g, lc, town, ids) =>
+  `${Gm.modeOf(g)}|${g.islandNo}|${g.t}|${g.nextId}|${g.plants.length},${g.lines.length},${g.subs.length},${g.loads.length}|${g.plants.map((p) => (p.idle ? 1 : 0)).join('')}|${g.reserve}|${lc.dmax}|${g.era}|${town}|${ids.join(',')}`;
+function outlookOf(g, lc, town, ids) {
+  const k = fcKey(g, lc, town, ids);
+  let o = fcCache.get(k);
+  if (!o) {
+    o = Gm.townOutlook(g, lc, town, ids, FC_STEP);
+    if (fcCache.size > 60) fcCache.clear();
+    fcCache.set(k, o);
+  }
+  return o;
+}
+// 棒グラフ（SVG）：棒＝その時刻の需要（受けている分＋申し込みの分。申し込みの分は斜線）。届く分は緑、余裕が小さい（使用率 90% 超・予備力の目標より小さい）は黄、
+// 届かない分は赤（上に「足りない」の文字）。いちばん左がいま（下に印）
+function outlookSvg(o) {
+  const hs = o.hours, n = hs.length;
+  const W = 240, H = 64, top = 11, bot = 13, ch = H - top - bot;
+  const max = Math.max(1e-6, ...hs.map((x) => x.base + x.add));
+  const bw = W / n;
+  const f = (v) => v.toFixed(1);
+  const yv = (v) => top + ch - (v / max) * ch;
+  let s = `<defs><pattern id="gfch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="1.7" height="4" fill="var(--card)" opacity=".8"/></pattern></defs>`;
+  s += `<line x1="0" y1="${top + ch + 0.5}" x2="${W}" y2="${top + ch + 0.5}" stroke="var(--line)"/>`;
+  hs.forEach((x, i) => {
+    const x0 = i * bw + bw * 0.12, w = bw * 0.76;
+    const tot = x.base + x.add, got = tot - x.short;
+    if (got > 1e-9) s += `<rect x="${f(x0)}" y="${f(yv(got))}" width="${f(w)}" height="${f(Math.max(0.6, (got / max) * ch))}" class="gfb ${x.st === 'warn' ? 'warn' : 'ok'}"/>`;
+    if (x.short > 0) s += `<rect x="${f(x0)}" y="${f(yv(tot))}" width="${f(w)}" height="${f(Math.max(0.6, (x.short / max) * ch))}" class="gfb ng"/>`;
+    if (x.add > 0) s += `<rect x="${f(x0)}" y="${f(yv(tot))}" width="${f(w)}" height="${f(Math.max(0.6, (x.add / max) * ch))}" fill="url(#gfch)"/>`;
+    if (x.st === 'ng' && (i === 0 || hs[i - 1].st !== 'ng')) s += `<text x="${f(Math.min(W - 16, Math.max(16, x0 + w / 2)))}" y="${f(Math.max(8, yv(tot) - 2.5))}" class="gfng">足りない</text>`;
+    if (x.h % 6 === 0 || i === 0) s += `<text x="${f(Math.max(8, x0 + w / 2))}" y="${H - 2}" class="gfh${i === 0 ? ' now' : ''}">${i === 0 ? 'いま' : `${x.h}時`}</text>`;
+  });
+  return s;
+}
+// app：申し込みのカード（「受けても足りる」）か、町の詳細か
+function outlookBody(g, o, app) {
+  const sum = Gm.outlookText(g, o, app);
+  const has = o.hours.some((x) => x.add > 0);
+  const label = `次の24時間の需給：${sum.text}`;
+  return `<svg class="gfchart" viewBox="0 0 240 64" role="img" aria-label="${A.esc(label)}">${outlookSvg(o)}</svg>
+    <p class="small gfkey"><span><i class="ok"></i>届く</span><span><i class="warn"></i>余裕が小さい</span><span><i class="ng"></i>足りない</span>${has ? `<span><i class="hatch"></i>${app ? 'この申し込み' : '保留中の申し込み（受けた場合）'}</span>` : ''}</p>
+    <p class="small gfsum${sum.ng ? ' bad' : sum.warn ? ' warn' : ''}">${A.esc(sum.text)}</p>`;
+}
+// 計算済みならすぐ描き、まだなら「計算中」を置いて、見えたときに計算する（bindOutlook）
+function outlookHtml(g, lc, town, ids, app) {
+  const o = fcCache.get(fcKey(g, lc, town, ids));
+  return `<div class="gfc" data-fc="${town}|${ids.join(',')}"${app ? ' data-fcapp="1"' : ''}>${o ? outlookBody(g, o, app) : '<p class="small note">次の24時間の需給を計算中…</p>'}</div>`;
+}
+function bindOutlook(root) {
+  const els = [...root.querySelectorAll('[data-fc]')].filter((el) => el.querySelector('.note'));
+  if (!els.length) return;
+  const run = (el) => {
+    if (!el.isConnected || !el.querySelector('.note')) return;
+    const [town, ids] = el.dataset.fc.split('|');
+    const g = G(), lc = learningNow();
+    const o = outlookOf(g, lc, town, ids ? ids.split(',') : []);
+    el.innerHTML = outlookBody(g, o, !!el.dataset.fcapp);
+  };
+  if (typeof IntersectionObserver === 'undefined') return els.forEach((el) => setTimeout(() => run(el), 0));
+  // 見えたものから順に（1枚ずつ、間に描画をはさむ）
+  const obs = new IntersectionObserver(
+    (es) => {
+      for (const e of es) {
+        if (!e.isIntersecting) continue;
+        obs.unobserve(e.target);
+        setTimeout(() => run(e.target), 0);
+      }
+    },
+    { root, rootMargin: '80px' },
+  );
+  els.forEach((el) => obs.observe(el));
+}
+// 1.8.1 町への供給の内訳：町の発電所の出力と、線で送られてくる量（ほかの町へ送っているときは、その分）。損失は省いたおおよそ
+function townSupplyText(g, id, st) {
+  const got = st.d * st.r;
+  const own = g.plants.filter((p) => p.site === id).reduce((a, p) => a + (g.last?.plants[p.id] || 0), 0);
+  if (!(got > 0.05) && !(own > 0.05)) return '';
+  if (own >= got) return `この町への供給：町の発電所 ${kw(own)}${own - got > 0.05 ? `（うち ${kw(own - got)} をほかの町へ）` : ''}`;
+  return `この町への供給：${own > 0.05 ? `町の発電所 ${kw(own)} ＋ ` : ''}線で送られてくる ${kw(got - own)}`;
+}
 function townSrcText(st) {
   const miss = st.d * (1 - st.r);
   const parts = [st.dc > 0.05 ? `直流から ${kw(st.dc)}` : '', st.ac > 0.05 ? `交流から ${kw(st.ac)}` : '', miss > 0.05 ? `<b class="gneg">届いていない ${kw(miss)}</b>` : ''].filter(Boolean);
@@ -2218,10 +2481,16 @@ function nodePanel(g, lc, id) {
   if (incs.length) h += `<p class="warn small">事故の対処待ちがあります <button class="btn small" data-golist>一覧へ</button></p>`;
   if (n.town) {
     const rep = g.rep[id] ?? 1;
-    h += `<h3>需要</h3>${loads.length ? loads.map((l) => `<p class="spread grow"><span>${Gm.LOADS[l.type].name} ${kw(l.kw)}${Gm.LOADS[l.type].pfFixed ? `（力率 ${l.cap ? Gm.LOADS[l.type].pfFixed : Gm.LOADS[l.type].pf}）` : ''}</span>${Gm.LOADS[l.type].pfFixed && !l.cap ? `<button class="btn small" data-cap="${l.id}">進相コンデンサ</button>` : ''}</p>`).join('') : '<p class="small">まだありません</p>'}
-      ${st ? `<p class="small">いま ${kw(st.d)} ・ 届いている割合 ${pct(st.r)} ・ 町の信用 ${pct(rep)}${rep < 1 ? '（停電があると下がり、1か月で戻る）' : ''}</p>` : ''}
+    const total = loads.reduce((x, l) => x + l.kw, 0);
+    const pend = g.apps.filter((a) => a.town === id);
+    const held = pend.filter((a) => a.held).map((a) => a.id);
+    h += `<h3>需要</h3><p class="small"><b>需要の合計 ${kw(total)}</b>（受けている分）${st ? ` ・ いま ${kw(st.d)}` : ''}</p>${st && st.d > 1e-6 ? `<p class="small">${townSupplyText(g, id, st)}</p>` : ''}
+      ${loads.length || held.length ? outlookHtml(g, lc, id, held, false) : ''}${pend.length ? `<p><button class="btn small" data-goapp="${pend[0].id}">この町の申し込み（${pend.length}件）を見る</button></p>` : ''}
+      ${loads.length ? loads.map((l) => `<p class="spread grow"><span>${Gm.LOADS[l.type].name} ${kw(l.kw)}${Gm.LOADS[l.type].pfFixed ? `（力率 ${l.cap ? Gm.LOADS[l.type].pfFixed : Gm.LOADS[l.type].pf}）` : ''}</span>${Gm.LOADS[l.type].pfFixed && !l.cap ? `<button class="btn small" data-cap="${l.id}">進相コンデンサ</button>` : ''}</p>`).join('') : '<p class="small">まだありません</p>'}
+      ${st ? `<p class="small">届いている割合 ${pct(st.r)} ・ 町の信用 ${pct(rep)}${rep < 1 ? '（停電があると下がり、1か月で戻る）' : ''}</p>` : ''}
       ${st && st.d > 1e-6 && st.dc != null ? `<p class="small">${townSrcText(st)}</p>` : ''}
       ${why ? `<p class="small gwhy1${why.k === 'dim' ? '' : ' bad'}">${why.k === 'dim' ? '' : '届いていない原因：'}${A.esc(Gm.whyText(g, why))}</p>` : ''}
+      ${spendTownHtml(g, id)}
       <h3>変電所</h3>${subs.length ? subs.map((x) => `<p class="spread grow"><span>変圧器 ${x.mva} MVA ・ ${stateOf(x, t) || `使用率 ${pct(g.last?.subs[id] || 0)}`}</span><button class="btn small" data-rm="sub:${x.id}">撤去</button></p>`).join('') : '<p class="small">なし（11 kV 以上の送電線をつなぐには変電所が要る）</p>'}`;
   }
   h += `<h3>発電所</h3>${plants.length ? plants.map((p) => `<p class="spread grow"><span>${Gm.PLANTS[p.type].short} ${kw(p.kw)}${p.proto ? '（試作）' : ''} ・ ${plantState(g, p)}${plantWhy(g, p) ? `<small class="gpw">${A.esc(plantWhy(g, p))}</small>` : ''}</span><button class="btn small" data-rm="plant:${p.id}">撤去</button></p>`).join('') : '<p class="small">なし</p>'}
@@ -2232,6 +2501,8 @@ function nodePanel(g, lc, id) {
     bind: ({ onAll }) => {
       onAll('[data-sources]', 'click', sourcesSheet);
       onAll('[data-golist]', 'click', () => setPanel('list'));
+      onAll('[data-goapp]', 'click', (e) => goApp(e.currentTarget.dataset.goapp));
+      bindSpend(onAll);
       onAll('[data-cap]', 'click', (e) => capDialog(e.currentTarget.dataset.cap));
       onAll('[data-rm]', 'click', (e) => removeDialog(...e.currentTarget.dataset.rm.split(':')));
     },
@@ -2367,7 +2638,7 @@ function runPanel(g, lc) {
   const plants = order
     .map((p, i) => {
       const D = Gm.PLANTS[p.type];
-      const cost = D.coal ? `${(Gm.fuelPrice(g) / Gm.plantEff(p, lc)).toFixed(1)} 円/kWh` : '燃料なし';
+      const cost = D.coal ? `${(Gm.fuelPrice(g) / Gm.plantEff(p, lc, g)).toFixed(1)} 円/kWh` : '燃料なし';
       return `<div class="gitem gplant"><span class="gord"><button class="btn small" data-up="${p.id}" ${i === 0 || !lc.gate.econ ? 'disabled' : ''} aria-label="上へ">▲</button><b>${i + 1}</b><button class="btn small" data-down="${p.id}" ${i === order.length - 1 || !lc.gate.econ ? 'disabled' : ''} aria-label="下へ">▼</button></span>
         <span class="gpl"><b>${D.short} ${kw(p.kw)}${p.proto ? '（試作）' : ''}</b><small>${A.esc(Gm.nodeOf(g, p.site).name)} ・ ${plantState(g, p)} ・ ${cost}${plantWhy(g, p) ? `<br>${A.esc(plantWhy(g, p))}` : ''}</small>
         <span><button class="btn small" data-idle="${p.id}">${p.idle ? '休止をやめる' : '休止する'}</button><button class="btn small" data-rm="plant:${p.id}">撤去</button></span></span></div>`;
@@ -2485,7 +2756,7 @@ function devSupplyHtml(g, lc) {
   const rows = g.plants.map((p) => {
     const D = Gm.PLANTS[p.type];
     const out = g.last?.plants[p.id] || 0;
-    return `<p class="spread grow"><span>${D.short} ${kw(p.kw)}（${A.esc(Gm.nodeOf(g, p.site).name)}）<small> ${plantState(g, p)}</small></span><small>出力 ${kw(out)}（${pct(p.kw ? out / p.kw : 0)}）${D.coal ? ` ・ 効率 ${(Gm.plantEff(p, lc) * 100).toFixed(1)}%` : ''}</small></p>`;
+    return `<p class="spread grow"><span>${D.short} ${kw(p.kw)}（${A.esc(Gm.nodeOf(g, p.site).name)}）<small> ${plantState(g, p)}</small></span><small>出力 ${kw(out)}（${pct(p.kw ? out / p.kw : 0)}）${D.coal ? ` ・ 効率 ${(Gm.plantEff(p, lc, g) * 100).toFixed(1)}%` : ''}</small></p>`;
   }).join('');
   return `<div class="gdevbox"><h3>${DEV.demo ? "デモ" : "開発者モード"}：直近 ${d.hours}時間の収益の内訳</h3>
     <p class="spread grow"><span>料金（売電）</span><b>${yen(d.rev)}</b></p>
@@ -2496,6 +2767,16 @@ function devSupplyHtml(g, lc) {
     <h3>発電所ごとの出力・効率</h3>${rows || '<p class="note">発電所がありません</p>'}</div>`;
 }
 
+// 1.8.1 町の詳細から、その町の申し込みのカードへ
+function goApp(appId) {
+  listTab = 'list';
+  setPanel('list');
+  const el = document.querySelector(`[data-pin] [data-appcard="${appId}"]`);
+  if (!el) return;
+  el.scrollIntoView({ block: 'start' });
+  el.classList.add('gflash');
+  setTimeout(() => el.classList.remove('gflash'), 1600);
+}
 // ---- 一覧のパネル：事故・申し込み・発電所と線の一覧・報告書 ----
 function listPanel(g, lc) {
   const t = g.t;
@@ -2526,9 +2807,10 @@ function listPanel(g, lc) {
       const p = Gm.previewApp(g, lc, a.id);
       const n = Gm.nodeOf(g, a.town);
       const warn = [!p.reach ? (p.net ? '今の設備では電気が足りない（受けると停電する）' : '電気が届く道がない（線・変電所がつながっていない）') : '', p.reach && p.margin < g.reserve ? `供給の余裕が小さい（${pct(p.margin)}）` : '', p.line > 1 ? `線の使用率 ${pct(p.line)}` : '', p.sub > 1 ? `変圧器の使用率 ${pct(p.sub)}` : ''].filter(Boolean);
-      return `<div class="gitem"><p class="spread"><b>${A.esc(n.name)}：${Gm.LOADS[a.type].name} ${kw(a.kw)}</b><small>${Gm.LOADS[a.type].rate} 円/kWh</small></p>
+      return `<div class="gitem" data-appcard="${a.id}"><p class="spread"><b>${A.esc(n.name)}：${Gm.LOADS[a.type].name} ${kw(a.kw)}</b><small>${Gm.LOADS[a.type].rate} 円/kWh</small></p>
         <p class="small">受けたときの見込み（${p.hour}時ごろのピーク）：供給の余裕 ${pct(p.margin)} ・ 線の使用率 最大 ${pct(p.line)}${p.sub ? ` ・ 変圧器 ${pct(p.sub)}` : ''}${Gm.LOADS[a.type].pf < 1 ? ' ・ 力率 0.75（受けたあと、町の建設から進相コンデンサで直せる）' : ''}</p>
         ${warn.length ? `<p class="warn small">${warn.join(' ・ ')}</p>` : ''}
+        ${outlookHtml(g, lc, a.town, [a.id], true)}
         <button class="btn primary" data-accept="${a.id}">受ける</button>${a.held ? '<span class="tag">保留中</span>' : `<button class="btn" data-hold="${a.id}">保留する</button>`}<span class="small">保留に罰はありません（保留が多いと、古いものから取り下げられます）</span></div>`;
     })
     .join('');
@@ -2544,7 +2826,7 @@ function listPanel(g, lc) {
     title: '一覧',
     html: `${tabs}<h3>事故（対処待ち ${g.incidents.length}／最大 ${Gm.MAX_INCIDENTS}件）</h3>${incs || '<p class="note">いまはありません</p>'}
       <p class="small">正しく対処すると被害が小さく、誤ると大きくなります。ゲームの1日（現実の1時間）答えなければ、標準の被害で片づきます。</p>
-      <h3>接続の申し込み（${g.apps.length}件）</h3>${apps || `<p class="note">${Gm.overview(g, lc).accepted >= lc.dmax - 1 ? '需要の上限に達しています。レベルと定着が増えると、また届きます' : 'いまはありません（1日に1件ほど届きます）'}</p>`}
+      <h3>接続の申し込み（${g.apps.length}／${Gm.appCap(g)}件）</h3>${apps || `<p class="note">${Gm.overview(g, lc).accepted >= lc.dmax - 1 ? '需要の上限に達しています。レベルと定着が増えると、また届きます' : 'いまはありません（1日に1件ほど届きます）'}</p>`}
       <h3>発電所（${g.plants.length}）</h3>${plants || '<p class="note">ありません</p>'}
       <h3>送電線・配電線・変電所（${g.lines.length + g.subs.length}）</h3>${lines + subs || '<p class="note">まだありません（建設から建てます）</p>'}
       <h3>報告書</h3>${reports || '<p class="note">まだありません</p>'}`,
@@ -2650,10 +2932,145 @@ function factsHtml(g) {
   return `<h3>この系統で再現した史実</h3>${rows.length ? `<ul class="gnotes gfacts">${rows.map((r) => `<li><b>${r.year}年</b> ${A.esc(r.text)}<small>（ゲームの ${A.esc(r.game)}${r.conf === true ? '' : `・史実は${J.confText(r.conf)}`}）</small></li>`).join('')}</ul>` : '<p class="small">まだありません。史実と同じ区間を線で結ぶと、ここに残ります。</p>'}
     <p class="small"><button class="link" data-sources>出典の一覧</button></p>`;
 }
+// ---- 1.8.2 収益（円）の使い道：研究開発・町への投資・記念の建物（経営のパネルの節。町の詳細にも投資と記念の建物）----
+let spendTab = 'rd';
+const yenQ = (q) => (q.cost != null ? yen(q.cost) : '');
+function spendRow(name, sub, q, data, label) {
+  return `<div class="gspend"><p class="spread grow"><span><b>${name}</b><small>${sub}</small></span><button class="btn small${q.ok ? ' primary' : ''}" ${data} ${q.ok ? '' : 'disabled'}>${label}${q.cost != null ? `<small>${yenQ(q)}</small>` : ''}</button></p>${q.ok || q.cost == null ? '' : `<p class="small gwhy">${A.esc(q.why)}</p>`}</div>`;
+}
+function rdHtml(g, lc) {
+  const d = g.rd?.doing;
+  const rows = Gm.rdKeys(g)
+    .map((k) => {
+      const lv = Gm.rdLevel(g, k);
+      const q = Gm.quoteResearch(g, k);
+      const units = lc.tables?.perf?.[k] || Gm.PERF[k] || [];
+      const zero = !(lc.perf[k] > 0);
+      const sub = `${A.esc(Gm.RD_KEYS[k].what)} ・ ${lv}／${Gm.RD_MAX}段 ・ 性能 ${pct(lc.perf[k] || 0)}${lv ? ` → ${pct(Gm.perfNow(g, lc, k))}` : ''}${zero ? '<br><span class="gneg">学習の定着が 0 なので、研究しても上がらない</span>' : ''}`;
+      const btn = lv >= Gm.RD_MAX ? { ok: false, why: `最高の段（${Gm.RD_MAX}）` } : q;
+      return `${spendRow(Gm.GATE_NAMES[k], sub, btn, `data-rd="${k}"`, d?.key === k ? '研究中' : `${lv + 1}段目を研究`)}<details class="gunitsd"><summary>この項目の単元を解く</summary>${unitButtons(units)}</details>`;
+    })
+    .join('');
+  return `<p class="small">実際の性能＝学習で決まる性能 ×（1 ＋ 0.04 × 段）（1 を超えない）。<b>定着した単元が多いほど、研究が効く</b>（上限は学習で決まる）。1段にゲームの ${Gm.RD_DAYS} 日、同時に1つ。次の段は前の段の2倍の費用。</p>
+    ${d ? `<p class="small gdoing">研究中：${Gm.GATE_NAMES[d.key]}（あと ${Math.max(1, Math.ceil((d.until - g.t) / 24))}日）</p>` : ''}${rows}`;
+}
+// 投資できる町：線か需要のある町（大きい順）と、投資した町
+const spendTowns = (g) =>
+  Gm.nodesOf(g)
+    .filter((n) => n.town && Gm.townActive(g, n) && Gm.nodeOpen(g, n) && (Gm.investLevel(g, n.id) || Gm.decorsOf(g, n.id).length || g.loads.some((l) => l.town === n.id) || g.lines.some((l) => l.a === n.id || l.b === n.id)))
+    .sort((a, b) => (b.size || 2) - (a.size || 2) || Gm.investLevel(g, b.id) - Gm.investLevel(g, a.id));
+function investRow(g, id) {
+  const lv = Gm.investLevel(g, id);
+  const q = lv >= Gm.INVEST_MAX ? { ok: false, why: `最高の段（${Gm.INVEST_MAX}）` } : Gm.quoteInvest(g, id);
+  return spendRow(A.esc(Gm.nodeOf(g, id).name), `${lv}／${Gm.INVEST_MAX}段 ・ 申し込みの届きやすさ ×${(Gm.INVEST_APP ** lv).toFixed(2)} ・ 信用の戻り ×${(Gm.INVEST_REP ** lv).toFixed(2)}`, q, `data-invest="${id}"`, `${lv + 1}段目に投資`);
+}
+function investHtml(g) {
+  const ts = spendTowns(g);
+  return `<p class="small">1段ごとに、その町の接続の申し込みの届きやすさ ×${Gm.INVEST_APP}、停電で下がった町の信用が戻る速さ ×${Gm.INVEST_REP}（3段まで）。<b>需要の上限（D_max）は変わらない</b>（どの町から申し込みが来やすいかを選べるだけ）。遠い町の申し込みばかり来るときの手当てにも。</p>
+    ${ts.length ? ts.map((n) => investRow(g, n.id)).join('') : '<p class="note">線か需要のある町が、まだありません</p>'}`;
+}
+function decorRowHtml(g, id) {
+  const ds = Gm.decorsOf(g, id);
+  return `${ds.map((d) => `<p class="spread grow gdecrow"><span>${Art.decorIcon(d.kind)}${Gm.DECOR[d.kind].name}<small>ゲームの ${Gm.yearOf(d.at) + 1}年目に建てた</small></span><button class="btn small" data-decrm="${id}:${d.id}">撤去</button></p>`).join('')}
+    ${ds.length < Gm.DECOR_MAX ? `<button class="btn small" data-decor="${id}">記念の建物を建てる（${ds.length}／${Gm.DECOR_MAX}）</button>` : `<p class="small">1つの町に${Gm.DECOR_MAX}つまで</p>`}`;
+}
+function decorHtml(g) {
+  const ts = spendTowns(g);
+  return `<p class="small">町に記念の建物を建てる（見た目だけ。性能・需要は変わらない）。地図を拡大すると、町のまわりに見える。時代に合うものが建てられる。撤去もできる（収益は戻らない）。</p>
+    ${ts.length ? ts.map((n) => `<div class="gspend"><p><b>${A.esc(n.name)}</b></p>${decorRowHtml(g, n.id)}</div>`).join('') : '<p class="note">線か需要のある町が、まだありません</p>'}`;
+}
+function spendHtml(g, lc) {
+  const tabs = [['rd', '研究開発'], ['invest', '町への投資'], ['decor', '記念の建物']];
+  const body = spendTab === 'invest' ? investHtml(g) : spendTab === 'decor' ? decorHtml(g) : rdHtml(g, lc);
+  return `<h3>収益の使い道</h3>
+    <p class="small">収益（円）だけで払う（コインでは払えない）。値段は系統の規模に合わせて、直近 30 日の1日の利益の平均（いま ${yen(Gm.spendBase(g))}）から決まる。収益がマイナス・経営再建中は使えず、払ったあと収益が 0 を下回る額も使えない。</p>
+    <div class="gseg gspendtabs">${tabs.map(([k, n]) => `<button class="btn small ${spendTab === k ? 'on' : ''}" data-spendtab="${k}">${n}</button>`).join('')}</div>
+    ${body}`;
+}
+// 町の詳細の「町への投資」「この町の記念の建物」
+function spendTownHtml(g, id) {
+  const n = Gm.nodeOf(g, id);
+  if (!Gm.townActive(g, n) || !Gm.nodeOpen(g, n)) return '';
+  return `<h3>町への投資</h3>${investRow(g, id)}<h3>この町の記念の建物</h3>${decorRowHtml(g, id)}`;
+}
+function redrawSpend() {
+  if (panel) drawPanel(true);
+  if (sel?.detail) drawDetail(true);
+  live();
+}
+function bindSpend(onAll) {
+  onAll('[data-spendtab]', 'click', (e) => {
+    spendTab = e.currentTarget.dataset.spendtab;
+    drawPanel(true);
+  });
+  onAll('[data-rd]', 'click', async (e) => {
+    const k = e.currentTarget.dataset.rd;
+    const r = Gm.startResearch(G(), k);
+    if (!r.ok) return;
+    await save();
+    band(`${Gm.GATE_NAMES[k]}の研究開発を始めた（${Gm.RD_DAYS}日）`);
+    redrawSpend();
+  });
+  onAll('[data-invest]', 'click', async (e) => {
+    const id = e.currentTarget.dataset.invest;
+    const r = Gm.invest(G(), id);
+    if (!r.ok) return;
+    await save();
+    band(`${Gm.nodeOf(G(), id).name}に投資した（${Gm.investLevel(G(), id)}段）`);
+    redrawSpend();
+  });
+  onAll('[data-decor]', 'click', (e) => decorSheet(e.currentTarget.dataset.decor));
+  onAll('[data-decrm]', 'click', (e) => {
+    const [id, did] = e.currentTarget.dataset.decrm.split(':');
+    const d = Gm.decorsOf(G(), id).find((x) => x.id === did);
+    if (!d) return;
+    sheet(`<h2>${A.esc(Gm.DECOR[d.kind].name)}を撤去する</h2><p>${A.esc(Gm.nodeOf(G(), id).name)}の${A.esc(Gm.DECOR[d.kind].name)}を撤去します。払った収益は戻りません。</p><button class="btn primary gwide" data-ok>撤去する</button>`, ({ q, close }) => {
+      q('[data-ok]').onclick = async () => {
+        Gm.removeDecor(G(), id, did);
+        await save();
+        close();
+        redrawSpend();
+      };
+    });
+  });
+}
+function decorSheet(id) {
+  const g = G();
+  const n = Gm.nodeOf(g, id);
+  const kinds = Object.keys(Gm.DECOR);
+  const rows = kinds
+    .map((k) => {
+      const D = Gm.DECOR[k];
+      const q = Gm.quoteDecor(g, id, k);
+      const why = D.era > g.era ? `${eraName(D.era)}から` : q.ok ? '' : q.why;
+      return `<button class="gbitem${q.ok ? '' : ' locked'}" data-dk="${k}" ${q.ok ? '' : 'disabled'}>${Art.decorIcon(k)}<span class="gbtx"><b>${D.name}</b><small>${eraName(D.era)}${q.cost != null ? ` ・ ${yen(q.cost)}` : ''}${why ? ` ・ ${A.esc(why)}` : ''}</small></span></button>`;
+    })
+    .join('');
+  sheet(`<h2>${A.esc(n.name)}に記念の建物を建てる</h2><p class="small">見た目だけ（性能・需要は変わらない）。収益で払う。地図を拡大すると、町のまわりに見える。</p>${rows}`, ({ onAll, close }) =>
+    onAll('[data-dk]', 'click', async (e) => {
+      const k = e.currentTarget.dataset.dk;
+      const r = Gm.buildDecor(G(), id, k);
+      if (!r.ok) return;
+      await save();
+      close();
+      band(`${n.name}に${Gm.DECOR[k].name}が建った`);
+      decorFx(id);
+      redrawSpend();
+    }),
+  );
+}
+// 建てたときの短い演出：その町に寄って、建物の絵を少し弾ませる（動きを減らす設定では出さない）
+function decorFx(id) {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  setTimeout(() => {
+    const el = document.querySelector(`[data-node="${id}"] .gdecor:last-of-type`);
+    el?.classList.add('gpopd');
+  }, 50);
+}
 // ---- 経営のパネル：収益の推移・時代と学習・記録・新しい島・経営再建・そのほか・バージョン番号（開発者モードの入口） ----
 function managePanel(g, lc) {
   const gates = Object.keys(Gm.GATES)
-    .map((k) => `<p class="spread grow"><span>${lc.gate[k] ? '<span class="tag ok">1問正解</span>' : '<span class="tag">まだ</span>'}${Gm.GATE_NAMES[k]}</span><small>性能 ${pct(lc.perf[k] || 0)}</small></p>`)
+    .map((k) => `<p class="spread grow"><span>${lc.gate[k] ? '<span class="tag ok">1問正解</span>' : '<span class="tag">まだ</span>'}${Gm.GATE_NAMES[k]}</span><small>性能 ${pct(lc.perf[k] || 0)}${Gm.rdLevel(g, k) ? `（研究 ${Gm.rdLevel(g, k)}段で ${pct(Gm.perfNow(g, lc, k))}）` : ''}</small></p>`)
     .join('');
   const bps = Object.entries(Gm.BLUEPRINTS).map(([k, b]) => `<span class="tag ${lc.blueprint[k] ? 'ok' : ''}">${b.name}${lc.blueprint[k] ? '' : '（まだ）'}</span>`).join('');
   const yr = g.yr;
@@ -2674,6 +3091,8 @@ function managePanel(g, lc) {
       ${yrow(yr, `${yr.idx + 1}年目（途中）`)}
       ${[...g.years].reverse().map((y) => yrow(y, `${y.idx + 1}年目`)).join('')}
       ${g.best ? `<p class="small">この島の最高の年間利益：${yen(g.best.profit)}</p>` : ''}
+      ${spendHtml(g, lc)}
+      ${DEV.on ? '' : `<h3>絵のアルバム</h3><button class="btn gwide" data-album>絵のアルバム（${Rc.albumCount(rec())}／${Rc.ALBUM.length}）</button>`}
       <h3>時代と学習</h3>
       <p class="gtags">${eras}</p>
       <p class="small">時代はレベルで進む（いま Lv ${lc.level}）。次の時代の設備は「試作」として先取りできる（建設費3倍・故障率3倍）</p>
@@ -2697,6 +3116,8 @@ function managePanel(g, lc) {
       onAll('[data-rebuild2]', 'click', rebuildDialog);
       onAll('[data-newisland]', 'click', islandDialog);
       onAll('[data-gmode]', 'click', (e) => switchMode(e.currentTarget.dataset.gmode));
+      onAll('[data-album]', 'click', albumSheet);
+      bindSpend(onAll);
       onAll('[data-tutagain]', 'click', startTutorial);
       onAll('[data-minion]', 'change', async (e) => {
         await setMini(e.target.checked);
@@ -2880,6 +3301,7 @@ function islandDialog() {
         close();
         screen(null);
         act('island', { terrain: 'japan', start: G().start });
+        overlay('island', '別の地方から始めた', `${Gm.placeName(G())}。明治の小さな発電所から、もう一度。時代・設計図・性能の上乗せは引き継いだ。`, [392, 523.3, 659.3]);
       }),
   );
 }
@@ -2887,6 +3309,7 @@ function islandDialog() {
 // 経営再建：手放す設備を選ぶ（建設費の 30% が収益に戻る）か、借入れ
 function rebuildDialog() {
   const g = G();
+  seen('G21');
   const items = [...g.plants.map((p) => ['plant', p.id, `${Gm.PLANTS[p.type].short} ${kw(p.kw)}`, p.cost]), ...g.lines.map((l) => ['line', l.id, Gm.lineName(g, l), l.cost]), ...g.subs.map((x) => ['sub', x.id, `${Gm.nodeOf(g, x.town).name}の変圧器 ${x.mva} MVA`, x.cost])];
   sheet(
     `<h2>経営再建</h2>

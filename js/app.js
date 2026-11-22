@@ -186,7 +186,7 @@ async function syncCollection() {
   const got = { titles: [], awakened: [] };
   if (!S.cards || !S.data) return got;
   const col = S.collection;
-  const dates = L.titleDates(S.cards.titles, { logs: S.logs, data: S.data, gachaLog: S.gacha, cards: S.cards });
+  const dates = L.titleDates(S.cards.titles, { logs: S.logs, data: S.data, gachaLog: S.gacha, cards: S.cards, gridRecord: S.gridRec });
   for (const [id, d] of dates) {
     if (col.titles[id]) continue;
     col.titles[id] = d;
@@ -1831,6 +1831,7 @@ async function load() {
   S.grid = md.grid;
   S.gridOther = md.other;
   S.gridMode = md.mode;
+  S.gridRec = all.gridRecord || null; // 1.8.2 系統の記録（gridui.js が整える）
   S.preview = null;
   applyTheme();
 }

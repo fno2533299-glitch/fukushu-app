@@ -50,7 +50,7 @@ export async function loadAll() {
   const db = await open();
   const tx = db.transaction(Object.keys(STORES), 'readonly');
   const kv = tx.objectStore('kv');
-  const [questionData, settings, lastBackup, cardData, gachaLog, collection, grid, gridFree, gridMode, states, answerLogs, sessions, issueReports] = await Promise.all([
+  const [questionData, settings, lastBackup, cardData, gachaLog, collection, grid, gridFree, gridMode, gridRecord, states, answerLogs, sessions, issueReports] = await Promise.all([
     request(kv.get('questionData')),
     request(kv.get('settings')),
     request(kv.get('lastBackup')),
@@ -60,6 +60,7 @@ export async function loadAll() {
     request(kv.get('grid')),
     request(kv.get('gridFree')),
     request(kv.get('gridMode')),
+    request(kv.get('gridRecord')),
     request(tx.objectStore('reviewStates').getAll()),
     request(tx.objectStore('answerLogs').getAll()),
     request(tx.objectStore('sessions').getAll()),
@@ -75,6 +76,7 @@ export async function loadAll() {
     grid: grid || null,
     gridFree: gridFree || null,
     gridMode: gridMode || null,
+    gridRecord: gridRecord || null,
     reviewStates: Object.fromEntries(states.map((s) => [s.questionId, s])),
     answerLogs,
     sessions,
@@ -137,6 +139,8 @@ export async function replaceAll(backup, keepCardData = null, keepDev = null, ke
   // 1.8.0 自由モードの系統といまのモード。古いバックアップにはないので、そのときは自由モードの系統なし・史実モード
   if (backup.gridFree) kv.put(backup.gridFree, 'gridFree');
   if (backup.gridMode === 'free' && backup.gridFree) kv.put('free', 'gridMode');
+  // 1.8.2 系統の記録（絵のアルバム・系統で初めて起きたこと）。古いバックアップにはないので、そのときは今の系統から作り直す
+  if (backup.gridRecord) kv.put(backup.gridRecord, 'gridRecord');
   if (keepDev) kv.put(keepDev, 'gridDev');
   if (keepDemo) kv.put(keepDemo, 'gridDemo');
   for (const s of backup.reviewStates) tx.objectStore('reviewStates').put(s);

@@ -736,7 +736,7 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gpanel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; max-height: 58%; display: flex; flex-direction: column; background: var(--card); border-radius: 16px 16px 0 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, .18); transform: translateY(105%); visibility: hidden; transition: transform .22s ease-out, visibility 0s linear .22s; }
 .gpanel.open { transform: none; visibility: visible; transition: transform .22s ease-out; }
 .gpin { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 0 16px 16px; font-size: 0.95rem; }
-.gphead { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--card); padding: 8px 0 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.gphead { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--card); padding: 8px 0 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
 .gphead h2 { margin: 0; font-size: 1rem; min-width: 0; }
 .gphead .btn { margin: 0; min-height: 44px; flex: none; }
 .gpin h3 { font-size: 0.85rem; color: var(--muted); margin: 14px 0 2px; }
@@ -850,7 +850,8 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 /* 詳細：地図に重ねる半透明のカード（地点と反対の側） */
 .gdetail { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 3; display: none; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px 12px; font-size: 0.9rem; border-radius: 14px; border: 1px solid var(--line); background: color-mix(in srgb, var(--card) 88%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); box-shadow: 0 4px 18px rgba(0, 0, 0, .22); }
 .gdetail.open { display: block; animation: gfade2 .18s ease-out; }
-.gdetail .gphead { background: transparent; }
+/* 1.8.1：見出しは sticky なので、透けると本文と重なる。カードと同じ半透明の色＋ぼかしを付け、カードの端まで広げる */
+.gdetail .gphead { z-index: 4; margin: 0 -12px 4px; padding: 8px 12px 6px; background: color-mix(in srgb, var(--card) 94%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .gdetail h3 { font-size: 0.85rem; color: var(--muted); margin: 10px 0 2px; }
 .gdetail .btn.small { min-height: 44px; }
 @keyframes gfade2 { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -1121,3 +1122,93 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gmcardin .gmextra { padding: 6px 8px; border-radius: 8px; background: var(--trivia-bg); }
 [data-theme=fx] .gmcardin { animation: gpop .5s ease-out; box-shadow: 0 0 40px 6px var(--spark-glow); }
 @media (prefers-reduced-motion: reduce) { [data-theme=fx] .gmcardin { animation: none; } }
+/* 1.8.1 町の次の24時間の需給のグラフ（申し込みのカード・町の詳細） */
+:root { --gyel: #c99a00; }
+@media (prefers-color-scheme: dark) { :root { --gyel: #e8c547; } }
+.gfc { margin: 6px 0 4px; }
+.gfchart { display: block; width: 100%; max-width: 420px; height: auto; }
+.gfchart .gfb.ok { fill: var(--ok); opacity: .75; }
+.gfchart .gfb.warn { fill: var(--gyel); }
+.gfchart .gfb.ng { fill: var(--ng); }
+.gfchart .gfh { font-size: 7px; fill: var(--muted); text-anchor: middle; }
+.gfchart .gfh.now { fill: var(--primary); font-weight: 700; }
+.gfchart .gfng { font-size: 7px; fill: var(--ng); font-weight: 700; text-anchor: middle; paint-order: stroke; stroke: var(--card); stroke-width: 2px; }
+.gfkey { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 2px 0 0; color: var(--muted); }
+.gfkey i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 3px; vertical-align: -1px; }
+.gfkey i.ok { background: var(--ok); opacity: .75; }
+.gfkey i.warn { background: var(--gyel); }
+.gfkey i.ng { background: var(--ng); }
+.gfkey i.hatch { background: repeating-linear-gradient(45deg, var(--muted) 0 2px, transparent 2px 4px); }
+.gfsum { margin: 2px 0; }
+.gfsum.bad { color: var(--ng); font-weight: 700; }
+.gfsum.warn { color: var(--idk); }
+.gitem.gflash { animation: gflash 1.6s ease-out; }
+@keyframes gflash { 0%, 40% { background: color-mix(in srgb, var(--primary) 18%, transparent); } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .gitem.gflash { animation: none; outline: 2px solid var(--primary); } }
+
+/* 1.8.2 収益の使い道（研究開発・町への投資・記念の建物） */
+.gspend { border-top: 1px solid var(--line); padding: 6px 0; }
+.gspend .spread > span { display: flex; flex-direction: column; min-width: 0; line-height: 1.4; }
+.gspend small { color: var(--muted); font-size: 0.78rem; }
+.gspend .btn small { display: block; color: inherit; opacity: .85; font-size: 0.72rem; }
+.gspend .btn[disabled] { opacity: .45; }
+.gspend .gwhy { color: var(--idk); margin: 2px 0 0; }
+.gspendtabs { margin: 6px 0; }
+.gdoing { color: var(--primary); font-weight: 700; }
+.gunitsd { margin: -2px 0 4px; font-size: 0.82rem; color: var(--muted); }
+.gunitsd summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.gdecrow > span { flex-direction: row !important; align-items: center; gap: 6px; }
+.gdeci { width: 26px; height: 26px; flex: none; vertical-align: middle; }
+.gbitem .gdeci { width: 40px; height: 40px; }
+.gdecor .gd-bg { fill: var(--card); stroke: var(--line); stroke-width: .8; opacity: .92; }
+.gdecor .gd-road { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+.gdecor .gd-post { stroke: #6b5a3a; stroke-width: 1; fill: none; }
+.gdecor .gd-lamp { fill: #ffd34d; stroke: #b98a00; stroke-width: .5; }
+.gdecor .gd-stone { fill: #b8b2a4; stroke: #6f695c; stroke-width: .6; }
+.gdecor .gd-stone2 { fill: #8f8878; }
+.gdecor .gd-wall { fill: #e9dcc3; stroke: #7a6a4a; stroke-width: .6; }
+.gdecor .gd-roof { fill: #a24b33; stroke: #6d2f1f; stroke-width: .5; }
+.gdecor .gd-face { fill: #fff; stroke: #333; stroke-width: .5; }
+.gdecor .gd-hand { stroke: #333; stroke-width: .6; fill: none; }
+.gdecor .gd-pool { fill: #8fc8ec; stroke: #3d7fae; stroke-width: .5; }
+.gdecor .gd-jet { stroke: #3d9fe0; stroke-width: 1; fill: none; }
+.gdecor .gd-door { fill: #5b4630; }
+.gdecor .gd-win { stroke: #ffd34d; stroke-width: 1.4; }
+.gdecor .gd-sign { fill: #c8372d; }
+.gdecor .gd-signl { stroke: #ffe9a3; stroke-width: 1; }
+@media (prefers-color-scheme: dark) { .gdecor .gd-wall { fill: #cbbf9f; } }
+.gdecor.gpopd { animation: gpopd .7s ease-out; transform-box: fill-box; transform-origin: center; }
+@keyframes gpopd { 0% { opacity: 0; } 40% { opacity: 1; } 100% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .gdecor.gpopd { animation: none; } }
+
+/* 1.8.2 詳細の見出しの絵の帯（スクロールで流れ、名前と「閉じる」の行だけが上に残る） */
+.gdetail .gdband { display: block; width: calc(100% + 24px); margin: 0 -12px; height: 72px; padding: 0; border: 0; background: var(--sea); position: relative; overflow: hidden; cursor: zoom-in; border-radius: 14px 14px 0 0; }
+.gdetail .gdband img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 45%; }
+.gdetail .gdband::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 30px; background: linear-gradient(transparent, color-mix(in srgb, var(--card) 88%, transparent)); pointer-events: none; }
+.gdetail.hasband .gphead { padding-top: 4px; }
+/* 1.8.2 絵を大きく見る・絵のアルバム */
+.goverlay.gview .gviewin { width: 100%; max-width: 520px; background: var(--card); border-radius: 16px; padding: 12px; text-align: center; }
+.goverlay.gview img { display: block; width: 100%; height: auto; max-height: 64vh; object-fit: contain; border-radius: 10px; background: #000; }
+.goverlay.gview p { margin: 8px 0; }
+.galbum { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; margin: 8px 0; }
+.galb { position: relative; display: block; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--sea); aspect-ratio: 4 / 3; }
+.galb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.galb small { position: absolute; left: 4px; bottom: 2px; font-size: 0.68rem; color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000; }
+.galb.no img { filter: brightness(0); opacity: .82; }
+.galb.no b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.5rem; opacity: .85; }
+/* 1.8.2 時代が変わる演出：絵を画面いっぱいに */
+.goverlay.gbig { padding: 0; flex-direction: column; align-items: stretch; justify-content: flex-start; overflow-y: auto; background: #000; }
+.gbigpic { position: relative; flex: none; height: min(62vh, 560px); overflow: hidden; }
+.gbigpic img { display: block; width: 100%; height: 100%; object-fit: cover; transform-origin: 50% 60%; }
+[data-theme=fx] .gbigpic img { animation: gkb 9s ease-out forwards; }
+@keyframes gkb { from { transform: scale(1); } to { transform: scale(1.12); } }
+.gbigcap { position: absolute; left: 0; right: 0; bottom: 0; padding: 48px 18px 22px; background: linear-gradient(transparent, rgba(0, 0, 0, .78)); color: #fff; text-align: left; }
+.gbigcap small { display: block; font-size: 0.9rem; opacity: .9; }
+.gbigcap b { display: block; font-size: 1.7rem; letter-spacing: .04em; }
+.goverlay.gbig .gov { position: relative; margin: -14px auto 0; max-width: 520px; border-radius: 16px 16px 0 0; flex: 1 0 auto; text-align: left; padding: 16px 18px 24px; }
+.goverlay.gbig .gov .btn { display: block; width: 100%; }
+@media (prefers-reduced-motion: reduce) { .gbigpic img { animation: none !important; } }
+/* 1.8.2 ホームの系統カード：いまの時代の絵を薄く。文字の多い左を濃く、右へ少しずつ絵が見える */
+.gridcard.hasimg { position: relative; isolation: isolate; overflow: hidden; }
+.gridcard.hasimg::before { content: ""; position: absolute; inset: 0; z-index: -2; background: var(--eraimg) right 40% / cover no-repeat; }
+.gridcard.hasimg::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, color-mix(in srgb, var(--card) 94%, transparent) 0%, color-mix(in srgb, var(--card) 86%, transparent) 50%, color-mix(in srgb, var(--card) 66%, transparent) 100%); }

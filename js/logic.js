@@ -971,7 +971,11 @@ export const HIDDEN_KEYS = ['midnight', 'idk3ThenCorrect'];
 
 // 称号ごとに、最初に条件を満たした日。titleId → 'YYYY-MM-DD'（満たしていない称号は入らない）。
 // コードにない条件（type・key）は無視する。cards：カードのデータ（seriesComplete 用）
-export function titleDates(titles, { logs, data, gachaLog = [], cards = null }) {
+// 1.8.2：gridRecord（kv「gridRecord」。系統で初めて起きたこと firsts・絵のアルバム album）で判定する種類 grid
+//   { type: 'grid', key: 'era:3' など（firsts のキー）}・{ type: 'grid', key: 'album', n }（絵に n 枚出会った）・{ type: 'grid', key: 'incOk', n }（事故の問題に n 回正解）
+// examPass・examScore は examPrefix（試験 ID の頭。'denken3-' など）と subject（科目名）で絞れる（試験 ID が増えても壊れない）。
+//   examScore：{ examPrefix, subject?, ratio }（その試験のどれかの回・科目で、満点の ratio 以上）
+export function titleDates(titles, { logs, data, gachaLog = [], cards = null, gridRecord = null }) {
   const res = new Map();
   const list = (titles || []).filter((t) => t?.titleId && t.condition && !t.retired);
   if (!list.length) return res;
@@ -1005,7 +1009,9 @@ export function titleDates(titles, { logs, data, gachaLog = [], cards = null }) 
     })
     .filter((u) => u.ids.size > 0);
   const papers = new Map();
-  for (const ex of data?.exams || []) for (const p of ex.papers || []) papers.set(paperKey({ examId: ex.examId, ...p }), { pass: p.pass, got: 0 });
+  for (const ex of data?.exams || []) for (const p of ex.papers || []) papers.set(paperKey({ examId: ex.examId, ...p }), { examId: ex.examId, subject: p.subject, pass: p.pass, full: p.full, got: 0, best: 0 });
+  // 1.8.2 回・科目ごとの合格した日と、満点に対する割合の最高（日付の順）
+  const paperPass = new Map(), paperRatio = [];
   const examQ = new Map(active.filter((q) => q.examItem && papers.has(paperKey(q.examItem))).map((q) => [q.questionId, q.examItem]));
   const mastered = new Set();
   const lastOk = new Map();
@@ -1025,13 +1031,38 @@ export function titleDates(titles, { logs, data, gachaLog = [], cards = null }) 
       if (ok !== !!lastOk.get(l.questionId)) r.got += ok ? e.points : -e.points;
       lastOk.set(l.questionId, ok);
       if (!passDate && r.got >= r.pass) passDate = date;
+      if (r.got >= r.pass && !paperPass.has(paperKey(e))) paperPass.set(paperKey(e), date);
+      if (r.full > 0 && r.got / r.full > r.best) (r.best = r.got / r.full), paperRatio.push({ r, ratio: r.best, date });
     }
     if (!midnight && new Date(l.answeredAt).getHours() < 4) midnight = date;
     if (l.result === 'わからない') idk.set(l.questionId, (idk.get(l.questionId) || 0) + 1);
     else if (l.result === '正解' && !idk3 && (idk.get(l.questionId) || 0) >= 3) idk3 = date;
   });
-  for (const t of of('examPass')) set(t, passDate);
+  const fit = (r, c) => (!c.examPrefix || r.examId.startsWith(c.examPrefix)) && (!c.subject || r.subject === c.subject);
+  for (const t of of('examPass')) {
+    const c = t.condition;
+    if (!c.examPrefix && !c.subject) set(t, passDate);
+    else set(t, [...paperPass].filter(([k]) => fit(papers.get(k), c)).map(([, d]) => d).sort()[0]);
+  }
+  for (const t of of('examScore')) {
+    const c = t.condition;
+    set(t, paperRatio.find((x) => fit(x.r, c) && x.ratio >= (c.ratio || 0))?.date);
+  }
   for (const t of of('hidden')) set(t, { midnight, idk3ThenCorrect: idk3 }[t.condition.key]);
+
+  // 1.8.2 系統の記録で判定する称号
+  if (of('grid').length) {
+    const rec = gridRecord || {};
+    const album = Object.values(rec.album || {}).sort();
+    const incOk = logs.filter((l) => l.result === '正解' && String(l.questionId).startsWith(`${GRID_SUBJECT}-`)).map((l) => localDate(new Date(l.answeredAt)))
+      .sort();
+    for (const t of of('grid')) {
+      const c = t.condition;
+      if (c.key === 'album') set(t, album[(c.n || 1) - 1]);
+      else if (c.key === 'incOk') set(t, incOk[(c.n || 1) - 1]);
+      else set(t, rec.firsts?.[c.key]);
+    }
+  }
 
   if (of('seriesComplete').length && cards) {
     const owned = new Set();

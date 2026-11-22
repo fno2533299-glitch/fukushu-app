@@ -153,3 +153,18 @@ export function assetIcon(grp, x, y, slot, side = -1) {
 export function assetsSvg(g, n, x, y, side = -1) {
   return assetGroups(g, n.id).map((grp, i) => assetIcon(grp, x, y, i, side)).join('');
 }
+
+// ---- 1.8.2 記念の建物と景色（見た目だけ）：町のまわりに小さな絵。形は -9〜9 の箱（下端は y=6）----
+export const DECOR_SHAPE = {
+  lamps: '<path class="gd-road" d="M-8.5 6.2H8.5"/><path class="gd-post" d="M-6 6V-3.2M0 6V-3.2M6 6V-3.2"/><circle class="gd-lamp" cx="-6" cy="-4.2" r="1.7"/><circle class="gd-lamp" cx="0" cy="-4.2" r="1.7"/><circle class="gd-lamp" cx="6" cy="-4.2" r="1.7"/>',
+  monument: '<path class="gd-stone" d="M-1.9 4.6L-1.2-6.2L0-8.4L1.2-6.2L1.9 4.6Z"/><rect class="gd-stone2" x="-4.6" y="4.4" width="9.2" height="2.2" rx=".6"/>',
+  clock: '<rect class="gd-wall" x="-3.2" y="-5.4" width="6.4" height="11.6"/><path class="gd-roof" d="M-4.2-5.4L0-9.6L4.2-5.4Z"/><circle class="gd-face" cx="0" cy="-1.8" r="2.1"/><path class="gd-hand" d="M0-1.8V-3.2M0-1.8H1.2"/>',
+  fountain: '<ellipse class="gd-pool" cx="0" cy="4.6" rx="7.4" ry="2.2"/><path class="gd-jet" d="M0 4V-4.6M0-4.6C-2.2-4.6-3.6-2-4.2 1.6M0-4.6C2.2-4.6 3.6-2 4.2 1.6"/>',
+  station: '<rect class="gd-wall" x="-8" y="-1.6" width="16" height="7.8"/><path class="gd-roof" d="M-9.2-1.6L0-6.8L9.2-1.6Z"/><rect class="gd-door" x="-1.6" y="1.8" width="3.2" height="4.4"/><path class="gd-win" d="M-6 1.2h2.4M3.6 1.2h2.4"/>',
+  cinema: '<rect class="gd-wall" x="-7" y="-3.4" width="14" height="9.6"/><rect class="gd-sign" x="-6.2" y="-7.6" width="12.4" height="3.6" rx=".8"/><path class="gd-signl" d="M-4.4-5.8h8.8"/><rect class="gd-door" x="-2" y="1.6" width="4" height="4.6"/>',
+};
+export function decorSvg(kind, x, y, scale = 1) {
+  return `<g class="gdecor d-${kind}" transform="translate(${f1(x)},${f1(y)}) scale(${scale})"><circle r="9.5" class="gd-bg"/>${DECOR_SHAPE[kind] || ''}</g>`;
+}
+// 画面の文字の前に添える小さな絵（HTML）
+export const decorIcon = (kind) => `<svg class="gdeci" viewBox="-10.5 -10.5 21 21" aria-hidden="true">${decorSvg(kind, 0, 0)}</svg>`;
