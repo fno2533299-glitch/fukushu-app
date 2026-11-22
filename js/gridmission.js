@@ -6,6 +6,9 @@
 //   { kind: 'deliver', src, kv, km }               src（dc＝直流の火力／hydro＝水力／ac＝交流の発電所）から、電気が入っている線をたどって町に届く。
 //                                                  その道のうち kv 以上の線の長さの合計が km 以上（直流は直流 200 V の線）。町は前の日の需要の 90% 以上に届いたこと
 //   { kind: 'drought' }                            渇水の出来事の間（30日）、全域停電と負荷遮断がない
+//   { kind: 'drought', restrict: true }            1.10.0 そのうえ渇水の間に使用制限（A・B・C のどれか）を 1 日（24 時間）以上使った
+//   { kind: 'kanmon' }                             1.10.0 下関と小倉・八幡を交流の線で結び、前の日にその線に電気が流れていた（脱調で切れていない）
+//   { kind: 'hzConv' }                             1.10.0 周波数をそろえる工事を1つ終える
 import * as J from './gridjapan.js';
 
 export const MISSIONS = [
@@ -64,9 +67,38 @@ export const MISSIONS = [
     year: 1939, short: '1939年の渇水', text: '1939年、全国的な異常渇水と石炭不足で電力供給制限（制限率：関東 30%、関西 35%）。電力調整令。水力に頼りすぎた系統の弱点',
     src: 'S14', conf: true,
   },
+  // ---- 1.10.0 戦後復興（E4b）。出典 S14〜S18（gridjapan.js の SOURCES） ----
+  {
+    id: 'M09', era: 5, name: '275 kV 超高圧送電', goal: '275 kV の線で 200 km 以上送って届ける',
+    cond: { kind: 'deliver', src: 'ac', kv: 275, km: 200 }, units: ['denken2-denryoku-U06', 'transmission-1-U02'],
+    hint: '275 kV は設計図が要る（送電の試験レベル）。損失は電圧の2乗に反比例',
+    year: 1952, short: '新北陸幹線 275 kV 超高圧送電', text: '1952年7月、新北陸幹線で日本初の超高圧 275 kV 送電（230 km）。同じとき枚方変電所（198,000 kVA）が竣工。物理：同じ 50 MW を 230 km 送っても、損失は 154 kV の約 5 分の 1（275 kV で 0.46%、154 kV で 2.42%）',
+    physics: true, src: 'S16・S18、検算', conf: true,
+  },
+  {
+    id: 'M10', era: 5, name: '関門海峡を越える', goal: '下関と小倉・八幡を交流の線で結び、その線に電気を流す（脱調で切れていない）',
+    cond: { kind: 'kanmon' }, units: ['denken3-denryoku-U06', 'circuit-b-U13'],
+    hint: '九州と本州の周波数がそろっているか、先に確かめよう。海峡を渡る線は 66 kV 以上',
+    year: 1945, short: '関門連絡送電線', text: '1945年、関門連絡送電線が完成し、本州と九州の間で送電を始めた。両側の周波数がそろっていないと、つないだ瞬間に脱調する',
+    src: 'S14', conf: true,
+  },
+  {
+    id: 'M11', era: 5, name: '周波数をそろえる', goal: '周波数をそろえる工事を1つ終える',
+    cond: { kind: 'hzConv' }, units: ['circuit-b-U13', 'power-system-U03'],
+    hint: '網の発電所の詳細から始められる。工事の間は出力が 8 割になる',
+    year: 1949, short: '九州の 60 Hz 統一', text: '九州では 50 Hz と 60 Hz が混ざっていたため、60 Hz にそろえる方針を立て、第1期（1949〜1951）・第2期（1954〜1960）の工事で統一した',
+    src: 'S17', conf: true,
+  },
+  {
+    id: 'M12', era: 5, name: '渇水を使用制限でしのぐ', goal: '渇水の出来事の間に使用制限（A・B・C のどれか）を 1 日以上使い、負荷遮断と全域停電を起こさない',
+    cond: { kind: 'drought', restrict: true }, units: ['power-system-U06', 'power-system-U14'],
+    hint: '渇水が来たら、運転のパネルの使用制限を選んでみよう（史実モードでは、戦後復興に入ったあとの夏に決まって起きる）',
+    year: 1951, short: '1951年の渇水と使用制限', text: '1946年、電気需給調整規則。1951年夏の異常渇水のあと、1951〜1953年度は法的な使用制限（電灯電力の使用時間の指定・大口の使用量の制限・最大電力の指定）。中部電力では、制限で減ったとみられる量が 1951年度に 2.89億 kWh（販売電力量の 8%）',
+    src: 'S15・S17', conf: true,
+  },
 ];
 export const missionOf = (id) => MISSIONS.find((m) => m.id === id) || null;
-// 出典 S14（この版で足す。Code依頼_1.8.0 の出典）
+// 出典 S14（この版で足す。Code依頼_1.8.0 の出典）。S15〜S19 は 1.10.0（gridjapan.js の SOURCES）
 export const SOURCE_S14 = ['S14', '電気事業連合会「電気の歴史年表 大正から昭和へ」', 'https://www.fepc.or.jp/enterprise/rekishi/taishou/'];
 
 // 今の周波数（始める町。答え合わせで、選んだ周波数と並べる。今の境目の東が 50 Hz、西が 60 Hz）

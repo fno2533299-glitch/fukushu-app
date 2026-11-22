@@ -5,6 +5,7 @@ import * as L from './logic.js';
 import { JAPAN_NODES } from './japan.js';
 import * as J from './gridjapan.js';
 import * as Ms from './gridmission.js';
+import { straitSea } from './gridsea.js';
 
 // ---- 時間 ----
 export const HOUR_MS = 150000; // ゲームの1時間＝現実の2.5分（1日＝1時間）
@@ -16,16 +17,19 @@ export const SEASONS = ['春', '夏', '秋', '冬'];
 export const seasonOf = (t) => Math.floor(t / (24 * SEASON_DAYS)) % 4;
 export const yearOf = (t) => Math.floor(t / (24 * YEAR_DAYS));
 
-// ---- 時代（学習のレベルで進む）。1.5.0 は E4 まで。E5・E6 は表だけ ----
+// ---- 時代（学習のレベルで進む）。1.10.0 は E4b（戦後復興）まで。E5・E6 は表だけ ----
+// 1.10.0：昭和前期（E4）と高度成長の間に戦後復興（E4b）を入れ、番号を付け直した（高度成長 5 → 6、現代 6 → 7）。
+// 1.9.x までは E4（4）までしか開いていなかったので、保存データの時代は 1〜4 だけ（付け直しの影響はない）
 export const ERAS = [
   { n: 1, id: 'E1', name: '明治前期', year: '1887〜', level: 1 },
   { n: 2, id: 'E2', name: '明治後期', year: '1891〜', level: 3 },
   { n: 3, id: 'E3', name: '大正', year: '1912〜', level: 7 },
   { n: 4, id: 'E4', name: '昭和前期', year: '1926〜', level: 12 },
-  { n: 5, id: 'E5', name: '高度成長', year: '1955〜', level: 20 },
-  { n: 6, id: 'E6', name: '現代', year: '', level: 30 },
+  { n: 5, id: 'E4b', name: '戦後復興', year: '1941〜', level: 16 },
+  { n: 6, id: 'E5', name: '高度成長', year: '1955〜', level: 20 },
+  { n: 7, id: 'E6', name: '現代', year: '', level: 30 },
 ];
-export const MAX_ERA = 4;
+export const MAX_ERA = 5;
 export function eraOf(level) {
   let n = 1;
   for (const e of ERAS) if (level >= e.level && e.n <= MAX_ERA) n = e.n;
@@ -53,6 +57,8 @@ export const LINES = {
   // 1.6.0：大正の 110 kV（猪苗代の 115 kV を表す）。55 kV（駒橋）・77 kV（谷村）は 66 kV で表す
   ac110: { name: '交流送電 110 kV', short: '交流 110 kV', kv: 110, cap: 70000, r: 0.07, cost: 1000, era: 3, hv: true, gates: ['line'], perf: 'line' },
   ac154: { name: '交流送電 154 kV', short: '交流 154 kV', kv: 154, cap: 150000, r: 0.05, cost: 1200, era: 4, hv: true, gates: ['line'], perf: 'line', blueprint: 'line154' },
+  // 1.10.0 戦後復興の 275 kV（1952年 新北陸幹線）。送れる量は 154 kV の 150 MW を電圧の2乗で伸ばした約 478 MW → 450 MW。抵抗は太い電線・多導体で 0.03 Ω/km
+  ac275: { name: '交流送電 275 kV', short: '交流 275 kV', kv: 275, cap: 450000, r: 0.03, cost: 2000, era: 5, hv: true, gates: ['line'], perf: 'line', blueprint: 'line275' },
 };
 export const MAX_CIRCUITS = 4;
 // 建設のときに足せる対策（費用 +20% ずつ）
@@ -86,6 +92,8 @@ export const LOADS = {
   factory: { name: '工場（動力）', rate: 18, era: 3, pf: 0.75, pfFixed: 0.95, winter: 1, shape: H24((h) => (h >= 8 && h <= 16 ? 1 : h === 7 || h === 17 ? 0.5 : 0.15)) },
 };
 const LOAD_MIX = { 1: { lamp: 1 }, 2: { lamp: 4, home: 3, shop: 3 }, 3: { lamp: 2, home: 3, shop: 2, factory: 3 }, 4: { lamp: 2, home: 3, shop: 2, factory: 3 } };
+LOAD_MIX[5] = LOAD_MIX[4]; // 1.10.0 戦後復興は昭和前期と同じ（需要の種類は E5 の版で）
+const loadMix = (era) => LOAD_MIX[Math.min(Math.max(era || 1, 1), 5)];
 export const peakHour = (type) => LOADS[type].shape.indexOf(Math.max(...LOADS[type].shape));
 const tanOf = (pf) => Math.sqrt(1 / (pf * pf) - 1);
 
@@ -93,6 +101,11 @@ const tanOf = (pf) => Math.sqrt(1 / (pf * pf) - 1);
 export function dmaxKw(level, mastered) {
   return 30 * Math.pow(1.4, level - 1) * (1 + mastered / 100);
 }
+// 1.10.0 需要の時代の倍率（構想メモ 1章「時代で需要を伸ばす」）：D_max × ERA_K[時代]。E4 までは 1、E4b（5）は 2。
+// E5 以降の値は次の版で決める。数値の釣り合いの5点と一緒に、本人が開発者モードで遊んで直せるように定数にしておく
+export const ERA_K = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 2 };
+export const eraK = (era) => ERA_K[era] ?? 1;
+export const dmaxOf = (level, mastered, era = eraOf(level)) => dmaxKw(level, mastered) * eraK(era);
 
 // ---- 学習との結びつき（設計 6章） ----
 // GATES：建設できる＝どれかの単元で1問正解。PERF：性能の単元（科目ごとの定着の割合の平均の最大。これまでの最大値）
@@ -111,6 +124,7 @@ export const GATES = {
   insul: ['denken3-denryoku-U10', 'denken3-denryoku-U06'],
   pf: ['circuit-b-U11'],
   rel: ['power-system-U12'],
+  hzConv: ['circuit-b-U13', 'power-system-U03'], // 1.10.0 周波数をそろえる工事（三相の回転磁界＝モータの回転は周波数で決まる／周波数と系統定数）
 };
 export const PERF = {
   dc: ['denken3-riron-U03'],
@@ -127,13 +141,14 @@ export const PERF = {
   pf: ['circuit-b-U11', 'denken3-riron-U04'],
   rel: ['power-system-U12', 'power-system-U13', 'power-system-U14'],
 };
-export const GATE_NAMES = { dc: '直流の配電・発電所', gen: '交流発電機（三相）', tr: '変圧器・変電所', coal: '石炭火力', hydro: '水力', line: '送電線', dist: '配電（3.3 kV）', freq: '周波数・ガバナ・予備力', econ: '給電の優先順位', prot: '保護', insul: 'がいし・架空地線・相間スペーサ', pf: '進相コンデンサ', rel: '信頼度' };
+export const GATE_NAMES = { dc: '直流の配電・発電所', gen: '交流発電機（三相）', tr: '変圧器・変電所', coal: '石炭火力', hydro: '水力', line: '送電線', dist: '配電（3.3 kV）', freq: '周波数・ガバナ・予備力', econ: '給電の優先順位', prot: '保護', insul: 'がいし・架空地線・相間スペーサ', pf: '進相コンデンサ', rel: '信頼度', hzConv: '周波数をそろえる工事' };
 // 設計図（大型・特殊）：その単元の試験レベルに正解、または関係する外部試験の科目で取れる点が満点の3割以上
 export const BLUEPRINTS = {
   bigCoal: { name: '大型の石炭火力', units: ['denken2-denryoku-U02'] },
   pond50: { name: '調整池式 50 MW', units: ['denken2-denryoku-U01'] },
   line154: { name: '送電線 154 kV', units: ['denken2-denryoku-U06'] },
   petersen: { name: '消弧リアクトル', units: ['denken2-denryoku-U09'] },
+  line275: { name: '送電線 275 kV（超高圧）', units: ['denken2-denryoku-U06'] }, // 1.10.0
 };
 
 // 1.7.4 単元と施設の対応表：上の表（GATES・PERF・BLUEPRINTS。古い問題データでも今までどおり動くように残す）に、
@@ -224,7 +239,7 @@ export function learning(logs, data, saved = {}) {
   }
   const level = L.levelInfo(L.coinTotals(L.coinEvents(logs, data)).total).level;
   const incidentQs = new Set(L.gameQuestions(data).map((q) => q.questionId));
-  return { level, era: eraOf(level), mastered, dmax: dmaxKw(level, mastered), gate, perf, blueprint, incidentQs, tables: T };
+  return { level, era: eraOf(level), mastered, dmax: dmaxOf(level, mastered), gate, perf, blueprint, incidentQs, tables: T };
 }
 // テストや仮の表示用：何も学習していない状態
 export function blankLearning(over = {}) {
@@ -389,8 +404,11 @@ export function flowFactor(G, t) {
   const drought = evOn(G, 'drought', t);
   return [1.3, 1.0, 0.9, 0.6][seasonOf(t)] * (drought ? (drought.eased ? 0.55 : 0.4) : 1);
 }
-// この1時間に出せる最大（水力は流量しだい。調整池式は池の水まで）
+// この1時間に出せる最大（水力は流量しだい。調整池式は池の水まで）。1.10.0 周波数をそろえる工事の間は 8 割まで
 function capNow(G, p, t, forCommit = false) {
+  return capRaw(G, p, t, forCommit) * (p.convUntil > t ? HZCONV.capK : 1);
+}
+function capRaw(G, p, t, forCommit) {
   if (!P(p).ac || P(p).coal) return p.kw;
   const f = flowFactor(G, t);
   if (p.type === 'ror') return p.kw * Math.min(1, f);
@@ -427,13 +445,56 @@ export function lineHazard(G, l, t, lc) {
 }
 
 // ---- 需要 ----
-function loadKw(G, ld, t) {
+// raw：使用制限をかけない、ふだんの需要（1.10.0 使用制限で減らした量を数えるとき）
+function loadKw(G, ld, t, raw = false) {
   const D = LOADS[ld.type];
-  let k = D.shape[t % 24] * (seasonOf(t) === 3 ? D.winter : 1);
+  const r = raw ? null : restrictOn(G);
+  const shape = r && RESTRICT_TYPES.includes(ld.type) ? restrictShape(r, ld.type) : D.shape;
+  let k = shape[t % 24] * (seasonOf(t) === 3 ? D.winter : 1);
   if (evOn(G, 'heat', t) || evOn(G, 'cold', t)) k *= 1.15;
   const dr = evOn(G, 'drought', t);
   if (dr?.eased) k *= 0.9;
   return ld.kw * k;
+}
+// ---- 1.10.0 使用制限（戦後復興 E4b から、両モード）。渇水などで供給が足りないとき、運転のパネルで1つ選ぶ（いつでも変えられる）。
+// 効くのは工場・町の動力の需要だけ（電灯・住宅は変えない。史実の「電灯電力の使用時間の指定」は大口の側だけで表す）。
+// A 使用時間の指定：昼（8〜17 時）の 3 割を夜（22〜5 時）へ移す（1日の量と料金は同じ）／B 大口の使用量の制限：どの時間も 0.7 倍／
+// C 最大電力の指定：ふだんの山の 7 割で頭打ち。減らした・移した需要は停電に数えない（需要そのものが減る）。それでも足りなければ今の負荷遮断の規則
+export const RESTRICT_ERA = 5;
+export const RESTRICT = {
+  A: { name: '使用時間の指定', short: 'A 使用時間の指定', text: '工場・町の動力の昼（8〜17 時）の 3 割を夜（22〜5 時）へ移す。1日の量と料金は同じ。昼の山が下がり、夜が上がる' },
+  B: { name: '大口の使用量の制限', short: 'B 大口の使用量の制限', text: '工場・町の動力の需要を、どの時間も 0.7 倍（1日の量が 3 割減る。その分の売電はない）' },
+  C: { name: '最大電力の指定', short: 'C 最大電力の指定', text: '工場・町の動力の需要を、ふだんの山の 7 割で頭打ち（量は少し減る）' },
+};
+export const RESTRICT_TYPES = ['factory', 'shop'];
+export const RESTRICT_K = 0.7;
+const R_DAY = (h) => h >= 8 && h <= 17, R_NIGHT = (h) => h >= 22 || h <= 5;
+const R_SHAPES = new Map();
+export function restrictShape(r, type) {
+  const key = `${r}|${type}`;
+  if (R_SHAPES.has(key)) return R_SHAPES.get(key);
+  const s0 = LOADS[type].shape;
+  let s;
+  if (r === 'A') {
+    const moved = s0.reduce((a, v, h) => a + (R_DAY(h) ? v * (1 - RESTRICT_K) : 0), 0);
+    const nN = s0.filter((_, h) => R_NIGHT(h)).length;
+    s = s0.map((v, h) => (R_DAY(h) ? v * RESTRICT_K : R_NIGHT(h) ? v + moved / nN : v));
+  } else if (r === 'B') s = s0.map((v) => v * RESTRICT_K);
+  else {
+    const cap = RESTRICT_K * Math.max(...s0);
+    s = s0.map((v) => Math.min(v, cap));
+  }
+  R_SHAPES.set(key, s);
+  return s;
+}
+// いま効いている使用制限（時代が戦後復興より前なら効かない。開発者モードで時代を戻したとき）
+export const restrictOn = (G) => (G && G.restrict && RESTRICT[G.restrict] && G.era >= RESTRICT_ERA ? G.restrict : null);
+export function setRestrict(G, r) {
+  if (r && !RESTRICT[r]) return { ok: false, why: '使用制限を選ぶ' };
+  if (r && G.era < RESTRICT_ERA) return { ok: false, why: '使用制限は戦後復興から' };
+  G.restrict = r || null;
+  if (r) G.restrictUsed = true;
+  return { ok: true };
 }
 const loadTan = (ld) => tanOf(ld.cap && LOADS[ld.type].pfFixed ? LOADS[ld.type].pfFixed : LOADS[ld.type].pf);
 // 町ごとの予測の需要（kW）
@@ -894,6 +955,7 @@ function plantWhy(G, p, r, t) {
   const out = r?.out.get(p.id) || 0;
   const cap = capNow(G, p, t);
   if (!r || r.load <= 0) return { k: 'noLoad' };
+  if (p.convUntil > t && out >= cap - 1e-6) return { k: 'conv', cap }; // 1.10.0 周波数をそろえる工事の間は 8 割まで
   if (out >= cap - 1e-6 && cap >= p.kw * 0.999) return { k: 'full' };
   if (out >= cap - 1e-6) return { k: 'water', cap };
   const min = Math.min(P(p).min * p.kw, cap);
@@ -1046,6 +1108,7 @@ export function plantWhyText(G, p, w) {
     case 'enough': return '待機：ほかの発電所で足りている（または需要がない）';
     case 'full': return `全開で運転中${to ? `（${to}）` : ''}`;
     case 'water': return `水が少ない：いま出せるのは ${fmtKw(w.cap)} まで`;
+    case 'conv': return `周波数をそろえる工事中：出力は 8 割（${fmtKw(w.cap)}）まで（順に止めて改造している）`;
     case 'noLoad': return 'いまは需要がない時間';
     case 'min': return '最低出力で運転中（需要が少なく、余りは捨てている）';
     case 'reserve': return '予備力の目標のために、最低出力で運転中';
@@ -1233,16 +1296,26 @@ export const EVENTS = {
   priceWar: { name: '電力戦', days: 60, text: '競争で料金が 20% 下がる' },
   drought: { name: '渇水', days: 30, text: '水力の出力が 4 割に落ちる' },
 };
-// o.y1939：史実モードの 1939 年の渇水（5章。報告書に「1939年の渇水に準じる」）
+// o.y1939：史実モードの 1939 年の渇水（5章。報告書に「1939年の渇水に準じる」）。o.y1951：1.10.0 史実モードの 1951 年の渇水
+export const Y1951_FACT = '1951年夏、異常渇水。1951〜1953年度は供給力が足りず、渇水・火力事故のときに法的な使用制限（電灯電力の使用時間の指定・大口の使用量の制限・最大電力の指定）';
+export const RESTRICT_HINT = '使用制限（運転のパネル）で、負荷遮断を避けられる';
+export const RESTRICT_UNITS = ['power-system-U06', 'power-system-U14'];
+const DROUGHT_MS = ['M08', 'M12']; // 渇水の間を見張るミッション
 export function startEvent(G, lc, key, o = {}) {
   if (evOn(G, key)) return;
   const E = EVENTS[key];
-  const ev = { key, at: G.t, until: G.t + 24 * E.days, ...(o.y1939 ? { y1939: true } : {}) };
-  // 1.8.0 ミッション M08（渇水をしのぐ）：始まったときにミッションが出ていれば、渇水の間の負荷遮断・全域停電を数える
-  if (key === 'drought' && missionsOn(G) && G.era >= Ms.missionOf('M08').era && !G.missions?.done?.M08) Object.assign(ev, { mWatch: true, mBad: 0, mServed: 0 });
+  const ev = { key, at: G.t, until: G.t + 24 * E.days, ...(o.y1939 ? { y1939: true } : {}), ...(o.y1951 ? { y1951: true } : {}) };
+  // 1.8.0 ミッション M08（渇水をしのぐ）・1.10.0 M12（渇水を使用制限でしのぐ）：始まったときにどちらかが出ていれば、渇水の間の負荷遮断・全域停電（と使用制限の時間）を数える
+  if (key === 'drought' && missionsOn(G) && DROUGHT_MS.some((id) => G.era >= Ms.missionOf(id).era && !G.missions?.done?.[id])) Object.assign(ev, { mWatch: true, mBad: 0, mServed: 0, mRH: 0 });
   G.events.push(ev);
-  note(G, `${E.name}（${E.text}）${o.y1939 ? '・1939年の渇水に準じる' : ''}`);
-  addReport(G, { title: o.y1939 ? `${E.name}（1939年の渇水に準じる）` : E.name, what: `${E.text}。${E.days}日間。${o.y1939 ? '史実モード：昭和前期に入ったあとの夏に、1939年の渇水に準じて決まって起きる。' : ''}`, units: key === 'drought' ? INCIDENTS.drought.units : [] });
+  const y = o.y1939 ? '1939' : o.y1951 ? '1951' : '';
+  const rHint = key === 'drought' && G.era >= RESTRICT_ERA; // 1.10.0 渇水のとき、使用制限の案内
+  note(G, `${E.name}（${E.text}）${y ? `・${y}年の渇水に準じる` : ''}`);
+  addReport(G, {
+    title: y ? `${E.name}（${y}年の渇水に準じる）` : E.name,
+    what: `${E.text}。${E.days}日間。${o.y1939 ? '史実モード：昭和前期に入ったあとの夏に、1939年の渇水に準じて決まって起きる。' : ''}${o.y1951 ? `史実モード：戦後復興に入ったあとの夏に、1951年の渇水に準じて決まって起きる。史実：${Y1951_FACT}（S17）。` : ''}${rHint ? `${RESTRICT_HINT}。` : ''}`,
+    units: key === 'drought' ? [...INCIDENTS.drought.units, ...(rHint ? RESTRICT_UNITS : [])] : [],
+  });
   if (key === 'coalSpike') G.fuel.base = 1.8;
   if (key === 'drought' && G.plants.some((p) => !P(p).coal && p.readyAt <= G.t)) raise(G, lc, 'drought', { what: '渇水で水力の出力が 4 割まで落ちた。', cool: 24 * 30 });
 }
@@ -1269,6 +1342,11 @@ function daily(G, lc) {
   if (G.era >= 4 && s === 1 && isJapan(G) && modeOf(G) === 'history' && G.drought1939 == null && !evOn(G, 'drought')) {
     G.drought1939 = t;
     startEvent(G, lc, 'drought', { y1939: true });
+  }
+  // 1.10.0 史実モード：E4b に入ったあとの最初の夏に、1951 年の渇水に準じた渇水を1回。1939 年の渇水が先（同じ年の夏には2回起こさない）
+  if (G.era >= 5 && s === 1 && isJapan(G) && modeOf(G) === 'history' && G.drought1951 == null && G.drought1939 != null && yearOf(t) > yearOf(G.drought1939) && !evOn(G, 'drought')) {
+    G.drought1951 = t;
+    startEvent(G, lc, 'drought', { y1951: true });
   }
   // 燃料：スポットは毎日 ±30%（平均は長期契約の 0.85 倍）。長期契約は1年ごとに見直し
   G.fuel.spot = G.fuel.base * 0.85 * (0.7 + 0.6 * rnd(G));
@@ -1303,7 +1381,7 @@ function daily(G, lc) {
   } else if (fits) fits = roll(0.6 * repAvg);
   if (fits) {
     const town = pickWeighted(G, towns.map((n) => [n.id, (G.rep[n.id] ?? 1) * appWeight(G, n)]));
-    const type = pickWeighted(G, Object.entries(LOAD_MIX[Math.min(G.era, 4)]));
+    const type = pickWeighted(G, Object.entries(loadMix(G.era)));
     const raw = lc.dmax * (0.05 + 0.15 * rnd(G));
     const kw = Math.max(1, Math.min(raw, lc.dmax - used));
     const r = kw >= 100 ? Math.round(kw / 10) * 10 : Math.round(kw);
@@ -1536,6 +1614,70 @@ export function recloseLine(G, lc, id) {
   return { ok: true, again, live: !again && lineActive(G, l, G.t) };
 }
 
+// ---- 1.10.0 周波数をそろえる工事（九州の 60 Hz 統一 第1期 1949〜1951・第2期 1954〜1960 に準じる。S17） ----
+// 交流の網（線でつながった範囲。acComponent）の交流の発電機の周波数を、もう一方（50 Hz ↔ 60 Hz）に変える。戦後復興（E4b）から、昭和前期では試作（費用 3 倍）。
+// 費用（円の側の基準。コインは COIN_K 倍）＝網の交流の発電機の建設費の合計 × 0.3 ＋ 網の変電所の建設費の合計 × 0.1（発電機の改造と、変圧器・需要家の機器の取り替え）。
+// 工期＝ゲームの 20 日 ＋ 発電機 1 台につき 5 日。工事の間、その発電機の出力の上限は 8 割（順に止めて改造する）。
+// 変えるのは工事を始めた時点の網の発電機だけ（工事中に網が分かれた・ほかの網とつながった・発電所を建てた、などは見ない。建てた発電所は元の周波数のまま）。
+// 終わったら、周波数違いで切れていた線は 1.8.0 の決まりどおり「入れ直す」で入れられる（自動では入れない）
+export const HZCONV = { era: 5, plantK: 0.3, subK: 0.1, days: 20, perPlant: 5, capK: 0.8, gates: ['hzConv'], perf: 'freq' };
+export const otherHz = (hz) => (hz === 50 ? 60 : hz === 60 ? 50 : null);
+export const hzWorkOf = (G, plantId) => (G.hzWork || []).find((w) => w.plants.includes(plantId) && w.until > G.t) || null;
+// その地点の交流の網で、変える発電機と、数える変電所
+export function hzConvTarget(G, id) {
+  const nodes = acComponent(G, id);
+  const from = netHz(G, id);
+  const plants = from ? G.plants.filter((p) => PLANTS[p.type].ac && p.hz === from && nodes.has(p.site)) : [];
+  const subs = G.subs.filter((x) => nodes.has(x.town));
+  return { nodes, from, to: otherHz(from), plants, subs };
+}
+export function quoteHzConv(G, lc, id) {
+  const st = eraStatus(lc, HZCONV.era);
+  if (st === 'no') return { ok: false, why: 'まだ先の時代の工事（戦後復興から。昭和前期は試作）', era: true };
+  const T = hzConvTarget(G, id);
+  if (!T.from || !T.plants.length) return { ok: false, why: 'この地点の交流の網に、周波数の決まった交流の発電機がない' };
+  if (T.plants.some((p) => hzWorkOf(G, p.id))) return { ok: false, why: 'この網は、周波数をそろえる工事の最中', busy: true };
+  const miss = missing(lc, HZCONV.gates);
+  if (miss.length) return { ok: false, why: gateText(miss), gates: miss, from: T.from, to: T.to };
+  const proto = st === 'proto';
+  const base = Math.max(50, Math.round((T.plants.reduce((a, p) => a + p.cost, 0) * HZCONV.plantK + T.subs.reduce((a, x) => a + x.cost, 0) * HZCONV.subK) * (proto ? 3 : 1)));
+  const days = HZCONV.days + HZCONV.perPlant * T.plants.length;
+  return { ok: true, cost: coinOf(base), base, days, hours: days * 24, proto, from: T.from, to: T.to, plants: T.plants.map((p) => p.id), subs: T.subs.length, node: id, capK: HZCONV.capK };
+}
+export function startHzConv(G, lc, id) {
+  const q = quoteHzConv(G, lc, id);
+  if (!q.ok) return q;
+  const w = { id: `H${G.nextId++}`, node: id, from: q.from, to: q.to, plants: q.plants, at: G.t, until: G.t + q.hours, cost: q.base, proto: q.proto };
+  G.hzWork = [...(G.hzWork || []), w];
+  for (const p of G.plants) if (q.plants.includes(p.id)) p.convUntil = w.until;
+  note(G, `${nodeOf(G, id).name}の網で、周波数をそろえる工事（${q.from} Hz → ${q.to} Hz）を始めた`);
+  addReport(G, { title: `周波数をそろえる工事を始めた（${q.from} Hz → ${q.to} Hz）`, what: `${nodeOf(G, id).name}の網の交流の発電機 ${q.plants.length}台を ${q.to} Hz に改造する。工期 ${q.days}日。工事の間、その発電機の出力は 8 割まで（順に止めて改造するため）。`, units: HZCONV_UNITS });
+  return { ...q, work: w };
+}
+export const HZCONV_UNITS = ['circuit-b-U13', 'power-system-U03'];
+// 工事の完成（step の最初）
+function hzConvHour(G) {
+  const t = G.t;
+  const done = (G.hzWork || []).filter((w) => w.until <= t);
+  if (!done.length) return;
+  G.hzWork = G.hzWork.filter((w) => w.until > t);
+  for (const w of done) {
+    let n = 0;
+    for (const p of G.plants) {
+      if (!w.plants.includes(p.id)) continue;
+      p.hz = w.to;
+      delete p.convUntil;
+      n++;
+    }
+    G.hzConvDone = (G.hzConvDone || 0) + 1;
+    G.hzConvLast = { node: w.node, from: w.from, to: w.to, n, t };
+    const name = nodeOf(G, w.node)?.name || '';
+    note(G, `${name}の網を ${w.to} Hz にそろえた`);
+    const tripped = G.lines.some((l) => l.hzTrip);
+    addReport(G, { title: `${name}の網を ${w.to} Hz にそろえた`, what: `周波数をそろえる工事が終わった（${w.from} Hz → ${w.to} Hz、発電機 ${n}台）。発電機の出力の上限も元に戻った。${w.to} Hz の網と交流の線でつなげる。${tripped ? '周波数違いで切れていた線は、線の詳細の「入れ直す」で入れ直せる（周波数がそろっていれば入る）。' : ''}`, units: HZCONV_UNITS, ok: true });
+  }
+}
+
 // ---- 1.8.0 史実モードのミッション（データと答え合わせの文は gridmission.js） ----
 // 出すのは史実モードの日本列島の系統だけ（古い島・自由モード・デモ・練習の東京では出さない）。時代が進む条件にはしない
 // 判定はゲームの1日（0時）に、前の日の結果（G.day：町ごとの需要・届いた量・直流から届いた量、発電所ごとの発電量、売電）で確かめる
@@ -1543,7 +1685,7 @@ export const missionsOn = (G) => !!G && isJapan(G) && modeOf(G) === 'history' &&
 export const missionOpen = (G, m) => m.era <= G.era;
 export const missionDone = (G, id) => !!G?.missions?.done?.[id];
 export const newMissions = (G, from, to) => (missionsOn(G) ? Ms.MISSIONS.filter((m) => m.era > from && m.era <= to) : []);
-const newDay = () => ({ h: 0, rev: 0, towns: {}, plants: {} });
+const newDay = () => ({ h: 0, rev: 0, towns: {}, plants: {}, lines: {} });
 // 1刻みごとに、その日の結果を積み上げる（step の最後）
 function missionHour(G, last, bad) {
   const d = (G.day ||= newDay());
@@ -1556,10 +1698,16 @@ function missionHour(G, last, bad) {
     v[2] += x.dc || 0;
   }
   for (const [id, o] of Object.entries(last.plants)) if (o > 0) d.plants[id] = (d.plants[id] || 0) + o;
+  // 1.10.0 M10：関門の線（下関〜小倉・八幡の交流の線）に電気が流れたか
+  if (!missionDone(G, 'M10')) {
+    d.lines ||= {};
+    for (const l of G.lines) if (isKanmon(l.a, l.b) && !LINES[l.kind].dc && (last.lines[l.id]?.p || 0) > 1e-3) d.lines[l.id] = (d.lines[l.id] || 0) + last.lines[l.id].p;
+  }
   const e = G.events.find((x) => x.key === 'drought' && x.mWatch && x.until > last.t);
   if (e) {
     if (bad) e.mBad++;
     e.mServed += last.served || 0;
+    if (restrictOn(G)) e.mRH = (e.mRH || 0) + 1; // 1.10.0 M12：渇水の間に使用制限を使った時間
   }
 }
 function missionDaily(G) {
@@ -1637,23 +1785,41 @@ export function missionCheck(G, m, day) {
       return b.ok ? { info: { plant: b.plant, town: b.town, km: Math.round(b.km) } } : null;
     }
     case 'drought': {
-      // 見ていた渇水が終わったら判定する（負荷遮断・全域停電が1時間もなく、電気を届けていたら達成）
+      // 見ていた渇水が終わったら判定する（負荷遮断・全域停電が1時間もなく、電気を届けていたら達成）。
+      // 1.10.0 c.restrict（M12）：そのうえ渇水の間に使用制限を 24 時間（1 日）以上使った。判定済みはミッションごと（e.judged。1.8.0 の e.mJudged は M08 の分）
       let hit = null;
+      const tk = triesKey(m);
       for (const e of G.events) {
-        if (e.key !== 'drought' || !e.mWatch || e.mJudged || e.until > G.t) continue;
-        e.mJudged = true;
-        if (!e.mBad && e.mServed > 0) hit = { info: { y1939: !!e.y1939 } };
+        if (e.key !== 'drought' || !e.mWatch || e.until > G.t) continue;
+        const judged = e.judged?.[m.id] || (m.id === 'M08' && e.mJudged);
+        if (judged) continue;
+        e.judged = { ...(e.judged || {}), [m.id]: true };
+        if (m.id === 'M08') e.mJudged = true;
+        const rOk = !c.restrict || (e.mRH || 0) >= 24;
+        if (!e.mBad && e.mServed > 0 && rOk) hit = { info: { y1939: !!e.y1939, y1951: !!e.y1951, ...(c.restrict ? { rDays: Math.floor((e.mRH || 0) / 24) } : {}) } };
         else {
-          G.missions.tries = (G.missions.tries || 0) + 1;
-          addReport(G, { title: 'ミッション「渇水をしのぐ」は次の渇水で', what: `今回の渇水の間に、負荷遮断・全域停電が ${e.mBad}時間あった${e.mServed > 0 ? '' : '（電気を届けていなかった）'}。次の渇水で、また挑戦できる（火力の予備を用意しておく）。`, units: m.units });
+          G.missions[tk] = (G.missions[tk] || 0) + 1;
+          const why = [e.mBad ? `負荷遮断・全域停電が ${e.mBad}時間あった` : '', e.mServed > 0 ? '' : '電気を届けていなかった', rOk ? '' : `使用制限を使ったのが ${e.mRH || 0}時間だった（1日＝24時間以上）`].filter(Boolean).join('。');
+          addReport(G, { title: `ミッション「${m.name}」は次の渇水で`, what: `今回の渇水の間に、${why}。次の渇水で、また挑戦できる（${c.restrict ? '渇水が来たら、運転のパネルの使用制限を選ぶ' : '火力の予備を用意しておく'}）。`, units: m.units });
         }
       }
       return hit;
     }
+    case 'kanmon': {
+      // 1.10.0 M10：下関と小倉・八幡を交流の線で結び、前の日にその線に電気が流れていた（脱調で切れていない）
+      if (!day) return null;
+      const l = G.lines.find((x) => isKanmon(x.a, x.b) && !LINES[x.kind].dc && !x.hzTrip && (day.lines?.[x.id] || 0) > 0);
+      return l ? { info: { line: l.id, kv: LINES[l.kind].kv } } : null;
+    }
+    case 'hzConv':
+      // 1.10.0 M11：周波数をそろえる工事を1つ終える
+      return G.hzConvDone > 0 ? { info: { ...(G.hzConvLast || {}) } } : null;
     default:
       return null;
   }
 }
+// 再挑戦の回数のキー（M08 は 1.8.0 の G.missions.tries）
+const triesKey = (m) => (m.id === 'M08' ? 'tries' : `tries${m.id}`);
 // ご褒美：収益（円）に「直近 7 日の売電の平均の 5 日分」（収益は学習通貨に換えられないので、学習の釣り合いは変わらない）
 export function missionReward(G) {
   const d = G.revDays || [];
@@ -1688,11 +1854,25 @@ export function missionProgress(G, m) {
       return `${what} ${km} / ${c.km} km${b.km >= c.km ? '（線は足りている。町に1日の需要の 90% 以上が届けば、次の 0 時に達成）' : ''}`;
     }
     case 'drought': {
-      const e = G.events.find((x) => x.key === 'drought' && x.mWatch && !x.mJudged && x.until > G.t);
-      if (e) return `渇水の間：あと${Math.ceil((e.until - G.t) / 24)}日 ・ 負荷遮断と全域停電 ${e.mBad}時間`;
-      if (G.missions?.tries) return '前の渇水では負荷遮断・全域停電があった。次の渇水で、また挑戦できる';
-      if (G.drought1939 == null && G.era >= 4) return '昭和前期に入ったあとの夏に、渇水が起きる（史実モード）';
+      const e = G.events.find((x) => x.key === 'drought' && x.mWatch && x.until > G.t);
+      if (e) return `渇水の間：あと${Math.ceil((e.until - G.t) / 24)}日${c.restrict ? ` ・ 使用制限 ${Math.floor((e.mRH || 0) / 24)}日${restrictOn(G) ? `（いま ${RESTRICT[restrictOn(G)].short}）` : '（いまは使っていない）'}` : ''} ・ 負荷遮断と全域停電 ${e.mBad}時間`;
+      if (G.missions?.[triesKey(m)]) return `前の渇水では${c.restrict ? '使用制限が足りないか、' : ''}負荷遮断・全域停電があった。次の渇水で、また挑戦できる`;
+      if (c.restrict && G.drought1951 == null && G.era >= 5) return '戦後復興に入ったあとの夏に、渇水が起きる（史実モード）';
+      if (!c.restrict && G.drought1939 == null && G.era >= 4) return '昭和前期に入ったあとの夏に、渇水が起きる（史実モード）';
       return '渇水が起きるのを待つ';
+    }
+    case 'kanmon': {
+      const ls = G.lines.filter((x) => isKanmon(x.a, x.b) && !LINES[x.kind].dc);
+      if (!ls.length) return '下関〜小倉・八幡の交流の線：まだない（66 kV 以上）';
+      if (ls.every((x) => x.hzTrip)) return '線は切れている（周波数違い）。両側の周波数をそろえてから入れ直す';
+      const work = ls.filter((x) => x.readyAt > G.t);
+      if (work.length === ls.length) return `線は工事中（あと${hoursShort(Math.min(...work.map((x) => x.readyAt - G.t)))}）`;
+      return '線はある。電気が流れれば、次の 0 時に達成（両端の町に変電所が要る）';
+    }
+    case 'hzConv': {
+      const w = (G.hzWork || [])[0];
+      if (w) return `工事中：${nodeOf(G, w.node)?.name || ''}の網 ${w.from} Hz → ${w.to} Hz（あと${hoursShort(w.until - G.t)}）`;
+      return '周波数をそろえる工事 0 / 1';
     }
     default:
       return '';
@@ -1704,6 +1884,7 @@ export function step(G, lc) {
   const t = G.t;
   if (t % 24 === 0) daily(G, lc);
   researchHour(G); // 1.8.2 研究開発の完成
+  hzConvHour(G); // 1.10.0 周波数をそろえる工事の完成（hzCheck より前に）
   // 運転開始（建設が終わった）：交流の発電機は並列投入、変圧器の2台目は並行運転
   for (const p of G.plants) {
     if (p.done || p.readyAt > t) continue;
@@ -1814,6 +1995,19 @@ export function step(G, lc) {
     for (const ld of G.loads) if (ld.town === n) rev += loadKw(G, ld, t) * k * ratio * LOADS[ld.type].rate * war * (quality.get(n) || 1);
   }
   for (const n of Object.keys(G.rep)) G.rep[n] = Math.min(1, G.rep[n] + investK(G, n, INVEST_REP) / (24 * MONTH_DAYS)); // 1.8.2 町への投資で速く戻る
+  // 1.10.0 使用制限で減らした量（kWh。ふだんの需要との差の合計。A は昼に減らして夜に足すので1日でほぼ 0）と移した量（A の昼に減らした分）
+  if (restrictOn(G)) {
+    let cut = 0, moved = 0;
+    for (const ld of G.loads) {
+      if (!RESTRICT_TYPES.includes(ld.type)) continue;
+      const d = loadKw(G, ld, t, true) - loadKw(G, ld, t);
+      cut += d;
+      if (d > 0) moved += d;
+    }
+    G.yr.cut = (G.yr.cut || 0) + cut;
+    if (restrictOn(G) === 'A') G.yr.moved = (G.yr.moved || 0) + moved;
+    G.acc.cut = (G.acc.cut || 0) + cut;
+  }
   let loan = 0;
   if (G.loanUntil > t) loan = rev * 0.2; // 借入れの返済：収入の 20%
   G.yen += rev - loan - fuel;
@@ -1979,6 +2173,23 @@ export const HZ_WARN = 'この線は 50 Hz の網と 60 Hz の網をつなぐ。
 export const SEA_WHY = '海をこえる線（海峡を渡る鉄塔・海底ケーブル）の技術は、まだない（この先の時代に開く）';
 export const SEA_FACT = '史実では 1945 年に関門で本州と九州がつながった';
 export const seaWhy = (G) => (modeOf(G) === 'history' ? `${SEA_WHY}。${SEA_FACT}` : SEA_WHY);
+// 1.10.0 海峡を渡る交流の線（戦後復興 E4b から、両モード）：島の違う2地点を交流の線（66 kV 以上）で結べる。
+// ただし線の海の上の長さ（gridsea.js）が 3 km 以下のときだけ（狭い海峡を高い鉄塔で渡る）。海の上は 1 km あたり陸の 10 倍の費用、海沿いの危険（塩害）が付く。
+// 史実モードは関門（下関〜小倉・八幡）だけ。E4 までは 1.8.0 の seaWhy のまま
+export const STRAIT_ERA = 5, STRAIT_KV = 66, STRAIT_K = 10;
+export const KANMON = ['shimonoseki', 'kokura'];
+export const isKanmon = (a, b) => KANMON.includes(a) && KANMON.includes(b) && a !== b;
+export const STRAIT_WIDE = '海の上の長さが 3 km を超える。この海峡は広すぎて、鉄塔では渡れない（海底ケーブルの技術はまだない）';
+export const STRAIT_HISTORY = '史実モードでは、海峡を渡る線は関門（1945年）だけ（下関〜小倉・八幡）';
+// 島をまたぐ見積もり：{ ok:false, why, sea:true } か { ok:true, seaKm }
+function straitCheck(G, lc, a, b, K) {
+  if (lc.era < STRAIT_ERA || K.dc) return { ok: false, why: seaWhy(G), sea: true };
+  if (K.kv < STRAIT_KV) return { ok: false, why: `海峡を渡る線は ${STRAIT_KV} kV 以上（高い鉄塔で渡る送電線）`, sea: true, strait: true };
+  if (modeOf(G) === 'history' && isJapan(G) && !isKanmon(a, b)) return { ok: false, why: STRAIT_HISTORY, sea: true, strait: true };
+  const sk = isJapan(G) ? straitSea(a, b) : null; // 3 km を超える組は null（gridsea.js の表）
+  if (sk == null) return { ok: false, why: STRAIT_WIDE, sea: true, strait: true };
+  return { ok: true, seaKm: sk };
+}
 export function quotePlant(G, lc, { type, kw, site, hz = null }) {
   const D = PLANTS[type];
   const size = D.sizes.find((s) => s[0] === kw);
@@ -2037,7 +2248,11 @@ export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {} }) {
   if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
   if (K.dc && !(nodeOf(G, a).town && nodeOf(G, b).town)) return { ok: false, why: '直流の配電線は、町と町の間だけ' };
   for (const id of [a, b]) if (!nodeOpen(G, id)) return { ok: false, why: closedWhy(G, nodeOf(G, id)), closed: true };
-  if (nodeOf(G, a).island && nodeOf(G, a).island !== nodeOf(G, b).island) return { ok: false, why: seaWhy(G), sea: true };
+  let strait = null;
+  if (nodeOf(G, a).island && nodeOf(G, a).island !== nodeOf(G, b).island) {
+    strait = straitCheck(G, lc, a, b, K);
+    if (!strait.ok) return strait;
+  }
   // 1.8.0：周波数の違う網どうしでも見積もりは ok。警告（hzDiff）を付ける
   let hzw = null;
   if (!K.dc) {
@@ -2055,19 +2270,22 @@ export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {} }) {
   if (K.blueprint && !lc.blueprint[K.blueprint]) return { ok: false, why: `設計図「${BLUEPRINTS[K.blueprint].name}」がない（試験レベルに正解するか、関係する外部試験で3割以上）`, blueprint: K.blueprint };
   if (connected(G, a, b, !!K.dc)) return { ok: false, why: 'この2地点は、すでに線でつながっている（回線を増やすなら、今ある線を増設する）' };
   const r = routeInfo(G, a, b, route);
+  if (strait && !r.hazards.includes('coast')) r.hazards = [...r.hazards, 'coast']; // 1.10.0 海峡を渡る線は、回り道でも海沿いの危険（塩害）が付く
   const proto = st === 'proto';
   const nOpts = Object.values(opts).filter(Boolean).length;
-  let cost = K.cost * r.km * (1 + OPT_K * nOpts) * (proto ? 3 : 1);
+  // 1.10.0 海峡：海の上の部分は 1 km あたり陸の 10 倍（高い鉄塔）
+  let cost = K.cost * (r.km + (strait ? (STRAIT_K - 1) * strait.seaKm : 0)) * (1 + OPT_K * nOpts) * (proto ? 3 : 1);
   if (K.dc && G.buffs.dcDiscount) cost *= 0.8;
   const needSub = K.hv ? [a, b].filter((id) => nodeOf(G, id).town && !G.subs.some((s) => s.town === id)) : [];
   const base = Math.max(50, Math.round(cost));
-  return { ok: true, cost: coinOf(base), base, km: r.km, hazards: r.hazards, hours: buildHours(12 + Math.min(228, r.km), lc, K.perf, G), proto, needSub, ...(hzw || {}) };
+  return { ok: true, cost: coinOf(base), base, km: r.km, hazards: r.hazards, hours: buildHours(12 + Math.min(228, r.km), lc, K.perf, G), proto, needSub, ...(strait ? { seaKm: strait.seaKm } : {}), ...(hzw || {}) };
 }
 export function buildLine(G, lc, spec) {
   const q = quoteLine(G, lc, spec);
   if (!q.ok) return q;
   if (LINES[spec.kind].dc) G.buffs.dcDiscount = false;
   const l = { id: `W${G.nextId++}`, a: spec.a, b: spec.b, kind: spec.kind, route: spec.route || 'direct', km: q.km, hazards: q.hazards, opts: { ...(spec.opts || {}) }, n: 1, cost: q.base, unit: q.base, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, downUntil: 0, c1Until: 0, graceUntil: 0, overH: 0, saltUntil: 0, done: false };
+  if (q.seaKm != null) l.seaKm = Math.round(q.seaKm * 100) / 100; // 1.10.0 海峡を渡る線（海の上の長さ）
   G.lines.push(l);
   return { ...q, line: l };
 }

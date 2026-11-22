@@ -198,6 +198,12 @@ export function actText(g, kind, x = {}) {
       return x.again ? `${Gm.lineName(g, x.line)}を入れ直した。周波数が違うままなので、また脱調して切れた` : `${Gm.lineName(g, x.line)}を入れ直した${x.live ? '（電気が入った）' : '（工事中・変電所なしなどで、まだ電気は入らない）'}`;
     case 'cap':
       return `${nodeName(g, x.town)}の工場に進相コンデンサを付けた（力率 0.95）`;
+    case 'hzConv': // 1.10.0 周波数をそろえる工事
+      return `${nodeName(g, x.node)}の網で、周波数をそろえる工事（${x.from} Hz → ${x.to} Hz）を始めた（終わるまであと${hoursText(x.hours)}。出力は 8 割まで）`;
+    case 'doneHz':
+      return `${nodeName(g, x.node)}の網を ${x.to} Hz にそろえた（周波数をそろえる工事が終わった）`;
+    case 'restrict': // 1.10.0 使用制限
+      return x.value ? `使用制限を「${Gm.RESTRICT[x.value].short}」にした` : '使用制限をやめた';
     case 'lineOpt':
       return `${Gm.lineName(g, x.line)}に${Gm.LINE_OPTS[x.opt].name}を付ける工事を始めた（効くのは工事が終わってから。あと${hoursText(x.readyAt - g.t)}）`;
     case 'doneOpt':
@@ -239,6 +245,7 @@ export function underWork(g) {
   for (const x of [...g.plants, ...g.lines, ...g.subs]) if (x.readyAt > g.t) s.add(x.id);
   for (const l of g.lines) for (const [o, at] of Object.entries(l.optAt || {})) if (at > g.t) s.add(`${l.id}#${o}`); // 1.6.1 後付けの対策の工事
   for (const a of g.apps) if (a.held) s.add(`app:${a.id}`); // 1.6.4 保留の申し込み（取り下げられたら帯で知らせる）
+  for (const w of g.hzWork || []) s.add(`hz:${w.id}`); // 1.10.0 周波数をそろえる工事
   return s;
 }
 // 前に工事中だったもののうち、完成したもの。[{ kind: 'plant'|'line'|'sub'|'opt', x }]（opt の x は { line, opt }）
@@ -250,9 +257,11 @@ export function finished(g, before) {
   add('sub', g.subs);
   for (const l of g.lines) for (const [o, at] of Object.entries(l.optAt || {})) if (before.has(`${l.id}#${o}`) && at <= g.t) out.push({ kind: 'opt', x: { line: l, opt: o } });
   for (const w of g.withdrawn || []) if (before.has(`app:${w.id}`) && !g.apps.some((a) => a.id === w.id)) out.push({ kind: 'withdraw', x: w }); // 1.6.4
+  // 1.10.0 周波数をそろえる工事：終わった工事（hzWork から消えたもの）。中身は最後に終わった工事（g.hzConvLast）
+  for (const k of before) if (k.startsWith('hz:') && !(g.hzWork || []).some((w) => `hz:${w.id}` === k) && g.hzConvLast) out.push({ kind: 'hz', x: g.hzConvLast });
   return out;
 }
-export const doneText = (g, f) => (f.kind === 'withdraw' ? Gm.withdrawText(g, f.x) : actText(g, { plant: 'donePlant', line: 'doneLine', sub: 'doneSub', opt: 'doneOpt' }[f.kind], f.x));
+export const doneText = (g, f) => (f.kind === 'withdraw' ? Gm.withdrawText(g, f.x) : actText(g, { plant: 'donePlant', line: 'doneLine', sub: 'doneSub', opt: 'doneOpt', hz: 'doneHz' }[f.kind], f.x));
 
 // ---- 1.6.4 再現した史実の年表 ----
 // 史実と同じ区間を結んだとき、系統の保存データ（g.facts：[{ id, t, era }]）に残す。同じ史実は1回だけ。古い保存データは空から
@@ -378,9 +387,9 @@ export function tutorialAction(g, lc, name, advance) {
 // ---- 1.5.3 事故・出来事が起きたときの演出：見出し・絵・新しく起きたものの見つけ方 ----
 // 事故の絵は7つにまとめる（I01〜I07。試作/系統ゲーム_画像プロンプト.md）。渇水は出来事の絵（G18）。絵がない間は fallback の G の絵
 export const INC_PIC = { lightning: 'I01', backFlash: 'I01', arc: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18', outOfStep: 'I04' };
-export const PIC_FALLBACK = { I01: 'G11', I02: 'G11', I03: 'G15', I04: 'G06', I05: 'G10', I06: 'G11', I07: 'G01', L01: 'G11', L02: 'G11', L03: 'G11' };
+export const PIC_FALLBACK = { I01: 'G11', I02: 'G11', I03: 'G15', I04: 'G06', I05: 'G10', I06: 'G11', I07: 'G01', L01: 'G11', L02: 'G11', L03: 'G11', G23: 'G04' }; // 1.10.0 戦後復興の絵 G23 は本人が作るまで昭和前期の絵
 // 1.6.1 線の階級ごとの絵：町の電柱（L01）・木柱の送電線（L02）・中くらいの鉄塔（L03）・大きな鉄塔（G11）。L の絵がない間は G11
-export const LINE_PIC = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11' };
+export const LINE_PIC = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11', ac275: 'G11' };
 // 報告の形の事故（見出しが「◯◯発生」でないもの）：演出で上に小さく「事故発生」を足す
 export const isReport = (key) => !/発生$/.test(INC_HEAD[key] || '');
 export const EV_PIC = { heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18' };
@@ -430,6 +439,10 @@ export function statusChips(g) {
     const fx = evEffect(e);
     out.push({ kind: 'ev', key: e.key, name: Gm.EVENTS[e.key].name, left: `${fx ? `${fx}・` : ''}${leftText(e.until - t)}`, cls: 'c-ev' });
   }
+  // 1.10.0 使用制限（出来事と同じ黄色）・周波数をそろえる工事
+  const r = Gm.restrictOn(g);
+  if (r) out.push({ kind: 'restrict', name: `使用制限 ${r}`, left: Gm.RESTRICT[r].name, cls: 'c-ev' });
+  for (const w of (g.hzWork || []).filter((x) => x.until > t)) out.push({ kind: 'hzwork', node: w.node, name: '周波数の工事', left: `${w.from}→${w.to} Hz・${leftText(w.until - t)}`, cls: 'c-ev' });
   return out;
 }
 // 続いている出来事で、何が変わっているか（札に短く）。値は grid.js の出来事の効き方に合わせる

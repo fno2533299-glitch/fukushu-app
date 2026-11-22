@@ -41,9 +41,9 @@ export const ALBUM = [
 export const ALBUM_IDS = ALBUM.map((a) => a[0]);
 export const albumName = (id) => ALBUM.find((a) => a[0] === id)?.[1] || id;
 // 画面の絵のキー → 番号（gridui.js の PIC と同じ）
-export const PIC_ID = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', ror: 'G08', pond: 'G09', sub: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22' };
+export const PIC_ID = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5: 'G23', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', ror: 'G08', pond: 'G09', sub: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22' };
 // 線の種類 → 番号（gridmenu.js の LINE_PIC と同じ）。事故 → 番号（INC_PIC と同じ）
-const LINE_ID = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11' };
+const LINE_ID = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11', ac275: 'G11' };
 const INC_ID = { lightning: 'I01', backFlash: 'I01', arc: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', outOfStep: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18' };
 
 export const emptyRec = () => ({ v: 1, album: {}, firsts: {}, imported: false });

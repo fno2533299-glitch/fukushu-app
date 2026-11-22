@@ -29,7 +29,7 @@ export function defaultOpts() {
     ignoreGates: true, // 学習の条件（gate・設計図）をすべて開く
     perf: null, // 性能の単元の定着の割合（0〜1）。null＝本番の記録のまま
     level: null, // レベル（null＝本番の記録のまま）
-    era: null, // 時代 1〜4（null＝レベルから）
+    era: null, // 時代 1〜5（null＝レベルから。1.10.0 で戦後復興 5 まで）
     mastered: null, // 定着の問題数（null＝本番の記録のまま）
     speed: 1,
   };
@@ -59,7 +59,7 @@ export function devLearning(real, opts) {
     level,
     era,
     mastered,
-    dmax: Gm.dmaxKw(level, mastered),
+    dmax: Gm.dmaxOf(level, mastered, era), // 1.10.0 時代の倍率（ERA_K）も
     gate: opts.ignoreGates ? all(Gm.GATES, true) : { ...real.gate },
     blueprint: opts.ignoreGates ? all(Gm.BLUEPRINTS, true) : { ...real.blueprint },
     perf: opts.perf != null ? all(Gm.PERF, Math.min(1, Math.max(0, opts.perf))) : { ...real.perf },

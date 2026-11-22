@@ -37,7 +37,7 @@ export const AREA_CENTER = (() => {
   return new Map([...m].map(([a, c]) => [a, { x: c.x / c.k, y: c.y / c.k }]));
 })();
 export const AREAS = [...AREA_CENTER.keys()];
-// エリアが開く時代（1〜4）。start：始めた町の id
+// エリアが開く時代（1〜4）。start：始めた町の id。1.10.0：戦後復興（5）で新しく開くエリアはない（全部 4 までに開く）
 export function areaEra(start, area, nodeId = null) {
   const s = JAPAN_NODES.find((n) => n.id === start) || JAPAN_NODES.find((n) => n.id === TOKYO);
   if (s.area === '東京市内') return ORDER_TOKYO[area] || 4;
@@ -47,7 +47,7 @@ export function areaEra(start, area, nodeId = null) {
   const a = AREA_CENTER.get(area), b = AREA_CENTER.get(s.area);
   return a && b && Math.hypot(a.x - b.x, a.y - b.y) <= AREA_NEAR_KM ? 3 : 4;
 }
-// 水力の地点は、史実の年の時代までは開かない（年のない地点は明治後期）
+// 水力の地点は、史実の年の時代までは開かない（年のない地点は明治後期）。1.10.0：地点の年は 1940 年までなので、戦後復興（5）で開く地点はない
 export function yearEra(year) {
   if (!year) return 2;
   return year <= 1890 ? 1 : year <= 1911 ? 2 : year <= 1925 ? 3 : 4;
@@ -67,6 +67,8 @@ export const LINE_FACTS = [
   { id: 'inawashiro115', year: 1915, short: '猪苗代第一〜東京 115 kV 長距離送電', a: ['inawashiro1'], b: ['tk-tabata'], text: '1915年、猪苗代第一から東京へ 115kV（約 227km）の長距離送電を始めた（年と電圧は確かめた。終点と距離は未確認）', src: 'S6・G2', conf: 'part' },
   { id: 'nichiden154', year: 1928, short: '日本電力の東京送電幹線 154 kV', a: ['yanagawara', 'kurobe2'], b: TOKYO_WARDS, text: '1928年、日本電力の東京送電幹線 154kV・293.6km', src: 'S6', conf: true },
   { id: 'numakami', year: 1899, short: '沼上〜郡山 高圧の長距離送電', a: ['numakami'], b: ['koriyama'], text: '1899年、日本初の高圧の長距離送電（紡績工場の動力）', src: 'G1', conf: false },
+  // 1.10.0 海峡を渡る交流の線（史実モードは関門だけ）
+  { id: 'kanmon', year: 1945, short: '関門連絡送電線', a: ['shimonoseki'], b: ['kokura'], text: '1945年、関門連絡送電線が完成し、本州と九州の間で送電を始めた', src: 'S14', conf: true },
   { id: 'oi-osaka', year: 1924, short: '大井〜大阪 200 km 以上の送電', a: ['oi'], b: ['osaka'], text: '1924年、200km 以上を送電して関西へ', src: 'G1', conf: false },
 ];
 export function lineFact(a, b) {
@@ -79,6 +81,8 @@ export const ERA_FACTS = {
   2: ['1891年、京都の蹴上で日本初の事業用の水力。1907年、駒橋から東京へ 55kV・76km', '1895年、浅草の火力が 50Hz（ドイツ製）、1897年、大阪の幸町が 60Hz（アメリカ製）。今の東西の周波数の始まり'],
   3: ['1912年、下滝（鬼怒川）から東京へ 66kV', '1915年、猪苗代第一から東京へ 115kV の長距離送電'],
   4: ['1928年、日本電力の東京送電幹線 154kV（293.6km）'],
+  // 1.10.0 戦後復興（E4b）。体制の移り変わりは年表と時代のまとめの文だけ（遊びの規則は変えない）
+  5: ['1939年、日本発送電が設立。1942年、配電統制令にもとづき 9 配電会社（北海道・東北・北陸・関東・中部・関西・中国・四国・九州）が発足', '1951年5月1日、9 電力会社が発足。1952年、電源開発（株）設立。同じ年、新北陸幹線で日本初の 275 kV 送電'],
 };
 
 // ---- 出典（Code依頼_1.6.0_日本列島.md の出典） ----
@@ -97,6 +101,11 @@ export const SOURCES = [
   ['S12', 'ニュースイッチ（周波数変換所）', 'https://newswitch.jp/p/4177'],
   ['S13', '三菱電機技報 1965（佐久間周波数変換所）', 'https://www.giho.mitsubishielectric.co.jp/giho/pdf/1965/6511.pdf'],
   ['S14', '電気事業連合会「電気の歴史年表 大正から昭和へ」（1.8.0。1939年の異常渇水と電力調整令）', 'https://www.fepc.or.jp/enterprise/rekishi/taishou/'],
+  ['S15', '電気事業連合会「電気の歴史年表 昭和後期-1（1946〜1969年）」（1.10.0。電気需給調整規則・9電力会社・電源開発・日本初の 27 万 V 送電）', 'https://www.fepc.or.jp/enterprise/rekishi/shouwa1946/'],
+  ['S16', '渋沢社史データベース『関西電力五十年史』年表（1.10.0。枚方変電所・新北陸幹線 275 kV）', 'https://shashi.shibusawa.or.jp/details_nenpyo.php?sid=13490&query=&class=&d=all&page=41'],
+  ['S17', '九州電力「歴史・沿革 1951〜1960年」（周波数統一）と中部電力70年史 第1章（1951年の渇水と使用制限）（1.10.0）', 'https://www.kyuden.co.jp/company/history/period/1951-1960.html ／ https://www.chuden.co.jp/resource/corporate/company/history/70yearshistory_02.pdf'],
+  ['S18', '電線総合技術センター「送配電線の歴史」（1.10.0。1952年 275 kV 新北陸幹線 230 km）', 'https://www.jectec.or.jp/densen-kiso/souhaiden/3-1/'],
+  ['S19', '文化庁 近代遺跡調査 中国電力大三島支線（旧中四幹線）（1.10.0。最長径間 2,357 m。海峡線の長さの目安にだけ使う）', 'https://www.bunka.go.jp/kindai/kenzoubutsu/research_doboku/denryoku/soudensisetsu/t005/index.html'],
   ['G1', 'Gemini の調査（1回目、2026-11-15）。出典を Claude が確かめていない行は「未確認」', ''],
   ['G2', 'Gemini の調査（2回目、2026-11-16）。出典を Claude が確かめていない行は「未確認」', ''],
 ];

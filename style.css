@@ -1109,6 +1109,13 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gwarnhz small { color: var(--text); }
 .gmap .glabel.gtrip { fill: var(--ng); font-weight: 700; }
 .gterbox i.kht { height: 0; border: 0; border-top: 3px dotted var(--ng); border-radius: 0; }
+/* 1.10.0 凡例の線の太さ（電圧）・海峡を渡る線・周波数をそろえる工事と使用制限の案内 */
+.gterbox i.kw1, .gterbox i.kw2, .gterbox i.kw3, .gterbox i.kw4 { height: 0; border: 0; border-radius: 0; border-top: 2px solid var(--gline); }
+.gterbox i.kw2 { border-top-width: 3px; }
+.gterbox i.kw3 { border-top-width: 4px; }
+.gterbox i.kw4 { border-top-width: 5px; }
+.gstrait { border-left: 3px solid var(--primary); padding-left: 6px; }
+.gconv { border-left: 3px solid var(--gwarn); padding-left: 6px; }
 /* 1.8.0 ミッション：一覧のタブ・行・答え合わせのカード（地図に重ねる半透明のカード） */
 .gltabs { margin-bottom: 6px; }
 .gmission .gmprog { color: var(--text); font-weight: 600; }
