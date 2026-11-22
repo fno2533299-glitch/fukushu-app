@@ -1255,3 +1255,22 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
   border: 1px solid var(--primary); background: var(--card); color: var(--primary);
 }
 .tsum.unread::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 3px; border-radius: 50%; background: var(--ng); vertical-align: 1px; }
+
+/* ---- 1.9.1 まとめの表と図 ---- */
+.sumlines li.blk { list-style: none; margin-left: -1.05em; padding: 2px 0; }
+.sumlines li.blk.hl { padding: 4px; }
+.sumtable { overflow-x: auto; margin: 2px 0 6px; }
+.sumtable table { width: 100%; border-collapse: collapse; font-size: 0.8rem; line-height: 1.4; }
+.sumtable th, .sumtable td { border: 1px solid var(--line); padding: 4px 5px; text-align: left; vertical-align: top; }
+.sumtable th { background: var(--m1); font-weight: 700; white-space: nowrap; }
+.sumtable td:first-child { font-weight: 600; white-space: nowrap; }
+.sumtable .blank { white-space: nowrap; }
+.sumtable tr.hl td { background: var(--idk-bg); }
+.sumlines .cap { font-size: 0.75rem; color: var(--muted); margin: 0 0 3px; }
+.sumfig + .cap { margin: 3px 0 0; text-align: center; }
+.sumfig svg { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); }
+.svgblank { cursor: pointer; }
+.svgblank rect { fill: #e4ecfb; stroke: #2f6fdf; stroke-width: 1.2; }
+.svgblank:not(.open) text { fill: transparent; }
+.svgblank.open rect { fill: #ffffff; stroke: #1e8a4c; }
+.svgblank.open text { fill: #1e8a4c; font-weight: 700; }

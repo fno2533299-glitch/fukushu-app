@@ -296,6 +296,7 @@ function pickQuickNew(ctx) {
 
 // ---- 単元のまとめ（1.9.0。要件定義書 4.12、設計図 1.13） ----
 // 問題データの summaries：[{ unitId, subjectId, revision, lines: [{ text, questionIds }], figure, source }]
+// 1.9.1：lines の項目に表 table: { caption, head, rows: [{ cells, questionIds }] } と図 fig（SVG）・caption を持てる（text は 1.9.0 向けの文）
 // text の［［…］］は空欄（タップで中身を出す）。questionIds はその行に関係する問題（解説から開いたときに目立たせる）
 
 export function summaryFor(data, unitId) {
@@ -327,8 +328,14 @@ export function needsAutoSummary(data, logs, read, q) {
 
 // 空欄の数（［［…］］）
 export const SUMMARY_BLANK = /［［(.+?)］］/g;
+const blanksIn = (t) => (String(t || '').match(SUMMARY_BLANK) || []).length;
+// 1.9.1：表（l.table）は見出しとマスの空欄、図（l.fig）は図の中の文字と説明の空欄を数える（l.text は 1.9.0 向けの文なので数えない）
 export function summaryBlankCount(s) {
-  return (s?.lines || []).reduce((n, l) => n + (l.text.match(SUMMARY_BLANK) || []).length, 0);
+  return (s?.lines || []).reduce((n, l) => {
+    if (l.table) return n + [...l.table.head, ...l.table.rows.flatMap((r) => r.cells), l.table.caption].reduce((k, c) => k + blanksIn(c), 0);
+    if (l.fig) return n + blanksIn(l.fig) + blanksIn(l.caption);
+    return n + blanksIn(l.text);
+  }, 0);
 }
 
 // ---- おまかせを「枠」で組む（1.4.1。要件定義書 4.2、設計図 1.7） ----

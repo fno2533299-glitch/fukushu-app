@@ -1427,6 +1427,38 @@ function summaryLineHtml(text) {
   return rich(text).replace(L.SUMMARY_BLANK, (_, inner) => `<button class="blank" data-blank aria-label="空欄（タップで答え）"><span class="bt">${inner}</span></button>`);
 }
 
+// 1.9.1：まとめの1項目（文の行・表・図）。hl：色を付ける問題（解説から開いたとき）
+function summaryItemHtml(l, hl) {
+  const on = (ids) => (ids || []).some((id) => hl.has(id));
+  if (l.table) {
+    const t = l.table;
+    return `<li class="blk"><div class="sumtable">${t.caption ? `<p class="cap">${summaryLineHtml(t.caption)}</p>` : ''}<table>
+      <thead><tr>${t.head.map((c) => `<th>${summaryLineHtml(c)}</th>`).join('')}</tr></thead>
+      <tbody>${t.rows.map((r) => `<tr class="${on(r.questionIds) ? 'hl' : ''}">${r.cells.map((c) => `<td>${summaryLineHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div></li>`;
+  }
+  if (l.fig) return `<li class="blk${on(l.questionIds) ? ' hl' : ''}"><div class="sumfig">${l.fig}</div>${l.caption ? `<p class="cap">${summaryLineHtml(l.caption)}</p>` : ''}</li>`;
+  return `<li class="${on(l.questionIds) ? 'hl' : ''}">${summaryLineHtml(l.text)}</li>`;
+}
+
+// 図の中の文字のうち［［…］］のものを空欄にする（後ろに四角を敷き、押すと文字が出る）。描いたあとで大きさを測る
+function bindSvgBlanks() {
+  const NS = 'http://www.w3.org/2000/svg';
+  app.querySelectorAll('.sumfig svg text').forEach((t) => {
+    const m = t.textContent.match(/^\s*［［(.+)］］\s*$/);
+    if (!m) return;
+    t.textContent = m[1];
+    const b = t.getBBox();
+    const g = document.createElementNS(NS, 'g');
+    g.setAttribute('class', 'svgblank');
+    const r = document.createElementNS(NS, 'rect');
+    for (const [k, v] of Object.entries({ x: b.x - 3, y: b.y - 2, width: b.width + 6, height: b.height + 4, rx: 3 })) r.setAttribute(k, v);
+    t.parentNode.insertBefore(g, t);
+    g.append(r, t);
+    g.addEventListener('click', () => g.classList.toggle('open'));
+  });
+}
+
 async function markSummaryRead(s, via) {
   const old = S.sumRead[s.unitId];
   S.sumRead[s.unitId] = { at: old?.at || new Date().toISOString(), revision: s.revision, via: old?.via || via, count: (old?.count || 0) + 1 };
@@ -1447,7 +1479,7 @@ function summaryScreen(unitId, { via, q = null } = {}) {
   const lead = {
     auto: '<p class="sumlead">初めての単元です。まず要点を読んでから解こう</p>',
     peek: '<p class="sumlead">この問題は、答えたあと「わからない」と同じ記録になります</p>',
-    link: q && s.lines.some((l) => (l.questionIds || []).includes(q.questionId)) ? '<p class="sumlead">今の問題に関係する行に色を付けています</p>' : '',
+    link: q && s.lines.some((l) => (l.questionIds || []).includes(q.questionId)) ? '<p class="sumlead">今の問題に関係するところに色を付けています</p>' : '',
     map: '',
   }[via];
   const bottom = {
@@ -1462,16 +1494,17 @@ function summaryScreen(unitId, { via, q = null } = {}) {
     <section class="card summary">
       <p class="sumhead"><span class="small">${esc(subjectOf(s.subjectId)?.name)}</span><b>${esc(shortName(unitName(unitId)))}</b></p>
       ${s.figure ? figureHtml(s) : ''}
-      <ul class="sumlines">${s.lines.map((l) => `<li class="${(l.questionIds || []).some((id) => hl.has(id)) ? 'hl' : ''}">${summaryLineHtml(l.text)}</li>`).join('')}</ul>
+      <ul class="sumlines">${s.lines.map((l) => summaryItemHtml(l, hl)).join('')}</ul>
       ${blanks ? `<p class="sumblank"><span class="small">空欄 ${blanks}つ ・ タップで答え</span><button class="btn small" data-sopen>全部ひらく</button></p>` : ''}
       <p class="src">出典：${esc(s.source)} ・ 第${s.revision}版</p>
     </section>
     <div class="actions">${bottom}</div>`,
     () => {
       bindFigureZoom();
+      bindSvgBlanks();
       on('[data-blank]', 'click', (e) => e.currentTarget.classList.toggle('open'));
       on('[data-sopen]', 'click', (e) => {
-        const all = app.querySelectorAll('.blank');
+        const all = app.querySelectorAll('.blank, .svgblank');
         const open = [...all].some((b) => !b.classList.contains('open'));
         all.forEach((b) => b.classList.toggle('open', open));
         e.currentTarget.textContent = open ? '全部とじる' : '全部ひらく';
