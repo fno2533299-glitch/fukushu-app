@@ -117,7 +117,7 @@ async function recordNow() {
     const fresh = Rc.recordGrid(r, S.grid, todayStr());
     // 建てた設備の種類の絵（詳細の見出し・建設で出る）と、いまの時代までの時代の絵（時代の演出・上の帯）
     const t = S.grid.t;
-    const ids = [...S.grid.plants.filter((p) => p.readyAt <= t).map((p) => PIC[p.type]), ...S.grid.lines.filter((l) => l.readyAt <= t).map((l) => Mn.LINE_PIC[l.kind]), ...(S.grid.subs.some((x) => x.readyAt <= t) ? ['G10'] : []), ...Array.from({ length: Math.min(S.grid.era, 4) }, (_, i) => PIC[`era${i + 1}`])];
+    const ids = [...S.grid.plants.filter((p) => p.readyAt <= t).map((p) => PIC[p.type]), ...S.grid.lines.filter((l) => l.readyAt <= t).map((l) => Mn.LINE_PIC[l.kind]), ...(S.grid.subs.some((x) => x.readyAt <= t) ? ['G10'] : []), ...Array.from({ length: Math.min(S.grid.era, 5) }, (_, i) => PIC[`era${i + 1}`])];
     const pics = ids.filter((id) => Rc.seePic(r, id, todayStr())).length;
     if (imp || fresh.length || pics) await recSaved();
   } finally {
@@ -186,7 +186,7 @@ const PH = {
 const PH_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'coal', ror: 'hydro', pond: 'hydro', sub: 'sub', line: 'line', era1: 'town', era2: 'town', era3: 'town', era4: 'town', era5: 'town', heat: 'light', cold: 'storm', typhoon: 'storm', snowstorm: 'storm', coalSpike: 'coal', priceWar: 'town', drought: 'hydro', blackout: 'dark', recover: 'light', rebuild: 'town', island: 'hydro' };
 // 上の帯の背景に、時代の絵を薄く（絵がないときは出さない）
 const eraImg = (g) => {
-  const src = picSrc(PIC[`era${g.era}`]); // 1.10.0 戦後復興の絵（G23）がまだないときは昭和前期の絵
+  const src = picSrc(PIC[`era${g.era}`]);
   return src ? `--eraimg:url('${src}')` : '';
 };
 // 1.8.2 番号 → 画像（なければ代わりの絵の番号の画像）
@@ -201,7 +201,7 @@ function headPic(g, kind, id) {
     if (!n) return null;
     const plants = g.plants.filter((p) => p.site === id);
     if (plants.length) k = PIC[plants.reduce((a, b) => (b.kw > a.kw ? b : a)).type];
-    else if (n.town) k = PIC[`era${Math.min(g.era, 4)}`];
+    else if (n.town) k = PIC[`era${Math.min(g.era, 5)}`];
     else k = n.hydro ? 'G08' : 'G06';
   } else {
     const l = g.lines.find((x) => x.id === id);
@@ -489,7 +489,7 @@ function effects(g) {
 // 1.8.2：絵を画面いっぱいに大きく。絵の上に名前と年、少しずつ寄っていく動き（演出あり。動きを減らす設定・シンプルでは止めた絵）。そのあと文と行
 function overlay(picKey, title, text, notes, lines = []) {
   const ov = document.createElement('div');
-  const src = picSrc(PIC[picKey]); // 1.10.0 絵がない番号（G23）は代わりの絵
+  const src = picSrc(PIC[picKey]);
   ov.className = `goverlay${src ? ' gbig' : ''}`;
   const body = `<h2>${A.esc(title)}</h2><p>${A.esc(text)}</p>${lines.length ? `<ul class="govlines">${lines.map((v) => `<li>${A.esc(v)}</li>`).join('')}</ul>` : ''}<button class="btn primary" data-close>閉じる</button>`;
   ov.innerHTML = src

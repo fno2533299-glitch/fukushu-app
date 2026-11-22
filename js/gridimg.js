@@ -23,6 +23,7 @@ export const GRID_IMAGES = {
   G20: 'img/grid/G20.webp',
   G21: 'img/grid/G21.webp',
   G22: 'img/grid/G22.webp',
+  G23: 'img/grid/G23.webp',
   I01: 'img/grid/I01.webp',
   I02: 'img/grid/I02.webp',
   I03: 'img/grid/I03.webp',

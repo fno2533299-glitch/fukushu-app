@@ -47,6 +47,7 @@ const FILES = [
   './img/grid/G20.webp',
   './img/grid/G21.webp',
   './img/grid/G22.webp',
+  './img/grid/G23.webp',
   './img/grid/I01.webp',
   './img/grid/I02.webp',
   './img/grid/I03.webp',

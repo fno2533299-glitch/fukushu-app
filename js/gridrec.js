@@ -27,6 +27,7 @@ export const ALBUM = [
   ['G20', '全域停電からの復旧'],
   ['G21', '経営再建'],
   ['G22', '新しい島・別の地方から'],
+  ['G23', '戦後復興の町（1941〜）'], // 1.10.0
   ['I01', '事故：落雷（逆フラッシオーバ・地絡のアーク）'],
   ['I02', '事故：塩害（海沿いの送電線の閃絡）'],
   ['I03', '事故：着雪とギャロッピング'],
@@ -96,7 +97,7 @@ export function picsOf(G) {
   if (!G) return [];
   const t = G.t;
   const s = new Set();
-  for (let n = 1; n <= Math.min(G.era, 4); n++) s.add(PIC_ID[`era${n}`]);
+  for (let n = 1; n <= Math.min(G.era, 5); n++) s.add(PIC_ID[`era${n}`]); // 1.10.0 戦後復興（G23）まで
   for (const p of G.plants) if (p.readyAt <= t) s.add(PIC_ID[p.type]);
   if (G.subs.some((x) => x.readyAt <= t)) s.add('G10');
   for (const l of G.lines) if (l.readyAt <= t) s.add(LINE_ID[l.kind]);

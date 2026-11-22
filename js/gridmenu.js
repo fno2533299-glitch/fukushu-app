@@ -387,7 +387,7 @@ export function tutorialAction(g, lc, name, advance) {
 // ---- 1.5.3 事故・出来事が起きたときの演出：見出し・絵・新しく起きたものの見つけ方 ----
 // 事故の絵は7つにまとめる（I01〜I07。試作/系統ゲーム_画像プロンプト.md）。渇水は出来事の絵（G18）。絵がない間は fallback の G の絵
 export const INC_PIC = { lightning: 'I01', backFlash: 'I01', arc: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18', outOfStep: 'I04' };
-export const PIC_FALLBACK = { I01: 'G11', I02: 'G11', I03: 'G15', I04: 'G06', I05: 'G10', I06: 'G11', I07: 'G01', L01: 'G11', L02: 'G11', L03: 'G11', G23: 'G04' }; // 1.10.0 戦後復興の絵 G23 は本人が作るまで昭和前期の絵
+export const PIC_FALLBACK = { I01: 'G11', I02: 'G11', I03: 'G15', I04: 'G06', I05: 'G10', I06: 'G11', I07: 'G01', L01: 'G11', L02: 'G11', L03: 'G11' };
 // 1.6.1 線の階級ごとの絵：町の電柱（L01）・木柱の送電線（L02）・中くらいの鉄塔（L03）・大きな鉄塔（G11）。L の絵がない間は G11
 export const LINE_PIC = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11', ac275: 'G11' };
 // 報告の形の事故（見出しが「◯◯発生」でないもの）：演出で上に小さく「事故発生」を足す
