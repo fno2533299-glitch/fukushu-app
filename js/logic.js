@@ -199,7 +199,8 @@ const pickAny = (list, rng) => (list.length ? list[Math.floor(rng() * list.lengt
 // ctx.slot（おまかせの枠。omakasePlan）があれば枠から選ぶ。なければ今までのおまかせ（読み流しなど）
 export function pickNext(mode, ctx) {
   // さっと出題：基礎だけ（1.4.1）。基礎がなければ今までどおり（期限の来た問題 → おまかせ）
-  if (mode === 'さっと') return pickQuick(ctx, false);
+  // 1.9.0：ctx.quickNeedNew（このセットでまだ足りない新しい問題の数。quickNeedNew()）があれば、未回答の基礎を先に
+  if (mode === 'さっと') return (ctx.quickNeedNew > 0 && pickQuickNew(ctx)) || pickQuick(ctx, false);
   if (mode === 'おまかせ' && ctx.slot) return pickSlot(ctx.slot, ctx);
   const rng = ctx.rng || Math.random;
   const list = candidates(mode, ctx);
@@ -272,6 +273,62 @@ function pickQuick(ctx, first) {
   const g4 = basic.filter((q) => st(q) && !isDue(st(q), today));
   for (const g of first ? [g2, g4, g3] : [g2, g3, g4]) if (g.length) return pickOmakase(g, ctx, rng);
   return null;
+}
+
+// ---- さっと出題の新しい問題（1.9.0。要件定義書 4.2、設計図 1.7） ----
+// セットの問題数の 2/3（端数は切り上げ。3問なら2問）を未回答の基礎にする。1問目（ホームの1問目・もう3問の1問目）は
+// 今までどおり選び、それが未回答の基礎ならその分も数に入れる。足りなければ pickQuick の順で埋める
+export const quickNewTarget = (size) => Math.ceil((size * 2) / 3);
+
+// このセットであと何問、未回答の基礎を出すか。asked：出した数、newCount：そのうち出したときに未回答だった基礎の数
+export function quickNeedNew(size, asked, newCount) {
+  if (asked === 0) return 0; // 1問目は今のまま
+  return Math.max(0, quickNewTarget(size) - newCount);
+}
+
+// 出したときに「未回答の基礎」だったか（セットの数に入れるか）
+export const isNewBasic = (q, states) => !!q && q.level === '基礎' && !states[q.questionId];
+
+// 未回答の基礎の選び方はおまかせの new 枠と同じ（授業の科目の未回答の基礎から、科目を等確率 → 重み付き抽選）
+function pickQuickNew(ctx) {
+  return pickOmakase(omakasePools(ctx).new, ctx, ctx.rng || Math.random);
+}
+
+// ---- 単元のまとめ（1.9.0。要件定義書 4.12、設計図 1.13） ----
+// 問題データの summaries：[{ unitId, subjectId, revision, lines: [{ text, questionIds }], figure, source }]
+// text の［［…］］は空欄（タップで中身を出す）。questionIds はその行に関係する問題（解説から開いたときに目立たせる）
+
+export function summaryFor(data, unitId) {
+  return (data?.summaries || []).find((s) => s.unitId === unitId) || null;
+}
+
+// 問題からまとめを開くときの単元：主の単元 → 従の単元の順で、まとめのある最初のもの
+export function summaryOfQuestion(data, q) {
+  for (const u of [q?.unitId, ...(q?.subUnitIds || [])]) {
+    const s = u && summaryFor(data, u);
+    if (s) return s;
+  }
+  return null;
+}
+
+// 単元に答えた記録が1件でもあるか（主の単元で数える。ゲームの中の回答も含む）
+export function unitAnswered(data, logs, unitId) {
+  const ids = new Set((data?.questions || []).filter((q) => q.unitId === unitId).map((q) => q.questionId));
+  return logs.some((l) => ids.has(l.questionId));
+}
+
+// 問題を出す直前に、まとめを自動で出すか：その単元（主の単元）にまとめがあって、その単元の問題を1問も解いておらず、
+// まとめもまだ開いていない（read：kv summaryRead。単元ごとに1回だけ）
+export function needsAutoSummary(data, logs, read, q) {
+  if (!q) return false;
+  const s = summaryFor(data, q.unitId);
+  return !!s && !read?.[q.unitId] && !unitAnswered(data, logs, q.unitId);
+}
+
+// 空欄の数（［［…］］）
+export const SUMMARY_BLANK = /［［(.+?)］］/g;
+export function summaryBlankCount(s) {
+  return (s?.lines || []).reduce((n, l) => n + (l.text.match(SUMMARY_BLANK) || []).length, 0);
 }
 
 // ---- おまかせを「枠」で組む（1.4.1。要件定義書 4.2、設計図 1.7） ----
@@ -449,6 +506,15 @@ export function validateQuestionFile(json) {
     }
     if (q.steps != null) errors.push(...validateSteps(q.steps).map((e) => `${id}: ${e}`));
   }
+  // 単元のまとめ（1.9.0）。なくてもよい
+  if (json.summaries != null) {
+    if (!Array.isArray(json.summaries)) errors.push('summaries が配列ではありません');
+    else
+      for (const s of json.summaries) {
+        if (!unitIds.has(s?.unitId)) errors.push(`まとめ: 単元 ${s?.unitId} が定義されていません`);
+        else if (!Array.isArray(s.lines) || !s.lines.length || s.lines.some((l) => typeof l?.text !== 'string')) errors.push(`まとめ ${s.unitId}: lines が不正です`);
+      }
+  }
   return errors;
 }
 
@@ -585,7 +651,23 @@ export function mergeQuestionData(current, incoming) {
   const map = incoming.map || cur.map || null;
   // 外部試験の定義（合格点など）も同じ扱い
   const exams = incoming.exams || cur.exams || [];
-  return { data: { subjects, questions, map, exams }, summary };
+  // 単元のまとめ（1.9.0）：ファイルにある科目のまとめは置き換え（ファイルにまとめがなければ、その科目のまとめはなくなる）
+  const curSum = new Map((cur.summaries || []).map((s) => [s.unitId, s]));
+  const inSum = incoming.summaries || [];
+  summary.summaries = { added: [], updated: [], removed: [] };
+  for (const s of inSum) {
+    const old = curSum.get(s.unitId);
+    if (!old) summary.summaries.added.push(s.unitId);
+    else if (JSON.stringify(old) !== JSON.stringify(s)) summary.summaries.updated.push(s.unitId);
+  }
+  const inSumIds = new Set(inSum.map((s) => s.unitId));
+  const keep = (cur.summaries || []).filter((s) => {
+    if (!inSubjects.has(s.subjectId)) return true;
+    if (!inSumIds.has(s.unitId)) summary.summaries.removed.push(s.unitId);
+    return false;
+  });
+  const summaries = [...keep, ...inSum];
+  return { data: { subjects, questions, map, exams, summaries }, summary };
 }
 
 // ---- 学習の記録：定着・実績・結果画面（要件定義書 4.8、設計図 1.8） ----

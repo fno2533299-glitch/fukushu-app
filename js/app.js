@@ -22,6 +22,7 @@ const S = {
   gridOther: null, // 1.8.0：もう一方のモードの系統（自由モードをまだ始めていなければ null）
   gridMode: 'history', // 1.8.0：いま遊んでいるモード（'history' 史実／'free' 自由）
   view: null, // いま出している画面（'grid'＝系統。時間が進んだら描き直すため）
+  sumRead: {}, // 1.9.0：単元のまとめを開いた記録（kv summaryRead。{ unitId: { at, revision, via, count } }）
 };
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -236,6 +237,16 @@ function quickCardHtml() {
   }
   if (!S.preview) return '<section class="card"><p class="note">いま出せる問題がありません（「出題対象の設定」を確認してください）</p></section>';
   const { q, order } = S.preview;
+  // 1.9.0：1問目が初めての単元（まとめあり）なら、問題の代わりに「まとめを読む」を出す（読んでから解く）
+  if (L.needsAutoSummary(S.data, S.logs, S.sumRead, q)) {
+    return `<section class="card quick sumcue">
+      <p class="spread small"><span>さっと${S.settings.quickSize}問 ・ 1問目</span><span class="lv lv-${q.level}">${q.level}</span></p>
+      <p class="sumcuet"><span class="small">初めての単元</span><b>${esc(subjectOf(q.subjectId)?.name)}「${esc(shortName(unitName(q.unitId)))}」</b></p>
+      <p class="note">解く前に、この単元のまとめ（1画面）を読もう</p>
+      <button class="btn primary big wide" data-qsum>まとめを読む</button>
+    </section>`;
+  }
+  const peek = L.summaryOfQuestion(S.data, q) ? '<button class="btn sumbtn small qpeek" data-qpeek>まとめを見る</button>' : '';
   return `<section class="card quick">
       <p class="spread small"><span>さっと${S.settings.quickSize}問 ・ 1問目</span><span class="lv lv-${q.level}">${q.level}</span></p>
       ${figureHtml(q)}
@@ -244,6 +255,7 @@ function quickCardHtml() {
         ${order.map((c, i) => `<button class="choice" data-qchoice="${esc(c.choiceId)}"><span class="mark">${'ABCD'[i]}</span><span>${rich(c.text)}</span></button>`).join('')}
       </div>
       <button class="btn idk" data-qidk>わからない</button>
+      ${peek}
     </section>`;
 }
 
@@ -328,6 +340,16 @@ function home() {
         quick(e.currentTarget.dataset.qchoice);
       });
       on('[data-qidk]', 'click', () => quick(null));
+      // 1.9.0：1問目の前にまとめを読む（自動で出すのと同じ）・1問目を解きながらまとめを見る（わからない扱い）
+      const quickSummary = async (via) => {
+        const first = S.preview;
+        S.preview = null;
+        await startSession('さっと', null, first);
+        if (via === 'peek') S.session.current.peeked = true;
+        summaryScreen(L.summaryOfQuestion(S.data, first.q).unitId, { via, q: first.q });
+      };
+      on('[data-qsum]', 'click', () => quickSummary('auto'));
+      on('[data-qpeek]', 'click', () => quickSummary('peek'));
       on('[data-go]', 'click', (e) => {
         const g = e.currentTarget.dataset.go;
         if (g === 'select') selectScreen();
@@ -650,7 +672,7 @@ function subjectMapScreen(subjectId) {
   const readyUnits = L.masteryReadyByUnit(ctx());
   const g = L.groupProgress(active.filter((q) => q.subjectId === subjectId), prog);
   const units = [...s.units].sort((a, b) => a.order - b.order);
-  let withQ = 0, touched = 0;
+  let withQ = 0, touched = 0, hasSum = false;
   const tiles = units
     .map((u) => {
       const inUnit = active.filter((q) => q.unitId === u.unitId);
@@ -662,7 +684,11 @@ function subjectMapScreen(subjectId) {
       const chips = L.LEVELS.map((lv, i) =>
         inUnit.some((q) => q.level === lv) ? `<span class="chip l${i + 1} ${st[lv].unlocked ? 'on' : ''}">${lv[0]}</span>` : '',
       ).join('');
-      return unitTile(u.unitId, gu, { chips, button: true, spark: readyUnits.has(u.unitId) });
+      const tile = unitTile(u.unitId, gu, { chips, button: true, spark: readyUnits.has(u.unitId) });
+      // 1.9.0：まとめのある単元は、タイルの右上に「まとめ」（まだ開いていなければ点）
+      if (!L.summaryFor(S.data, u.unitId)) return tile;
+      hasSum = true;
+      return `<div class="tilebox">${tile}<button class="tsum${S.sumRead[u.unitId] ? '' : ' unread'}" data-sum="${esc(u.unitId)}">まとめ</button></div>`;
     })
     .join('');
   show(
@@ -673,10 +699,11 @@ function subjectMapScreen(subjectId) {
     </section>
     ${SHADE_LEGEND}
     <div class="tiles">${tiles}</div>
-    <p class="note center">単元を押すと、その単元を${S.settings.quickSize}問${readyUnits.size ? '<br><span class="spark">✦</span> 今日解くと定着しそうな問題がある単元' : ''}<br>基・応・試：段階解放で、おまかせに出るようになったレベル（灰色はまだ）</p>`,
+    <p class="note center">単元を押すと、その単元を${S.settings.quickSize}問${readyUnits.size ? '<br><span class="spark">✦</span> 今日解くと定着しそうな問題がある単元' : ''}<br>基・応・試：段階解放で、おまかせに出るようになったレベル（灰色はまだ）${hasSum ? '<br>まとめ：単元の要点を1画面で（点はまだ開いていないもの）' : ''}</p>`,
     () => {
       on('[data-back]', 'click', () => recordScreen('map'));
       on('[data-unit]', 'click', (e) => startUnit(subjectId, e.currentTarget.dataset.unit));
+      on('[data-sum]', 'click', (e) => summaryScreen(e.currentTarget.dataset.sum, { via: 'map' }));
     },
   );
 }
@@ -717,7 +744,7 @@ function examTab() {
         if (!q || q.status !== '出題中') return toast('この問題はいま出題していません');
         // その元の問題から「この単元を◯問」（今の段階の誘導で出す）
         await startSession('単元', { subjectId: q.subjectId, unitId: q.unitId }, makeCurrent(q));
-        questionScreen();
+        presentCurrent();
       }),
   };
 }
@@ -1031,7 +1058,10 @@ async function startSession(mode, scope, first = null) {
   await db.put('sessions', rec);
   stopTimer();
   timerId = setInterval(checkTimer, 1000);
+  // 1.9.0：さっと出題で、出したときに未回答の基礎だった問題の数（セットの 2/3 を新しい問題にする）
+  S.session.newCount = 0;
   if (first) {
+    if (L.isNewBasic(first.q, S.states)) S.session.newCount++;
     S.session.asked.push(first.q.questionId);
     S.session.current = { ...first };
     return;
@@ -1041,7 +1071,8 @@ async function startSession(mode, scope, first = null) {
 
 function sessionCtx() {
   const ss = S.session;
-  return ctx({ asked: new Set(ss.asked), scope: ss.scope, slot: ss.plan?.[ss.asked.length] || null });
+  const quickNeedNew = ss.mode === 'さっと' ? L.quickNeedNew(ss.size, ss.asked.length, ss.newCount) : 0;
+  return ctx({ asked: new Set(ss.asked), scope: ss.scope, slot: ss.plan?.[ss.asked.length] || null, quickNeedNew });
 }
 
 function nextQuestion() {
@@ -1049,8 +1080,16 @@ function nextQuestion() {
   if (ss.asked.length >= ss.size) return endSession();
   const q = L.pickNext(ss.mode, sessionCtx());
   if (!q) return endSession(ss.asked.length === 0 ? '出せる問題がありません' : '');
+  if (L.isNewBasic(q, S.states)) ss.newCount++;
   ss.asked.push(q.questionId);
   ss.current = makeCurrent(q);
+  presentCurrent();
+}
+
+// 1.9.0：問題を出す直前に、初めての単元ならまとめを先に出す（単元ごとに1回だけ）。読み流し・系統の事故では出さない
+function presentCurrent() {
+  const { q } = S.session.current;
+  if (L.needsAutoSummary(S.data, S.logs, S.sumRead, q)) return summaryScreen(q.unitId, { via: 'auto', q });
   questionScreen();
 }
 
@@ -1150,9 +1189,11 @@ function assistScreen(to = 'top') {
     <p class="assistbar"><span class="as ${cur.assist}">${L.ASSIST_LABEL[cur.assist]}</span><span>${where}</span></p>
     <details class="orig"${cur.stemOpen ? ' open' : ''}><summary>元の問題${q.figure ? 'と図' : ''}</summary>${metaHtml(q, hideTags)}${figureHtml(q)}<div class="stem">${rich(q.stem)}</div></details>
     ${stackHtml(cur, i)}
-    ${body}`,
+    ${body}
+    ${peekHtml(cur)}`,
     () => {
       bindFigureZoom();
+      bindPeek(cur);
       app.querySelector('details.orig').addEventListener('toggle', (e) => (cur.stemOpen = e.currentTarget.open));
       on('[data-schoice]', 'click', (e) => {
         primeAudio();
@@ -1227,9 +1268,11 @@ function questionScreen() {
     <div class="choices">
       ${order.map((c, i) => `<button class="choice" data-choice="${esc(c.choiceId)}"><span class="mark">${'ABCD'[i]}</span><span>${rich(c.text)}</span></button>`).join('')}
     </div>
-    <button class="btn idk" data-idk>わからない</button>`,
+    <button class="btn idk" data-idk>わからない</button>
+    ${peekHtml(ss.current)}`,
     () => {
       bindFigureZoom();
+      bindPeek(ss.current);
       on('[data-choice]', 'click', (e) => {
         primeAudio();
         answer(e.currentTarget.dataset.choice);
@@ -1243,10 +1286,28 @@ function questionScreen() {
   );
 }
 
+// 1.9.0：出題中に「まとめを見る」。開いた問題は、答えたあと「わからない」と同じ扱いで記録する（cur.peeked）
+function peekHtml(cur) {
+  if (!L.summaryOfQuestion(S.data, cur.q)) return '';
+  return cur.peeked
+    ? '<div class="peekbox"><button class="btn sumbtn" data-peek>まとめをもう一度見る</button><p class="note">まとめを見たので、この問題は答えたあと「わからない」と同じ記録になります</p></div>'
+    : '<div class="peekbox"><button class="btn sumbtn" data-peek>まとめを見る</button><p class="note">見てから答えると「わからない」と同じ記録になります（減るものはありません）</p></div>';
+}
+function bindPeek(cur) {
+  on('[data-peek]', 'click', () => {
+    const s = L.summaryOfQuestion(S.data, cur.q);
+    cur.peeked = true;
+    summaryScreen(s.unitId, { via: 'peek', q: cur.q });
+  });
+}
+
 async function answer(choiceId) {
   const ss = S.session;
   const { q } = ss.current;
-  const result = choiceId == null ? 'わからない' : choiceId === q.correctChoiceId ? '正解' : '不正解';
+  const picked = choiceId == null ? 'わからない' : choiceId === q.correctChoiceId ? '正解' : '不正解';
+  // 1.9.0：出題中にまとめを開いた問題は「わからない」と同じ扱い（選んだ選択肢と正誤は peekResult に残し、解説画面に出す）
+  const peeked = !!ss.current.peeked;
+  const result = peeked ? 'わからない' : picked;
   const now = new Date();
   const log = {
     logId: uid(),
@@ -1263,6 +1324,10 @@ async function answer(choiceId) {
     log.assist = cur.assist;
     log.steps = cur.stepAnswers.map((a) => ({ ...a }));
   }
+  if (peeked) {
+    log.peek = true;
+    log.peekResult = picked;
+  }
   // 復習の間隔は誘導つきでも元の問題の正誤で進める（思い出す練習にはなっているため）
   const state = L.nextReviewState(S.states[q.questionId], q.questionId, result, now, S.settings.intervals);
   if (result === '正解') playCorrect(); // 演出ありのときだけ鳴る。不正解・わからないでは鳴らさない
@@ -1271,9 +1336,10 @@ async function answer(choiceId) {
   const tileBefore = L.groupProgress(inU, L.questionProgress(S.logs));
   S.logs.push(log);
   S.states[q.questionId] = state;
-  ss.results.push({ q, result, assist: cur.assist || null });
+  ss.results.push({ q, result, assist: cur.assist || null, peek: peeked });
   ss.current.choiceId = choiceId;
   ss.current.result = result;
+  ss.current.picked = picked;
   if (q.steps) ss.current.nextLevel = L.assistLevel(q, S.logs);
   ss.current.tile = inU.length ? { before: tileBefore, after: L.groupProgress(inU, L.questionProgress(S.logs)) } : null;
   answerScreen();
@@ -1285,7 +1351,11 @@ function answerScreen() {
   const cur = ss.current;
   const { q, order, choiceId, result, tile } = cur;
   const cls = { 正解: 'ok', 不正解: 'ng', わからない: 'idk' }[result];
-  const label = { 正解: '正解！', 不正解: '不正解', わからない: 'わからない' }[result];
+  const label = cur.peeked ? 'まとめを見て答えた' : { 正解: '正解！', 不正解: '不正解', わからない: 'わからない' }[result];
+  const peekLine = cur.peeked
+    ? `<p class="assistline">選んだ答え：<b class="${RESULT_CLS[cur.picked]}">${{ 正解: '○ 正解', 不正解: '× 不正解', わからない: '選ばなかった' }[cur.picked]}</b><br>記録は「わからない」と同じ（次は早めにまた出ます）</p>`
+    : '';
+  const sum = result !== '正解' ? L.summaryOfQuestion(S.data, q) : null;
   const last = ss.asked.length >= ss.size;
   const ex = L.examItemInfo(S.data, q);
   let gain = '';
@@ -1297,6 +1367,7 @@ function answerScreen() {
   show(
     `<header class="quizbar"><span>${ss.asked.length} / ${ss.size}</span><span class="lv lv-${q.level}">${q.level}</span><span class="clock">${elapsed()}</span><button class="btn small" data-end>終了</button></header>
     <div class="verdict ${cls}">${label}</div>
+    ${peekLine}
     ${assistLineHtml(cur, result)}
     ${gain}
     <div class="choices done">
@@ -1309,6 +1380,7 @@ function answerScreen() {
     </div>
     ${cur.assist ? `<section class="card"><h2>今回の小問</h2>${stackHtml(cur)}</section>` : ''}
     <section class="card expl"><h2>解説</h2><p>${rich(q.explanation)}</p></section>
+    ${sum ? `<button class="btn sumbtn wide" data-sum>まとめを見る<small>${esc(shortName(unitName(sum.unitId)))}</small></button>` : ''}
     ${q.trivia ? `<section class="card trivia"><h2>豆知識</h2><p>${rich(q.trivia)}</p></section>` : ''}
     <details class="stem-again"><summary>問題文${q.figure ? 'と図' : ''}を見る</summary>${figureHtml(q)}<div class="stem">${rich(q.stem)}</div></details>
     ${tile ? `<div class="unitnow">${unitTile(q.unitId, tile.before, { sub: subjectOf(q.subjectId)?.name, label: unitNowLabel(tile.before), cls: 'mini' })}</div>` : ''}
@@ -1338,12 +1410,87 @@ function answerScreen() {
       on('[data-next]', 'click', nextQuestion);
       on('[data-end]', 'click', () => endSession());
       on('[data-report]', 'click', () => reportDialog(q));
+      on('[data-sum]', 'click', () => summaryScreen(sum.unitId, { via: 'link', q }));
     },
   );
 }
 
 function unitNowLabel(g) {
   return `定着 ${g.mastered} ／ 全 ${g.total}問`;
+}
+
+// ---- 単元のまとめ（1.9.0：要件定義書 4.12、設計図 1.13） ----
+// via：'auto'（初めての単元の問題の前に自動で）・'peek'（出題中）・'link'（解説画面から）・'map'（科目マップの単元タイルから）
+
+// 1行の書式：問題文と同じ（**太字**・$数式$）に、［［…］］の空欄（タップで中身を出す）
+function summaryLineHtml(text) {
+  return rich(text).replace(L.SUMMARY_BLANK, (_, inner) => `<button class="blank" data-blank aria-label="空欄（タップで答え）"><span class="bt">${inner}</span></button>`);
+}
+
+async function markSummaryRead(s, via) {
+  const old = S.sumRead[s.unitId];
+  S.sumRead[s.unitId] = { at: old?.at || new Date().toISOString(), revision: s.revision, via: old?.via || via, count: (old?.count || 0) + 1 };
+  await db.putKV('summaryRead', S.sumRead);
+}
+
+function summaryScreen(unitId, { via, q = null } = {}) {
+  const s = L.summaryFor(S.data, unitId);
+  if (!s) return toast('この単元のまとめはまだありません');
+  const ss = S.session;
+  const inSet = via === 'auto' || via === 'peek' || via === 'link';
+  const hl = via === 'link' && q ? new Set([q.questionId]) : new Set();
+  const blanks = L.summaryBlankCount(s);
+  const back = { auto: null, peek: '‹ 問題に戻る', link: '‹ 解説に戻る', map: '‹ マップ' }[via];
+  const top = inSet
+    ? `<header class="quizbar"><span>${ss.asked.length} / ${ss.size}</span><span class="sumtag">まとめ</span>${back ? `<button class="btn small" data-sback>${back.slice(2)}</button>` : ''}<button class="btn small endbtn" data-end>終了</button></header>`
+    : `<header class="top"><button class="back" data-sback>${back}</button><h1>まとめ</h1></header>`;
+  const lead = {
+    auto: '<p class="sumlead">初めての単元です。まず要点を読んでから解こう</p>',
+    peek: '<p class="sumlead">この問題は、答えたあと「わからない」と同じ記録になります</p>',
+    link: q && s.lines.some((l) => (l.questionIds || []).includes(q.questionId)) ? '<p class="sumlead">今の問題に関係する行に色を付けています</p>' : '',
+    map: '',
+  }[via];
+  const bottom = {
+    auto: '<button class="btn primary big" data-sgo>読めた → 解く</button>',
+    peek: '<button class="btn primary big" data-sback>問題に戻る</button>',
+    link: '<button class="btn primary big" data-sback>解説に戻る</button>',
+    map: `<button class="btn" data-sback>マップに戻る</button><button class="btn primary big" data-sunit>この単元を${S.settings.quickSize}問</button>`,
+  }[via];
+  show(
+    `${top}
+    ${lead}
+    <section class="card summary">
+      <p class="sumhead"><span class="small">${esc(subjectOf(s.subjectId)?.name)}</span><b>${esc(shortName(unitName(unitId)))}</b></p>
+      ${s.figure ? figureHtml(s) : ''}
+      <ul class="sumlines">${s.lines.map((l) => `<li class="${(l.questionIds || []).some((id) => hl.has(id)) ? 'hl' : ''}">${summaryLineHtml(l.text)}</li>`).join('')}</ul>
+      ${blanks ? `<p class="sumblank"><span class="small">空欄 ${blanks}つ ・ タップで答え</span><button class="btn small" data-sopen>全部ひらく</button></p>` : ''}
+      <p class="src">出典：${esc(s.source)} ・ 第${s.revision}版</p>
+    </section>
+    <div class="actions">${bottom}</div>`,
+    () => {
+      bindFigureZoom();
+      on('[data-blank]', 'click', (e) => e.currentTarget.classList.toggle('open'));
+      on('[data-sopen]', 'click', (e) => {
+        const all = app.querySelectorAll('.blank');
+        const open = [...all].some((b) => !b.classList.contains('open'));
+        all.forEach((b) => b.classList.toggle('open', open));
+        e.currentTarget.textContent = open ? '全部とじる' : '全部ひらく';
+      });
+      on('[data-sback]', 'click', () => {
+        if (via === 'link') answerScreen();
+        else if (via === 'peek') questionScreen();
+        else subjectMapScreen(s.subjectId);
+      });
+      on('[data-sgo]', 'click', questionScreen);
+      on('[data-sunit]', 'click', () => startUnit(s.subjectId, unitId));
+      on('[data-end]', 'click', () => {
+        // 答えていない問題は出題しなかった扱い（出題前・出題中）。解説から開いたときは答えたあと
+        if (via !== 'link') ss.asked.pop();
+        endSession();
+      });
+    },
+  );
+  markSummaryRead(s, via);
 }
 
 // step：小問を見ているときの小問（1.7.0。報告に stepId を付ける）
@@ -1444,7 +1591,7 @@ async function endSession(message = '') {
         : ''
     }
     <ul class="resultlist">
-      ${ss.results.map((x) => `<li><span class="dot ${{ 正解: 'ok', 不正解: 'ng', わからない: 'idk' }[x.result]}"></span><span class="lv lv-${x.q.level}">${x.q.level}</span>${esc(x.q.title)}${x.assist ? `<span class="tag">${L.ASSIST_LABEL[x.assist]}</span>` : ''}</li>`).join('')}
+      ${ss.results.map((x) => `<li><span class="dot ${{ 正解: 'ok', 不正解: 'ng', わからない: 'idk' }[x.result]}"></span><span class="lv lv-${x.q.level}">${x.q.level}</span>${esc(x.q.title)}${x.assist ? `<span class="tag">${L.ASSIST_LABEL[x.assist]}</span>` : ''}${x.peek ? '<span class="tag">まとめを見た</span>' : ''}</li>`).join('')}
     </ul>
     <div class="actions">
       <button class="btn" data-home>${short ? '終わる' : 'ホームへ'}</button>
@@ -1607,7 +1754,8 @@ function dataScreen() {
               .map((s) => {
                 const qs = S.data.questions.filter((q) => q.subjectId === s.subjectId);
                 const c = (st) => qs.filter((q) => q.status === st).length;
-                return `<p>${esc(s.name)}：出題中 ${c('出題中')}問${c('保留') ? `・保留 ${c('保留')}` : ''}${c('廃止') ? `・廃止 ${c('廃止')}` : ''}</p>`;
+                const sm = (S.data.summaries || []).filter((x) => x.subjectId === s.subjectId).length;
+                return `<p>${esc(s.name)}：出題中 ${c('出題中')}問${c('保留') ? `・保留 ${c('保留')}` : ''}${c('廃止') ? `・廃止 ${c('廃止')}` : ''}${sm ? `・まとめ ${sm}単元` : ''}</p>`;
               })
               .join('') + `<p class="note">読み込み日時：${esc(new Date(S.data.importedAt).toLocaleString('ja-JP'))}</p>`
           : '<p class="note">まだありません</p>'
@@ -1686,6 +1834,12 @@ async function importFlow() {
       <p>更新 <b>${summary.updated.length}</b>問</p>${list(summary.updated)}
       <p>廃止 <b>${summary.retired.length}</b>問</p>${list(summary.retired)}
       <p>変更なし ${summary.unchanged}問</p>
+      ${(() => {
+        const m = summary.summaries;
+        const n = (json.summaries || []).length;
+        if (!n && !m.removed.length) return '';
+        return `<p>単元のまとめ ${n}単元（新規 ${m.added.length}・更新 ${m.updated.length}${m.removed.length ? `・なくなる ${m.removed.length}` : ''}）</p>`;
+      })()}
       <p class="note">学習履歴と設定は変わりません。</p>
     </section>
     <div class="actions"><button class="btn" data-cancel>取り消し</button><button class="btn primary big" data-ok>確定</button></div>`,
@@ -1755,6 +1909,8 @@ async function exportBackup() {
     collection: S.collection,
     // 1.5.0：動く系統の状態（学習通貨の支出は gachaLog に入っている）。1.8.0：史実モード grid・自由モード gridFree・いまのモード gridMode
     ...GU.backupGrids(),
+    // 1.9.0：単元のまとめを開いた記録
+    summaryRead: S.sumRead,
   };
   await saveFile(`復習アプリ_バックアップ_${stamp()}.json`, JSON.stringify(backup));
   S.lastBackup = backup.exportedAt;
@@ -1832,6 +1988,7 @@ async function load() {
   S.gridOther = md.other;
   S.gridMode = md.mode;
   S.gridRec = all.gridRecord || null; // 1.8.2 系統の記録（gridui.js が整える）
+  S.sumRead = all.summaryRead || {}; // 1.9.0 単元のまとめを開いた記録
   S.preview = null;
   applyTheme();
 }

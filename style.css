@@ -1212,3 +1212,46 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gridcard.hasimg { position: relative; isolation: isolate; overflow: hidden; }
 .gridcard.hasimg::before { content: ""; position: absolute; inset: 0; z-index: -2; background: var(--eraimg) right 40% / cover no-repeat; }
 .gridcard.hasimg::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, color-mix(in srgb, var(--card) 94%, transparent) 0%, color-mix(in srgb, var(--card) 86%, transparent) 50%, color-mix(in srgb, var(--card) 66%, transparent) 100%); }
+
+/* ---- 1.9.0 単元のまとめ（設計図 1.13） ---- */
+.btn.sumbtn { color: var(--primary); }
+.btn.wide { display: flex; width: 100%; margin: 8px 0; }
+.btn.sumbtn.wide small { margin-left: 4px; }
+.peekbox { margin-top: 12px; text-align: center; }
+.peekbox .btn { width: 100%; min-height: 44px; }
+.peekbox .note { margin: 4px 0 0; font-size: 0.78rem; }
+.card.quick .qpeek { display: block; width: 100%; margin: 8px 0 0; }
+.card.sumcue .sumcuet { display: flex; flex-direction: column; margin: 8px 0 4px; }
+.card.sumcue .sumcuet b { font-size: 1.05rem; }
+.card.sumcue .btn.wide { margin: 10px 0 2px; }
+.quizbar .sumtag { font-weight: 700; color: var(--primary); }
+.sumlead { font-size: 0.82rem; color: var(--muted); margin: 0 2px 6px; }
+.card.summary { padding: 12px 12px 10px; margin-top: 0; }
+.sumhead { display: flex; flex-direction: column; margin: 0 0 6px; }
+.sumhead b { font-size: 1.02rem; line-height: 1.4; }
+.sumlines { margin: 0; padding-left: 1.05em; font-size: 0.9rem; }
+.sumlines li { margin: 0 0 4px; line-height: 1.5; padding: 1px 4px; border-radius: 6px; }
+.sumlines li.hl { background: var(--idk-bg); box-shadow: inset 3px 0 0 var(--idk); }
+.sumlines .katex-display { margin: 4px 0; overflow-x: auto; overflow-y: hidden; }
+.blank {
+  display: inline; font: inherit; color: inherit; padding: 0 4px; margin: 0 1px;
+  border: 0; border-bottom: 2px solid var(--primary); border-radius: 4px 4px 0 0;
+  background: var(--m1); cursor: pointer;
+}
+.blank .bt { visibility: hidden; }
+.blank.open { background: transparent; border-bottom-color: var(--ok); }
+.blank.open .bt { visibility: visible; color: var(--ok); font-weight: 600; }
+.sumblank { display: flex; justify-content: space-between; align-items: center; margin: 6px 0 0; }
+.sumblank .btn { margin: 0; }
+.card.summary .src { font-size: 0.74rem; color: var(--muted); margin: 8px 0 0; }
+.card.summary .figure { margin: 4px 0 8px; }
+.tilebox { position: relative; display: flex; }
+.tilebox > .tile { flex: 1; }
+.tilebox > .tile .nm { padding-right: 44px; }
+.tilebox > .tile .tsp { right: 50px; }
+.tsum {
+  position: absolute; top: 5px; right: 5px; z-index: 1;
+  font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 8px;
+  border: 1px solid var(--primary); background: var(--card); color: var(--primary);
+}
+.tsum.unread::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 3px; border-radius: 50%; background: var(--ng); vertical-align: 1px; }

@@ -4,6 +4,7 @@
 //     grid（動く系統の状態。1.5.0）・gridDev（開発者モードの系統。1.5.1。バックアップには入れない）
 //     gridDemo（デモの系統。1.5.3。バックアップには入れない）
 //     gridFree（自由モードの系統。1.8.0）・gridMode（いま遊んでいるモード 'history'／'free'。1.8.0。なければ史実モード）
+//     summaryRead（単元のまとめを開いた記録 { unitId: { at, revision, via } }。1.9.0。バックアップに入れる）
 // reviewStates / answerLogs / sessions / issueReports: 学習データ（設計図 1.1）
 
 const DB_NAME = 'fukushu-app';
@@ -50,7 +51,7 @@ export async function loadAll() {
   const db = await open();
   const tx = db.transaction(Object.keys(STORES), 'readonly');
   const kv = tx.objectStore('kv');
-  const [questionData, settings, lastBackup, cardData, gachaLog, collection, grid, gridFree, gridMode, gridRecord, states, answerLogs, sessions, issueReports] = await Promise.all([
+  const [questionData, settings, lastBackup, cardData, gachaLog, collection, grid, gridFree, gridMode, gridRecord, summaryRead, states, answerLogs, sessions, issueReports] = await Promise.all([
     request(kv.get('questionData')),
     request(kv.get('settings')),
     request(kv.get('lastBackup')),
@@ -61,6 +62,7 @@ export async function loadAll() {
     request(kv.get('gridFree')),
     request(kv.get('gridMode')),
     request(kv.get('gridRecord')),
+    request(kv.get('summaryRead')),
     request(tx.objectStore('reviewStates').getAll()),
     request(tx.objectStore('answerLogs').getAll()),
     request(tx.objectStore('sessions').getAll()),
@@ -77,6 +79,7 @@ export async function loadAll() {
     gridFree: gridFree || null,
     gridMode: gridMode || null,
     gridRecord: gridRecord || null,
+    summaryRead: summaryRead || null,
     reviewStates: Object.fromEntries(states.map((s) => [s.questionId, s])),
     answerLogs,
     sessions,
@@ -141,6 +144,8 @@ export async function replaceAll(backup, keepCardData = null, keepDev = null, ke
   if (backup.gridMode === 'free' && backup.gridFree) kv.put('free', 'gridMode');
   // 1.8.2 系統の記録（絵のアルバム・系統で初めて起きたこと）。古いバックアップにはないので、そのときは今の系統から作り直す
   if (backup.gridRecord) kv.put(backup.gridRecord, 'gridRecord');
+  // 1.9.0 単元のまとめを開いた記録。古いバックアップにはないので、そのときはどのまとめもまだ開いていない扱い
+  if (backup.summaryRead) kv.put(backup.summaryRead, 'summaryRead');
   if (keepDev) kv.put(keepDev, 'gridDev');
   if (keepDemo) kv.put(keepDemo, 'gridDemo');
   for (const s of backup.reviewStates) tx.objectStore('reviewStates').put(s);
