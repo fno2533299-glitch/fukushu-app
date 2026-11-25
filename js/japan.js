@@ -139,4 +139,10 @@ export const JAPAN_NODES = [
   {"id":"cg-saba","name":"佐波川","x":319.7,"y":1314.8,"lat":34.15,"lon":131.55,"island":"本州","area":"中国・四国","pref":"山口県","hydro":6000,"limitBy":"ゲーム","place":"山口市徳地のあたり","river":"佐波川","conf":"ゲームの地点","game":true,"tags":["thunder"]},
   {"id":"sk-yoshino","name":"吉野川","x":513.6,"y":1355.3,"lat":33.7847,"lon":133.7024,"island":"四国","area":"中国・四国","pref":"高知県","hydro":40000,"pond":true,"limitBy":"ゲーム","place":"大豊町のあたり","river":"吉野川","conf":"ゲームの地点","game":true,"tags":["thunder"]},
   {"id":"sk-niyodo","name":"仁淀川","x":477.3,"y":1375.8,"lat":33.6,"lon":133.3,"island":"四国","area":"中国・四国","pref":"高知県","hydro":15000,"limitBy":"ゲーム","place":"いの町のあたり","river":"仁淀川","conf":"ゲームの地点","game":true,"tags":["thunder"]},
+  {"id":"coal-ishikari","name":"石狩炭田","x":1258.1,"y":326.2,"lat":43.06,"lon":141.97,"island":"北海道","area":"北海道","pref":"北海道","coal":true,"place":"夕張のあたり","fact":"わが国の代表的な炭田のひとつ（埋蔵量が国内最大級）","src":"S20","conf":"確認済み","tags":["snow"]},
+  {"id":"coal-kushiro","name":"釧路炭田","x":1475.2,"y":335.1,"lat":42.98,"lon":144.38,"island":"北海道","area":"北海道","pref":"北海道","coal":true,"place":"釧路のあたり","fact":"わが国の代表的な炭田のひとつ","src":"S20","conf":"確認済み","tags":["coast","snow"]},
+  {"id":"coal-joban","name":"常磐炭田","x":1157.3,"y":997.4,"lat":37.01,"lon":140.85,"island":"本州","area":"猪苗代・福島","pref":"福島県","coal":true,"place":"いわきのあたり","fact":"わが国の代表的な炭田のひとつ","src":"S20","conf":"確認済み","tags":[]},
+  {"id":"coal-ube","name":"宇部炭田","x":292.7,"y":1336.9,"lat":33.95,"lon":131.25,"island":"本州","area":"中国・四国","pref":"山口県","coal":true,"place":"宇部のあたり","fact":"日本の主要炭田のひとつ","src":"S21","conf":"確認済み","tags":["coast"]},
+  {"id":"coal-chikuho","name":"筑豊炭田","x":242.3,"y":1371.3,"lat":33.64,"lon":130.69,"island":"九州","area":"九州","pref":"福岡県","coal":true,"place":"飯塚のあたり","fact":"わが国の代表的な炭田のひとつ","src":"S20","conf":"確認済み","tags":[]},
+  {"id":"coal-miike","name":"三池炭田","x":220.6,"y":1439,"lat":33.03,"lon":130.45,"island":"九州","area":"九州","pref":"福岡県","coal":true,"place":"大牟田のあたり","fact":"わが国の代表的な炭田のひとつ","src":"S20","conf":"確認済み","tags":["coast"]},
 ];

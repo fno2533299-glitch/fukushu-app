@@ -52,10 +52,10 @@ export function yearEra(year) {
   if (!year) return 2;
   return year <= 1890 ? 1 : year <= 1911 ? 2 : year <= 1925 ? 3 : 4;
 }
-// 地点が開く時代
+// 地点が開く時代（1.10.1：炭田はエリアの決まりのまま）
 export function nodeOpenEra(start, n) {
   const e = areaEra(start, n.area, n.id);
-  return n.town ? e : Math.max(e, yearEra(n.year));
+  return n.town || n.coal ? e : Math.max(e, yearEra(n.year));
 }
 
 // ---- 史実と同じ2地点を線で結んだとき（7章） ----
@@ -106,6 +106,8 @@ export const SOURCES = [
   ['S17', '九州電力「歴史・沿革 1951〜1960年」（周波数統一）と中部電力70年史 第1章（1951年の渇水と使用制限）（1.10.0）', 'https://www.kyuden.co.jp/company/history/period/1951-1960.html ／ https://www.chuden.co.jp/resource/corporate/company/history/70yearshistory_02.pdf'],
   ['S18', '電線総合技術センター「送配電線の歴史」（1.10.0。1952年 275 kV 新北陸幹線 230 km）', 'https://www.jectec.or.jp/densen-kiso/souhaiden/3-1/'],
   ['S19', '文化庁 近代遺跡調査 中国電力大三島支線（旧中四幹線）（1.10.0。最長径間 2,357 m。海峡線の長さの目安にだけ使う）', 'https://www.bunka.go.jp/kindai/kenzoubutsu/research_doboku/denryoku/soudensisetsu/t005/index.html'],
+  ['S20', '産総研 地質調査総合センター『地質ニュース』（1.10.1。わが国の代表的な炭田：石狩・筑豊・釧路・三池・常磐）', 'https://www.gsj.jp/data/chishitsunews/66_03_07.pdf'],
+  ['S21', '産総研 地質調査総合センター『地質調査所月報』32巻11号（1.10.1。主要炭田の一覧に宇部炭田）', 'https://www.gsj.jp/data/bull-gsj/32-11_01.pdf'],
   ['G1', 'Gemini の調査（1回目、2026-11-15）。出典を Claude が確かめていない行は「未確認」', ''],
   ['G2', 'Gemini の調査（2回目、2026-11-16）。出典を Claude が確かめていない行は「未確認」', ''],
 ];

@@ -61,6 +61,7 @@ export function devLearning(real, opts) {
     mastered,
     dmax: Gm.dmaxOf(level, mastered, era), // 1.10.0 時代の倍率（ERA_K）も
     gate: opts.ignoreGates ? all(Gm.GATES, true) : { ...real.gate },
+    gateM: opts.ignoreGates ? all(Gm.GATES, true) : { ...(real.gateM || all(Gm.GATES, false)) },
     blueprint: opts.ignoreGates ? all(Gm.BLUEPRINTS, true) : { ...real.blueprint },
     perf: opts.perf != null ? all(Gm.PERF, Math.min(1, Math.max(0, opts.perf))) : { ...real.perf },
     incidentQs: real.incidentQs,

@@ -723,6 +723,16 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gmap .gdotc.s { stroke: var(--ghydro); }
 .gmap .gdotc.s.has { fill: var(--ghydro); }
 .gmap .ggame .gdotc.s { stroke: var(--muted); }
+/* 1.10.1 炭田の印：小さな黒い石炭の山（凡例にも） */
+.gmap .gcoalbody, .gtercoal .gcoalbody { fill: #2b2a29; stroke: var(--card); stroke-width: 1.2; stroke-linejoin: round; }
+.gmap .gcoalhi { fill: none; stroke: #76736e; stroke-width: 1; stroke-linecap: round; }
+.gmap .gdotc.c { fill: #2b2a29; stroke: var(--card); stroke-width: 1; }
+.gtercoal { width: 16px; height: 12px; flex: none; }
+@media (prefers-color-scheme: dark) {
+  .gmap .gcoalbody, .gtercoal .gcoalbody { fill: #1c1d20; stroke: #b8bcc4; }
+  .gmap .gcoalhi { stroke: #7f858f; }
+  .gmap .gdotc.c { fill: #1c1d20; stroke: #b8bcc4; }
+}
 .gmap .gnode.gclosed { opacity: .32; }
 .gmap .gnode.gclosed .gname { font-weight: 400; }
 .gmap .gname.astart { text-anchor: start; } .gmap .gname.aend { text-anchor: end; }

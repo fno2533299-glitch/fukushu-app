@@ -6,7 +6,6 @@ import * as J from './gridjapan.js';
 import * as Ms from './gridmission.js';
 
 const eraName = (n) => Gm.ERAS[Math.min(n, Gm.ERAS.length) - 1].name;
-const gateText = (keys) => `「${keys.map((k) => Gm.GATE_NAMES[k]).join('」「')}」の単元で、まだ1問も正解していない`;
 
 // 種類ごとの「建てられるか」（場所によらない条件：時代・学習の単元・設計図）。kind：plant・line・sub
 export function typeStatus(lc, kind, key) {
@@ -14,8 +13,8 @@ export function typeStatus(lc, kind, key) {
   const level = kind === 'line' ? D.level || 0 : 0;
   const st = Gm.eraStatus(lc, D.era, level);
   if (st === 'no') return { ok: false, era: true, why: `まだ先の時代の設備（${eraName(D.era)}${level ? `・Lv${level}` : ''}から）` };
-  const miss = (D.gates || []).filter((k) => !lc.gate[k]);
-  if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
+  const gc = Gm.gateCheck(lc, D.gates || [], !!D.masteredGate);
+  if (gc) return gc;
   if (D.blueprint && !lc.blueprint[D.blueprint]) return { ok: false, why: `設計図「${Gm.BLUEPRINTS[D.blueprint].name}」がない（試験レベルに正解するか、関係する外部試験で満点の3割以上）`, blueprint: D.blueprint };
   return { ok: true, proto: st === 'proto' };
 }
@@ -38,7 +37,7 @@ export function buildChoices(g, lc, id) {
     if (!st.era) out.push({ kind: 'sub', key: 'tr', name: SHORT.tr, st });
     // 1.6.1：力率の悪い工場の需要（まだ進相コンデンサがない）がある町は、変圧器の並びに「進相コンデンサ」も（押すと今のシート）
     const caps = capLoads(g, id);
-    const cst = lc.gate.pf ? { ok: true } : { ok: false, why: gateText(['pf']), gates: ['pf'] };
+    const cst = Gm.gateCheck(lc, ['pf'], true) || { ok: true };
     for (const ld of caps) out.push({ kind: 'cap', key: ld.id, name: '進相コンデンサ', tag: caps.length > 1 ? `工場 ${Gm.fmtKw(ld.kw)}` : '', st: cst });
   }
   return out;
@@ -348,7 +347,7 @@ export const TUTORIAL = [
   { id: 'supply', target: '[data-dockp="supply"]', text: '需給：需要と発電のグラフ、周波数、需要の上限（レベルと定着で広がる）。', next: true },
   { id: 'manage', target: '[data-dockp="manage"]', text: '経営：収益の推移、時代と学習、別の地方から始める。このチュートリアルも、ここからもう一度見られます。', next: true },
   { id: 'gate1', target: '[data-dockp="build"]', text: '最後に「建設」を押します。', on: 'panel:build' },
-  { id: 'gate2', target: '.gbitem.locked', text: '灰色の種類は、関係する単元で1問正解すると建てられます。押すと理由と「この単元を解く」が出ます（練習の東京では、直流のほかは解いていない扱い）。', next: true },
+  { id: 'gate2', target: '.gbitem.locked', text: '灰色の種類は、関係する単元を解く（大きな設備は1問定着）と建てられます。押すと理由と「この単元を解く」が出ます（練習の東京では、直流のほかは解いていない扱い）。', next: true },
   { id: 'zoom', target: '[data-zoom="all"]', before: 'closePanel', text: '地図は2本指で拡大・縮小、1本指で動かせます。2本指で縮めると列島全体が見えます（「全体」「始めた町」のボタンでも）。時代が進むと、建てられる範囲が広がります。', next: true },
   { id: 'end', text: '練習はここまでです。本番の系統に戻ります。電気が届くと収益が入り、解くほど建てられる設備と需要が広がります。', next: '本番の系統へ', after: 'finish' },
 ];
@@ -464,4 +463,40 @@ export function evEffect(e) {
     default:
       return '';
   }
+}
+
+// ---- 1.10.1 収益が増えたときの演出の間引き（画面全体で YEN_FX_MS に1回まで） ----
+// 上の帯の数字は毎回演出なしで更新し、演出（数え上げ・+◯円・町の ¥）は前の演出から YEN_FX_MS 以上たってからまとめて出す。
+// ¥ は1回の演出で1つだけ。電気を届けている画面の中の町（visibleTowns）から、前回と違う町を選ぶ
+export const YEN_FX_MS = 7000;
+export function yenFxState(g = null) {
+  return { sys: g, fxYen: g ? g.yen : null, fxAt: 0, lastTown: null };
+}
+export function planRevenueFx(st, g, nowMs, visibleTowns = []) {
+  if (!g) return null;
+  if (st.sys !== g || st.fxYen == null) {
+    st.sys = g;
+    st.fxYen = g.yen;
+    st.fxAt = 0;
+    st.lastTown = null;
+    return null;
+  }
+  if (g.yen < st.fxYen) {
+    st.fxYen = g.yen;
+    return null;
+  }
+  const delta = g.yen - st.fxYen;
+  if (!(delta >= 1)) return null;
+  if (st.fxAt && nowMs - st.fxAt < YEN_FX_MS) return null;
+  const from = st.fxYen;
+  st.fxYen = g.yen;
+  st.fxAt = nowMs;
+  let town = null;
+  if (visibleTowns.length === 1) town = visibleTowns[0];
+  else if (visibleTowns.length > 1) {
+    const i = visibleTowns.indexOf(st.lastTown);
+    town = visibleTowns[(i + 1) % visibleTowns.length];
+  }
+  if (town) st.lastTown = town;
+  return { from, to: g.yen, delta, town };
 }

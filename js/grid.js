@@ -40,9 +40,9 @@ export function eraOf(level) {
 export const PLANTS = {
   dcCoal: { name: '直流の石炭火力', short: '直流火力', era: 1, ac: false, coal: true, eff: [0.05, 0.1], start: 4, min: 0.3, bs: true, build: 24, gates: ['dc'], perf: 'dc', at: 'town', sizes: [[25, 3000], [50, 4000], [100, 5500], [200, 8000]] },
   acCoal: { name: '石炭火力（汽力・交流）', short: '石炭火力', era: 2, ac: true, coal: true, eff: [0.08, 0.18], start: 6, min: 0.3, bs: true, build: 72, gates: ['gen', 'coal'], perf: 'coal', at: 'coal', sizes: [[500, 15000], [1000, 18000], [2000, 24000], [5000, 40000]] },
-  bigCoal: { name: '大型の石炭火力（高圧ボイラ）', short: '大型火力', era: 4, ac: true, coal: true, eff: [0.15, 0.28], start: 12, min: 0.4, bs: false, build: 240, gates: ['gen', 'coal'], perf: 'coal', at: 'bigcoal', blueprint: 'bigCoal', sizes: [[20000, 80000], [40000, 125000], [75000, 200000]] },
+  bigCoal: { name: '大型の石炭火力（高圧ボイラ）', short: '大型火力', era: 4, ac: true, coal: true, eff: [0.15, 0.28], start: 12, min: 0.4, bs: false, build: 240, gates: ['gen', 'coal'], masteredGate: true, perf: 'coal', at: 'bigcoal', blueprint: 'bigCoal', sizes: [[20000, 80000], [40000, 125000], [75000, 200000]] },
   ror: { name: '流れ込み式の水力', short: '水力（流れ込み）', era: 2, ac: true, coal: false, start: 0, min: 0, bs: true, build: 120, gates: ['gen', 'hydro'], perf: 'hydro', at: 'hydro', sizes: [[200, 20000], [500, 27000], [1000, 38000], [2000, 60000], [5000, 80000, { era: 3 }], [10000, 105000, { era: 3 }], [20000, 150000, { era: 3 }]] },
-  pond: { name: '調整池式の水力', short: '水力（調整池）', era: 3, ac: true, coal: false, start: 0, min: 0, bs: true, build: 240, gates: ['gen', 'hydro'], perf: 'hydro', at: 'pond', sizes: [[5000, 60000], [10000, 76000], [20000, 107000], [50000, 200000, { blueprint: 'pond50' }]] },
+  pond: { name: '調整池式の水力', short: '水力（調整池）', era: 3, ac: true, coal: false, start: 0, min: 0, bs: true, build: 240, gates: ['gen', 'hydro'], masteredGate: true, perf: 'hydro', at: 'pond', sizes: [[5000, 60000], [10000, 76000], [20000, 107000], [50000, 200000, { blueprint: 'pond50' }]] },
 };
 export const POND_HOURS = 6; // 池の大きさ＝出力の6時間分。1日に入る水も同じ量（流量 1.0 のとき）
 
@@ -52,13 +52,13 @@ export const LINES = {
   // 1.6.0：距離が実寸（日本列島）になったので、km あたりの建設費を下げた（史実の主な線が、その時代の大きな発電所1つ分くらい）
   ac3: { name: '交流配電 3.3 kV', short: '交流 3.3 kV', kv: 3.3, cap: 1000, r: 0.3, cost: 150, era: 2, gates: ['dist'], perf: 'dist' },
   ac11: { name: '交流送電 11 kV', short: '交流 11 kV', kv: 11, cap: 3000, r: 0.3, cost: 250, era: 2, hv: true, gates: ['line'], perf: 'line' },
-  ac22: { name: '交流送電 22 kV', short: '交流 22 kV', kv: 22, cap: 6000, r: 0.2, cost: 350, era: 2, hv: true, gates: ['line'], perf: 'line' },
-  ac66: { name: '交流送電 66 kV', short: '交流 66 kV', kv: 66, cap: 30000, r: 0.1, cost: 800, era: 2, level: 5, hv: true, gates: ['line'], perf: 'line' },
+  ac22: { name: '交流送電 22 kV', short: '交流 22 kV', kv: 22, cap: 6000, r: 0.2, cost: 350, era: 2, hv: true, gates: ['line'], masteredGate: true, perf: 'line' },
+  ac66: { name: '交流送電 66 kV', short: '交流 66 kV', kv: 66, cap: 30000, r: 0.1, cost: 800, era: 2, level: 5, hv: true, gates: ['line'], masteredGate: true, perf: 'line' },
   // 1.6.0：大正の 110 kV（猪苗代の 115 kV を表す）。55 kV（駒橋）・77 kV（谷村）は 66 kV で表す
-  ac110: { name: '交流送電 110 kV', short: '交流 110 kV', kv: 110, cap: 70000, r: 0.07, cost: 1000, era: 3, hv: true, gates: ['line'], perf: 'line' },
-  ac154: { name: '交流送電 154 kV', short: '交流 154 kV', kv: 154, cap: 150000, r: 0.05, cost: 1200, era: 4, hv: true, gates: ['line'], perf: 'line', blueprint: 'line154' },
+  ac110: { name: '交流送電 110 kV', short: '交流 110 kV', kv: 110, cap: 70000, r: 0.07, cost: 1000, era: 3, hv: true, gates: ['line'], masteredGate: true, perf: 'line' },
+  ac154: { name: '交流送電 154 kV', short: '交流 154 kV', kv: 154, cap: 150000, r: 0.05, cost: 1200, era: 4, hv: true, gates: ['line'], masteredGate: true, perf: 'line', blueprint: 'line154' },
   // 1.10.0 戦後復興の 275 kV（1952年 新北陸幹線）。送れる量は 154 kV の 150 MW を電圧の2乗で伸ばした約 478 MW → 450 MW。抵抗は太い電線・多導体で 0.03 Ω/km
-  ac275: { name: '交流送電 275 kV', short: '交流 275 kV', kv: 275, cap: 450000, r: 0.03, cost: 2000, era: 5, hv: true, gates: ['line'], perf: 'line', blueprint: 'line275' },
+  ac275: { name: '交流送電 275 kV', short: '交流 275 kV', kv: 275, cap: 450000, r: 0.03, cost: 2000, era: 5, hv: true, gates: ['line'], masteredGate: true, perf: 'line', blueprint: 'line275' },
 };
 export const MAX_CIRCUITS = 4;
 // 建設のときに足せる対策（費用 +20% ずつ）
@@ -66,7 +66,7 @@ export const LINE_OPTS = {
   gw: { name: '架空地線', hazard: 'thunder', k: 0.5, gates: ['insul'] },
   insul: { name: '耐塩がいし', hazard: 'coast', k: 0.7, gates: ['insul'] },
   spacer: { name: '相間スペーサ', hazard: 'snow', k: 0.5, gates: ['insul'] },
-  petersen: { name: '消弧リアクトル', hazard: null, k: 0.6, era: 4, gates: ['prot'], blueprint: 'petersen' },
+  petersen: { name: '消弧リアクトル', hazard: null, k: 0.6, era: 4, gates: ['prot'], masteredGate: true, blueprint: 'petersen' },
 };
 // 1.6.1 後付けの対策：既設の線に後から足す。費用は建設のときに足す場合（線の費用の 20%・回線の数だけ）の RETRO_K 倍（後から工事するぶん割増）。
 // 工期は線の建設と同じ式。工事の間も線は止めない（1回線ずつ・短い停止で済む工事とみなす）。効くのは工事が終わってから（l.optAt）
@@ -202,9 +202,11 @@ export function learning(logs, data, saved = {}) {
   const examCorrect = new Set();
   const unitTotal = new Map();
   const qUnit = new Map();
+  const qUnits = new Map();
   for (const q of active) {
     unitTotal.set(q.unitId, (unitTotal.get(q.unitId) || 0) + 1);
     qUnit.set(q.questionId, q.unitId);
+    qUnits.set(q.questionId, unitsOf(q));
     if (!correct.has(q.questionId)) continue;
     for (const u of unitsOf(q)) {
       unitCorrect.add(u);
@@ -212,23 +214,31 @@ export function learning(logs, data, saved = {}) {
     }
   }
   // 性能：単元ごとの定着の割合の、これまでの最大値（記録を古い順にたどる）
+  // 1.10.1 gateM：これまでに一度でも、関係する単元のどれかで定着した問題があれば開く（忘れて定着が外れても閉じない）
   const cur = new Map();
   const best = new Map();
+  const unitMastered = new Set();
   let mastered = 0;
   const prog = L.questionProgress(logs, (l, p) => {
     const u = qUnit.get(l.questionId);
     if (!u) return;
     if (!cur.has(u)) cur.set(u, new Set());
     const set = cur.get(u);
-    if (p.mastered) set.add(l.questionId);
-    else set.delete(l.questionId);
+    if (p.mastered) {
+      set.add(l.questionId);
+      for (const xu of qUnits.get(l.questionId) || []) unitMastered.add(xu);
+    } else set.delete(l.questionId);
     best.set(u, Math.max(best.get(u) || 0, set.size / unitTotal.get(u)));
   });
   for (const q of active) if (prog.get(q.questionId)?.mastered) mastered++;
   const perf = {};
   for (const [k, units] of Object.entries(T.perf)) perf[k] = Math.max(saved[k] || 0, perfOf(units, best));
   const gate = {};
-  for (const [k, units] of Object.entries(T.gate)) gate[k] = units.some((u) => unitCorrect.has(u));
+  const gateM = {};
+  for (const [k, units] of Object.entries(T.gate)) {
+    gate[k] = units.some((u) => unitCorrect.has(u));
+    gateM[k] = units.some((u) => unitMastered.has(u));
+  }
   // 設計図：外部試験の点（その単元の科目の問題が属する年度・科目のどれかで3割以上）
   const scores = new Map(L.examScores(data, logs).map((r) => [r.key, r]));
   const blueprint = {};
@@ -239,12 +249,12 @@ export function learning(logs, data, saved = {}) {
   }
   const level = L.levelInfo(L.coinTotals(L.coinEvents(logs, data)).total).level;
   const incidentQs = new Set(L.gameQuestions(data).map((q) => q.questionId));
-  return { level, era: eraOf(level), mastered, dmax: dmaxOf(level, mastered), gate, perf, blueprint, incidentQs, tables: T };
+  return { level, era: eraOf(level), mastered, dmax: dmaxOf(level, mastered), gate, gateM, perf, blueprint, incidentQs, tables: T };
 }
 // テストや仮の表示用：何も学習していない状態
 export function blankLearning(over = {}) {
   const f = (o, v) => Object.fromEntries(Object.keys(o).map((k) => [k, v]));
-  return { level: 1, era: 1, mastered: 0, dmax: dmaxKw(1, 0), gate: f(GATES, false), perf: f(PERF, 0), blueprint: f(BLUEPRINTS, false), incidentQs: new Set(), tables: gridTables(null), ...over };
+  return { level: 1, era: 1, mastered: 0, dmax: dmaxKw(1, 0), gate: f(GATES, false), gateM: f(GATES, false), perf: f(PERF, 0), blueprint: f(BLUEPRINTS, false), incidentQs: new Set(), tables: gridTables(null), ...over };
 }
 
 // ---- 乱数（種つき。同じ状態から同じ結果になる） ----
@@ -364,6 +374,7 @@ export function newGrid(seed = 1, nowMs = 0, { terrain = 'standard', start = nul
     perfMax: { ...perfMax },
     hist: [], last: null, lossRatio: 0.03,
     acc: newAcc(), yr: newYear(0), years: [], best: null, past,
+    haulNotice: true, // 1.10.1 新しく始める系統には移行の報告書を出さない
   };
   return G;
 }
@@ -378,6 +389,11 @@ export function upgrade(G) {
     G.v = 2;
   }
   if (G.mode !== 'free') G.mode = 'history'; // 1.8.0：mode のない古い保存データは史実モード
+  // 1.10.1：石炭の運び代を入れたあと、既存の日本列島の系統を最初に開いたとき報告書を1つ（すでに建てた石炭火力にも効く）
+  if (G.terrain === 'japan' && !G.haulNotice) {
+    G.haulNotice = true;
+    addReport(G, { title: '石炭の運び代を入れた', what: '石炭の運び代を入れた：炭田のそば ×0.70、海沿い ×0.95 まで、内陸は遠いほど高い（最大 ×1.4）。すでに建てた石炭火力にも効く。', units: ['power-system-U05', 'power-system-U06'] });
+  }
   return G;
 }
 // ---- 1.8.0 史実モードと自由モード ----
@@ -416,8 +432,41 @@ function capRaw(G, p, t, forCommit) {
   return Math.min(p.kw, (forCommit ? p.store / 2 : p.store) + inflow);
 }
 export const evOn = (G, key, t = G.t) => G.events.find((e) => e.key === key && e.until > t) || null;
-export function fuelPrice(G, t = G.t) {
-  return (G.fuelPlan === 'spot' ? G.fuel.spot : G.fuel.contract) * 1; // 円/kWh（熱）
+// 1.10.1 石炭の運び代（燃料費の倍率。日本列島だけ。古い島は ×1.0 のまま）
+// 炭田の地点：×0.70／それ以外：陸送＝min(1.4, 0.75 + 0.002×いちばん近い炭田までの km)。海沿い（coast）は min(陸送, 0.95)
+export const FUEL_HAUL = { coal: 0.7, base: 0.75, perKm: 0.002, max: 1.4, coastMax: 0.95 };
+const JAPAN_HAUL = (() => {
+  const fields = JAPAN_NODES.filter((n) => n.coal);
+  const m = new Map();
+  for (const n of JAPAN_NODES) {
+    if (n.coal) {
+      m.set(n.id, { k: FUEL_HAUL.coal, kind: 'coal', km: 0, field: n.name, reason: '炭田のそば' });
+      continue;
+    }
+    let bestD = Infinity, bestF = null;
+    for (const f of fields) {
+      const d = greatCircleKm(n.lat, n.lon, f.lat, f.lon);
+      if (d < bestD) (bestD = d), (bestF = f);
+    }
+    const land = Math.min(FUEL_HAUL.max, FUEL_HAUL.base + FUEL_HAUL.perKm * bestD);
+    const coast = n.tags.includes('coast');
+    const km = Math.round(bestD);
+    if (coast && land > FUEL_HAUL.coastMax) {
+      m.set(n.id, { k: FUEL_HAUL.coastMax, kind: 'coast', km, field: bestF?.name || '', reason: '海沿い：船で運べる' });
+    } else if (coast) {
+      m.set(n.id, { k: land, kind: 'coast', km, field: bestF?.name || '', reason: `海沿い・${bestF?.name || '炭田'}から ${km} km` });
+    } else {
+      m.set(n.id, { k: land, kind: 'land', km, field: bestF?.name || '', reason: `内陸：${bestF?.name || '炭田'}から ${km} km${land >= FUEL_HAUL.max - 1e-9 ? '（上限）' : ''}` });
+    }
+  }
+  return m;
+})();
+export function fuelHaul(G, siteId) {
+  if (!isJapan(G) || !siteId) return { k: 1, kind: 'flat', km: 0, field: '', reason: '' };
+  return JAPAN_HAUL.get(siteId) || { k: 1, kind: 'flat', km: 0, field: '', reason: '' };
+}
+export function fuelPrice(G, t = G.t, siteId = null) {
+  return (G.fuelPlan === 'spot' ? G.fuel.spot : G.fuel.contract) * (siteId ? fuelHaul(G, siteId).k : 1); // 円/kWh（熱）
 }
 export const lineCircuits = (l, t) => (l.downUntil > t ? 0 : l.n - (l.c1Until > t ? 1 : 0));
 const subsAt = (G, town, t) => G.subs.filter((s) => s.town === town && s.readyAt <= t && s.downUntil <= t);
@@ -1620,7 +1669,7 @@ export function recloseLine(G, lc, id) {
 // 工期＝ゲームの 20 日 ＋ 発電機 1 台につき 5 日。工事の間、その発電機の出力の上限は 8 割（順に止めて改造する）。
 // 変えるのは工事を始めた時点の網の発電機だけ（工事中に網が分かれた・ほかの網とつながった・発電所を建てた、などは見ない。建てた発電所は元の周波数のまま）。
 // 終わったら、周波数違いで切れていた線は 1.8.0 の決まりどおり「入れ直す」で入れられる（自動では入れない）
-export const HZCONV = { era: 5, plantK: 0.3, subK: 0.1, days: 20, perPlant: 5, capK: 0.8, gates: ['hzConv'], perf: 'freq' };
+export const HZCONV = { era: 5, plantK: 0.3, subK: 0.1, days: 20, perPlant: 5, capK: 0.8, gates: ['hzConv'], masteredGate: true, perf: 'freq' };
 export const otherHz = (hz) => (hz === 50 ? 60 : hz === 60 ? 50 : null);
 export const hzWorkOf = (G, plantId) => (G.hzWork || []).find((w) => w.plants.includes(plantId) && w.until > G.t) || null;
 // その地点の交流の網で、変える発電機と、数える変電所
@@ -1637,8 +1686,8 @@ export function quoteHzConv(G, lc, id) {
   const T = hzConvTarget(G, id);
   if (!T.from || !T.plants.length) return { ok: false, why: 'この地点の交流の網に、周波数の決まった交流の発電機がない' };
   if (T.plants.some((p) => hzWorkOf(G, p.id))) return { ok: false, why: 'この網は、周波数をそろえる工事の最中', busy: true };
-  const miss = missing(lc, HZCONV.gates);
-  if (miss.length) return { ok: false, why: gateText(miss), gates: miss, from: T.from, to: T.to };
+  const gc = gateCheck(lc, HZCONV.gates, !!HZCONV.masteredGate);
+  if (gc) return { ...gc, from: T.from, to: T.to };
   const proto = st === 'proto';
   const base = Math.max(50, Math.round((T.plants.reduce((a, p) => a + p.cost, 0) * HZCONV.plantK + T.subs.reduce((a, x) => a + x.cost, 0) * HZCONV.subK) * (proto ? 3 : 1)));
   const days = HZCONV.days + HZCONV.perPlant * T.plants.length;
@@ -1942,7 +1991,7 @@ export function step(G, lc) {
     for (const p of net.plants) {
       const o = r.out.get(p.id) || 0;
       last.plants[p.id] = o;
-      if (P(p).coal) fuel += (o / plantEff(p, lc, G)) * price; // 捨てた分（最低出力のための余り）も燃料は使う
+      if (P(p).coal) fuel += (o / plantEff(p, lc, G)) * price * fuelHaul(G, p.site).k; // 捨てた分（最低出力のための余り）も燃料は使う（1.10.1 運び代の倍率）
       gen[!P(p).ac ? 'dc' : P(p).coal ? 'coal' : 'hydro'] += o;
       if (p.type === 'pond') p.store = Math.max(0, Math.min(p.kw * POND_HOURS, p.store + p.kw * flowFactor(G, t) * (POND_HOURS / 24) - o));
     }
@@ -2111,8 +2160,20 @@ export function eraStatus(lc, era, level = 0) {
   if (era <= lc.era) return level && lc.level < level ? 'proto' : 'ok';
   return era === lc.era + 1 ? 'proto' : 'no';
 }
-const missing = (lc, gates) => gates.filter((g) => !lc.gate[g]);
-const gateText = (keys) => `「${keys.map((k) => GATE_NAMES[k]).join('」「')}」の単元で、まだ1問も正解していない`;
+// 1.10.1 開放条件の2段：小さな設備は1問正解（lc.gate）、大きな設備・新しい方式は1問以上定着（lc.gateM。一度定着すれば下がらない）
+export function gateCheck(lc, gates, needMaster = false) {
+  if (!gates?.length) return null;
+  if (!needMaster) {
+    const miss = gates.filter((g) => !lc.gate?.[g]);
+    if (!miss.length) return null;
+    return { ok: false, why: `「${miss.map((k) => GATE_NAMES[k]).join('」「')}」の単元で、まだ1問も正解していない`, gates: miss };
+  }
+  const miss = gates.filter((g) => !lc.gateM?.[g]);
+  if (!miss.length) return null;
+  const hasCorrect = miss.every((g) => lc.gate?.[g]);
+  const names = `「${miss.map((k) => GATE_NAMES[k]).join('」「')}」`;
+  return { ok: false, why: `${names}の単元の問題を 1 問、定着させると開く（定着：日をあけて続けて正解）${hasCorrect ? '。正解はある。あと少しで定着' : ''}`, gates: miss, needMaster: true };
+}
 const buildHours = (base, lc, perf, G = null) => Math.max(1, Math.round(base * (1 - 0.3 * perfNow(G, lc, perf))));
 // 建てられる場所か
 export function siteAllows(G, type, siteId) {
@@ -2198,8 +2259,8 @@ export function quotePlant(G, lc, { type, kw, site, hz = null }) {
   if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
   if (!siteAllows(G, type, site)) return { ok: false, why: 'この場所には建てられない' };
   if (!nodeOpen(G, site)) return { ok: false, why: closedWhy(G, nodeOf(G, site)), closed: true };
-  const miss = missing(lc, D.gates);
-  if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
+  const gc = gateCheck(lc, D.gates, !!D.masteredGate);
+  if (gc) return gc;
   const bp = D.blueprint || size[2]?.blueprint;
   if (bp && !lc.blueprint[bp]) return { ok: false, why: `設計図「${BLUEPRINTS[bp].name}」がない（試験レベルに正解するか、関係する外部試験で3割以上）`, blueprint: bp };
   const node = nodeOf(G, site);
@@ -2259,11 +2320,12 @@ export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {} }) {
     const ha = netHz(G, a), hb = netHz(G, b);
     if (ha && hb && ha !== hb) hzw = { hzDiff: true, warn: `${HZ_WARN}。${nodeOf(G, a).name}は ${ha} Hz、${nodeOf(G, b).name}は ${hb} Hz`, hzPair: [ha, hb] };
   }
-  const gates = [...K.gates, ...Object.keys(opts).filter((o) => opts[o]).flatMap((o) => LINE_OPTS[o].gates)];
-  const miss = [...new Set(missing(lc, gates))];
-  if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
+  const gc = gateCheck(lc, K.gates, !!K.masteredGate);
+  if (gc) return gc;
   for (const o of Object.keys(opts)) {
     if (!opts[o]) continue;
+    const og = gateCheck(lc, LINE_OPTS[o].gates, !!LINE_OPTS[o].masteredGate);
+    if (og) return og;
     const no = optBlocked(lc, o);
     if (no) return no;
   }
@@ -2294,6 +2356,10 @@ export function quoteCircuit(G, lc, id) {
   const l = G.lines.find((x) => x.id === id);
   if (!l) return { ok: false, why: '線がない' };
   if (l.n >= MAX_CIRCUITS) return { ok: false, why: `回線は ${MAX_CIRCUITS} つまで` };
+  // 1.10.1：すでに建てた線はそのまま、回線の追加から開放条件が効く
+  const K = LINES[l.kind];
+  const gc = gateCheck(lc, K.gates, !!K.masteredGate);
+  if (gc) return gc;
   return { ok: true, cost: coinOf(l.unit), base: l.unit, line: l };
 }
 export function addCircuit(G, lc, id) {
@@ -2325,8 +2391,8 @@ export function quoteLineOpt(G, lc, id, o) {
   const K = LINES[l.kind];
   if (K.dc) return { ok: false, why: '直流の配電線には付けられない' };
   if (l.opts[o]) return { ok: false, why: l.optAt?.[o] > G.t ? `${O.name}は工事中` : `${O.name}はもう付いている` };
-  const miss = missing(lc, O.gates);
-  if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
+  const gc = gateCheck(lc, O.gates, !!O.masteredGate);
+  if (gc) return gc;
   const no = optBlocked(lc, o);
   if (no) return no;
   const proto = eraStatus(lc, K.era, K.level) === 'proto';
@@ -2350,8 +2416,8 @@ export function quoteSub(G, lc, { town, mva }) {
   if (!nodeOpen(G, town)) return { ok: false, why: closedWhy(G, nodeOf(G, town)), closed: true };
   const st = eraStatus(lc, TR.era);
   if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
-  const miss = missing(lc, TR.gates);
-  if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
+  const gc = gateCheck(lc, TR.gates, !!TR.masteredGate);
+  if (gc) return gc;
   if (G.subs.filter((s) => s.town === town).length >= 2) return { ok: false, why: '変圧器は1つの変電所に2台まで' };
   const proto = st === 'proto';
   const base = subCost(mva) * (proto ? 3 : 1);
@@ -2367,8 +2433,8 @@ export function buildSub(G, lc, spec) {
 export function quoteCap(G, lc, loadId) {
   const ld = G.loads.find((l) => l.id === loadId);
   if (!ld || !LOADS[ld.type].pfFixed || ld.cap) return { ok: false, why: '進相コンデンサを付けられる需要ではない' };
-  const miss = missing(lc, ['pf']);
-  if (miss.length) return { ok: false, why: gateText(miss), gates: miss };
+  const gc = gateCheck(lc, ['pf'], true);
+  if (gc) return gc;
   const base = Math.round(CAP_COST(ld.kw) * (G.buffs.capDiscount ? 0.7 : 1));
   return { ok: true, cost: coinOf(base), base, load: ld };
 }
