@@ -55,12 +55,12 @@ export const ALBUM = [
 export const ALBUM_IDS = ALBUM.map((a) => a[0]);
 export const albumName = (id) => ALBUM.find((a) => a[0] === id)?.[1] || id;
 // 画面の絵のキー → 番号（gridui.js の PIC と同じ）
-export const PIC_ID = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5: 'G23', era6: 'G24', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', ror: 'G08', pond: 'G09', sub: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22', load_lamp: 'G25', load_home: 'G26', load_shop: 'G27', load_factory: 'G28', M01: 'G29', M02: 'G30', M03: 'G31', M04: 'G32', M05: 'G33', M06: 'G34', M07: 'G35', M08: 'G36' };
-export const LOAD_PIC = { lamp: 'G25', home: 'G26', shop: 'G27', factory: 'G28' };
+export const PIC_ID = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5: 'G23', era6: 'G24', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', ror: 'G08', pond: 'G09', sub: 'G10', rotary: 'G10', mercury: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22', load_lamp: 'G25', load_home: 'G26', load_shop: 'G27', load_factory: 'G28', load_tram: 'G27', M01: 'G29', M02: 'G30', M03: 'G31', M04: 'G32', M05: 'G33', M06: 'G34', M07: 'G35', M08: 'G36' };
+export const LOAD_PIC = { lamp: 'G25', home: 'G26', shop: 'G27', factory: 'G28', tram: 'G27' };
 export const MISSION_PIC = { M01: 'G29', M02: 'G30', M03: 'G31', M04: 'G32', M05: 'G33', M06: 'G34', M07: 'G35', M08: 'G36' };
 // 線の種類 → 番号（gridmenu.js の LINE_PIC と同じ）。事故 → 番号（INC_PIC と同じ）
 const LINE_ID = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11', ac275: 'G11' };
-const INC_ID = { lightning: 'I01', backFlash: 'I01', arc: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', outOfStep: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18' };
+const INC_ID = { lightning: 'I01', backFlash: 'I01', arc: 'I01', catenary: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', outOfStep: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18' };
 
 export const emptyRec = () => ({ v: 1, album: {}, firsts: {}, imported: false });
 export function normalizeRec(r) {
@@ -117,7 +117,7 @@ export function picsOf(G) {
   const s = new Set();
   for (let n = 1; n <= Math.min(G.era, 5); n++) s.add(PIC_ID[`era${n}`]); // 1.10.0 戦後復興（G23）まで
   for (const p of G.plants) if (p.readyAt <= t) s.add(PIC_ID[p.type]);
-  if (G.subs.some((x) => x.readyAt <= t)) s.add('G10');
+  if (G.subs.some((x) => x.readyAt <= t) || (G.convs || []).some((x) => x.readyAt <= t)) s.add('G10');
   for (const l of G.lines) if (l.readyAt <= t) s.add(LINE_ID[l.kind]);
   for (const e of G.events || []) if (PIC_ID[e.key]) s.add(PIC_ID[e.key]);
   const titles = new Map(Object.entries(Gm.INCIDENTS).map(([k, D]) => [D.title, k]));

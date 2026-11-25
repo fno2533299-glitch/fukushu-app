@@ -7,9 +7,9 @@ import * as Ms from './gridmission.js';
 
 const eraName = (n) => Gm.ERAS[Math.min(n, Gm.ERAS.length) - 1].name;
 
-// 種類ごとの「建てられるか」（場所によらない条件：時代・学習の単元・設計図）。kind：plant・line・sub
+// 種類ごとの「建てられるか」（場所によらない条件：時代・学習の単元・設計図）。kind：plant・line・sub・conv
 export function typeStatus(lc, kind, key) {
-  const D = kind === 'plant' ? Gm.PLANTS[key] : kind === 'line' ? Gm.LINES[key] : Gm.TR;
+  const D = kind === 'plant' ? Gm.PLANTS[key] : kind === 'line' ? Gm.LINES[key] : kind === 'conv' ? Gm.CONVS[key] : Gm.TR;
   const level = kind === 'line' ? D.level || 0 : 0;
   const st = Gm.eraStatus(lc, D.era, level);
   if (st === 'no') return { ok: false, era: true, why: `まだ先の時代の設備（${eraName(D.era)}${level ? `・Lv${level}` : ''}から）` };
@@ -21,7 +21,7 @@ export function typeStatus(lc, kind, key) {
 
 // ---- 地点のメニューの項目 ----
 // メニューに出す短い名前（丸いボタンの横の文字）
-export const SHORT = { dcCoal: '直流の火力', acCoal: '石炭火力', bigCoal: '大型火力', ror: '水力 流れ込み', pond: '水力 調整池', tr: '変圧器' };
+export const SHORT = { dcCoal: '直流の火力', acCoal: '石炭火力', bigCoal: '大型火力', ror: '水力 流れ込み', pond: '水力 調整池', tr: '変圧器', rotary: '回転変流機', mercury: '水銀整流器' };
 // その地点で建てられる種類（時代が先すぎるものは出さない。学習の条件を満たさないものは灰色 ok: false）
 export function buildChoices(g, lc, id) {
   const n = Gm.nodeOf(g, id);
@@ -35,6 +35,12 @@ export function buildChoices(g, lc, id) {
   if (n.town) {
     const st = typeStatus(lc, 'sub', 'tr');
     if (!st.era) out.push({ kind: 'sub', key: 'tr', name: SHORT.tr, st });
+    // 1.10.4 電鉄用の変換所（回転変流機・水銀整流器）：変圧器がある町で、時代が先すぎないもの
+    for (const [k, D] of Object.entries(Gm.CONVS)) {
+      const cst = typeStatus(lc, 'conv', k);
+      if (cst.era) continue;
+      out.push({ kind: 'conv', key: k, name: SHORT[k] || D.short, st: cst });
+    }
     // 1.6.1：力率の悪い工場の需要（まだ進相コンデンサがない）がある町は、変圧器の並びに「進相コンデンサ」も（押すと今のシート）
     const caps = capLoads(g, id);
     const cst = Gm.gateCheck(lc, ['pf'], true) || { ok: true };
@@ -56,11 +62,12 @@ export function lineChoices(g, lc, id) {
   }
   return out;
 }
-// その地点で撤去できる設備（発電所・変圧器）
+// その地点で撤去できる設備（発電所・変圧器・電鉄用の変換所）
 export function removables(g, id) {
   return [
     ...g.plants.filter((p) => p.site === id).map((p) => ({ kind: 'plant', id: p.id, name: `${Gm.PLANTS[p.type].short} ${Gm.fmtKw(p.kw)}` })),
     ...g.subs.filter((s) => s.town === id).map((s) => ({ kind: 'sub', id: s.id, name: `変圧器 ${s.mva} MVA` })),
+    ...(g.convs || []).filter((c) => c.town === id).map((c) => ({ kind: 'conv', id: c.id, name: `${Gm.CONVS[c.type].short} ${Gm.fmtKw(c.kw)}` })),
   ];
 }
 export function incidentsAt(g, id) {
@@ -184,12 +191,16 @@ export function actText(g, kind, x = {}) {
       return `${nodeName(g, x.a)}〜${nodeName(g, x.b)}に${Gm.LINES[x.kind].short}（${x.km.toFixed(1)} km）の線の建設を始めた（開通まであと${hoursText(x.readyAt - g.t)}）`;
     case 'buildSub':
       return `${nodeName(g, x.town)}に変圧器（${x.mva} MVA）の設置を始めた（完成まであと${hoursText(x.readyAt - g.t)}）`;
+    case 'buildConv':
+      return `${nodeName(g, x.town)}に${Gm.CONVS[x.type].short}（${Gm.fmtKw(x.kw)}）の設置を始めた（完成まであと${hoursText(x.readyAt - g.t)}）`;
     case 'donePlant':
       return `${nodeName(g, x.site)}の${plantText(x)}が完成した`;
     case 'doneLine':
       return `${Gm.lineName(g, x)}が開通した`;
     case 'doneSub':
       return `${nodeName(g, x.town)}の変圧器（${x.mva} MVA）が使えるようになった`;
+    case 'doneConv':
+      return `${nodeName(g, x.town)}の${Gm.CONVS[x.type].short}（${Gm.fmtKw(x.kw)}）が使えるようになった`;
     case 'remove':
       return `${x.name}を撤去した（収益に ${yenText(x.back)} 戻った）`;
     case 'circuit':
@@ -246,7 +257,7 @@ export function actText(g, kind, x = {}) {
 // 工事中の設備の id の集まり
 export function underWork(g) {
   const s = new Set();
-  for (const x of [...g.plants, ...g.lines, ...g.subs]) if (x.readyAt > g.t) s.add(x.id);
+  for (const x of [...g.plants, ...g.lines, ...g.subs, ...(g.convs || [])]) if (x.readyAt > g.t) s.add(x.id);
   for (const l of g.lines) {
     for (const [o, at] of Object.entries(l.optAt || {})) if (at > g.t) s.add(`${l.id}#${o}`); // 1.6.1 後付けの対策の工事
     for (const c of l.cAdd || []) if ((c.readyAt ?? c) > g.t) s.add(`circ:${l.id}:${c.id ?? c}`); // 1.10.2 回線の増設の工事
@@ -262,6 +273,7 @@ export function finished(g, before) {
   add('plant', g.plants);
   add('line', g.lines);
   add('sub', g.subs);
+  add('conv', g.convs || []);
   for (const l of g.lines) {
     for (const [o, at] of Object.entries(l.optAt || {})) if (before.has(`${l.id}#${o}`) && at <= g.t) out.push({ kind: 'opt', x: { line: l, opt: o } });
     const left = new Set((l.cAdd || []).map((c) => `circ:${l.id}:${c.id ?? c}`));
@@ -272,7 +284,7 @@ export function finished(g, before) {
   for (const k of before) if (k.startsWith('hz:') && !(g.hzWork || []).some((w) => `hz:${w.id}` === k) && g.hzConvLast) out.push({ kind: 'hz', x: g.hzConvLast });
   return out;
 }
-export const doneText = (g, f) => (f.kind === 'withdraw' ? Gm.withdrawText(g, f.x) : actText(g, { plant: 'donePlant', line: 'doneLine', sub: 'doneSub', opt: 'doneOpt', circ: 'doneCircuit', hz: 'doneHz' }[f.kind], f.x));
+export const doneText = (g, f) => (f.kind === 'withdraw' ? Gm.withdrawText(g, f.x) : actText(g, { plant: 'donePlant', line: 'doneLine', sub: 'doneSub', conv: 'doneConv', opt: 'doneOpt', circ: 'doneCircuit', hz: 'doneHz' }[f.kind], f.x));
 
 // ---- 1.6.4 再現した史実の年表 ----
 // 史実と同じ区間を結んだとき、系統の保存データ（g.facts：[{ id, t, era }]）に残す。同じ史実は1回だけ。古い保存データは空から
@@ -289,7 +301,7 @@ export function recordFact(g, fact) {
 export function factTimeline(g) {
   const ms = Object.entries(g.missions?.done || {}).filter(([, d]) => d.year).map(([id, d]) => ({ id, t: d.t, era: d.era, year: d.year, mission: true }));
   return [...(g.facts || []), ...ms]
-    .map((f) => ({ f, d: f.mission ? Ms.missionFact(f.id) : J.LINE_FACTS.find((x) => x.id === f.id) }))
+    .map((f) => ({ f, d: f.mission ? Ms.missionFact(f.id) : J.LINE_FACTS.find((x) => x.id === f.id) || J.TRAM_HISTORY.find((x) => x.id === f.id) }))
     .filter((x) => x.d)
     .map((x) => ({ ...x, year: x.f.year || x.d.year || 0 }))
     .sort((a, b) => a.year - b.year || a.f.t - b.f.t)
@@ -397,7 +409,7 @@ export function tutorialAction(g, lc, name, advance) {
 
 // ---- 1.5.3 事故・出来事が起きたときの演出：見出し・絵・新しく起きたものの見つけ方 ----
 // 事故の絵は7つにまとめる（I01〜I07。試作/系統ゲーム_画像プロンプト.md）。渇水は出来事の絵（G18）。絵がない間は fallback の G の絵
-export const INC_PIC = { lightning: 'I01', backFlash: 'I01', arc: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18', outOfStep: 'I04' };
+export const INC_PIC = { lightning: 'I01', backFlash: 'I01', arc: 'I01', catenary: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18', outOfStep: 'I04' };
 export const PIC_FALLBACK = { I01: 'G11', I02: 'G11', I03: 'G15', I04: 'G06', I05: 'G10', I06: 'G11', I07: 'G01', L01: 'G11', L02: 'G11', L03: 'G11' };
 // 1.6.1 線の階級ごとの絵：町の電柱（L01）・木柱の送電線（L02）・中くらいの鉄塔（L03）・大きな鉄塔（G11）。L の絵がない間は G11
 export const LINE_PIC = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11', ac275: 'G11' };
@@ -405,7 +417,7 @@ export const LINE_PIC = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac
 export const isReport = (key) => !/発生$/.test(INC_HEAD[key] || '');
 export const EV_PIC = { heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18' };
 // 赤い太字の見出し（「◯◯発生」。起きたことではなく判断を求めるものは、それに合う言い方）
-export const INC_HEAD = { dcDrop: '電圧低下発生', parallelIn: '並列投入の判断', salt: '塩害発生', gallop: 'ギャロッピング発生', genTrip: '発電機故障発生', genShort: '発電機故障・予備力不足', reserve: '予備力不足', trLoss: '変圧器の損失報告', trParallel: '循環電流発生', trShare: '変圧器過負荷発生', lineOver: '送電線過負荷発生', factoryPf: '低力率の申し込み', motor: '電灯のちらつき発生', lightning: '落雷事故発生', backFlash: '逆フラッシオーバ発生', arc: '地絡アーク発生', drought: '渇水発生', outOfStep: '脱調発生' };
+export const INC_HEAD = { dcDrop: '電圧低下発生', parallelIn: '並列投入の判断', salt: '塩害発生', gallop: 'ギャロッピング発生', genTrip: '発電機故障発生', genShort: '発電機故障・予備力不足', reserve: '予備力不足', trLoss: '変圧器の損失報告', trParallel: '循環電流発生', trShare: '変圧器過負荷発生', lineOver: '送電線過負荷発生', factoryPf: '低力率の申し込み', motor: '電灯のちらつき発生', lightning: '落雷事故発生', backFlash: '逆フラッシオーバ発生', arc: '地絡アーク発生', catenary: '架線短絡・火災発生', drought: '渇水発生', outOfStep: '脱調発生' };
 export const EV_HEAD = { heat: '猛暑到来', cold: '厳冬到来', typhoon: '台風発生', snowstorm: '大雪発生', coalSpike: '石炭価格高騰', priceWar: '電力戦勃発', drought: '渇水発生' };
 const evId = (e) => `${e.key}@${e.at}`;
 // いまある事故と出来事の印（これと比べて、新しく起きたものを見つける）

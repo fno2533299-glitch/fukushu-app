@@ -77,6 +77,21 @@ export const HAZARD = { thunder: { name: '雷の多い地域', k: 2 }, coast: { 
 export const SUB_SIZES = [0.1, 0.5, 1, 2, 5, 10, 30, 100]; // MVA
 export const subCost = (mva) => Math.max(2000, Math.round(mva * 1000));
 export const TR = { iron: 0.005, copper: 0.015, era: 2, build: 24, gates: ['tr'], perf: 'tr' };
+// 1.10.4 電鉄用の変換所（交流を直流 600 V に変える。町に 2 台まで。変圧器が必要。値はゲームの値）
+export const CONV_SIZES = [300, 1000, 3000]; // kW
+export const CONVS = {
+  rotary: { name: '回転変流機（電鉄用変換所）', short: '回転変流機', era: 2, eff: [0.9, 0.92], fail: 0.004, build: 18, gates: ['conv'], perf: 'conv', sizes: [[300, 1200], [1000, 3200], [3000, 8000]] },
+  mercury: { name: '水銀整流器（電鉄用変換所）', short: '水銀整流器', era: 4, eff: [0.95, 0.97], fail: 0.0012, build: 16, gates: ['conv'], masteredGate: true, perf: 'conv', sizes: [[300, 1500], [1000, 4000], [3000, 10000]] },
+};
+export const convCost = (type, kw) => CONVS[type]?.sizes?.find((s) => s[0] === kw)?.[1] ?? Math.round(kw * 3);
+export const convEff = (c, lc, G = null) => {
+  const D = CONVS[c.type];
+  if (!D) return 0.9;
+  const [lo, hi] = D.eff;
+  return c.proto ? lo : lo + (hi - lo) * perfNow(G, lc, D.perf);
+};
+export const convsAt = (G, town, t = G.t) => (G.convs || []).filter((c) => c.town === town && c.readyAt <= t && c.downUntil <= t);
+export const convCapAt = (G, town, t = G.t) => convsAt(G, town, t).reduce((a, c) => a + c.kw, 0);
 export const CAP_COST = (kw) => Math.max(500, Math.round(kw * 3)); // 進相コンデンサ
 // 1.7.4 コインで払う建設費は、表の値（円の側の基準）の COIN_K 倍。設備の cost（表の値）は変えない。
 // 1.10.2 円の側の設備の値打ち＝表の値 × YEN_K（保守費・修理費・撤去で戻る額・経営再建で手放す額・spendBase の下限）。コインは COIN_K のまま
@@ -90,7 +105,7 @@ export const DEBT_RATE = 0.2; // 借入れ返済（収入に対する割合）
 const coinOf = (base) => Math.round(base * COIN_K);
 export const yenValue = (baseCost) => (baseCost || 0) * YEN_K;
 export function dailyMaint(G, maint = G.maint) {
-  const assets = [...G.plants, ...G.lines, ...G.subs].reduce((a, x) => a + (x.cost || 0), 0);
+  const assets = [...G.plants, ...G.lines, ...G.subs, ...(G.convs || [])].reduce((a, x) => a + (x.cost || 0), 0);
   return yenValue(assets) * MAINT_RATE * (maint === 'defer' ? 0.5 : 1);
 }
 export const repairCost = (x) => yenValue(x?.cost || 0) * REPAIR_RATE;
@@ -103,6 +118,7 @@ export const LOADS = {
   home: { name: '住宅', rate: 25, era: 2, pf: 1, winter: 1.15, shape: H24((h) => (h >= 18 && h <= 21 ? 1 : h === 6 || h === 7 ? 0.7 : h === 17 || h === 22 ? 0.6 : h >= 8 && h <= 16 ? 0.3 : 0.15)) },
   shop: { name: '町の動力', rate: 22, era: 2, pf: 1, winter: 1, shape: H24((h) => (h >= 10 && h <= 15 ? 1 : h === 9 || h === 16 ? 0.7 : h === 8 || h === 17 ? 0.4 : 0.1)) },
   factory: { name: '工場（動力）', rate: 18, era: 3, pf: 0.75, pfFixed: 0.95, winter: 1, shape: H24((h) => (h >= 8 && h <= 16 ? 1 : h === 7 || h === 17 ? 0.5 : 0.15)) },
+  tram: { name: '電鉄', rate: 20, era: 2, pf: 1, winter: 1, shape: H24((h) => ((h >= 6 && h <= 8) || (h >= 16 && h <= 19) ? 1 : (h >= 9 && h <= 15) || (h >= 20 && h <= 22) ? 0.6 : h === 5 ? 0.3 : h === 23 ? 0.2 : 0)) }, // 1.10.4 朝夕の山は名古屋市電の急行運転（6:30〜8:30・16〜20時、S27）に合わせたゲームの値
 };
 const LOAD_MIX = { 1: { lamp: 1 }, 2: { lamp: 4, home: 3, shop: 3 }, 3: { lamp: 2, home: 3, shop: 2, factory: 3 }, 4: { lamp: 2, home: 3, shop: 2, factory: 3 } };
 LOAD_MIX[5] = LOAD_MIX[4]; // 1.10.0 戦後復興は昭和前期と同じ（需要の種類は E5 の版で）
@@ -137,6 +153,7 @@ export const GATES = {
   pf: ['circuit-b-U11'],
   rel: ['power-system-U12'],
   hzConv: ['circuit-b-U13', 'power-system-U03'], // 1.10.0 周波数をそろえる工事（三相の回転磁界＝モータの回転は周波数で決まる／周波数と系統定数）
+  conv: ['denken3-kikai-U05', 'denken2-kikai-U05', 'denken3-kikai-U03', 'electronic-c-U14'], // 1.10.4 電鉄用の変換所（パワエレ・同期機・整流）
 };
 export const PERF = {
   dc: ['denken3-riron-U03'],
@@ -152,8 +169,9 @@ export const PERF = {
   insul: ['denken3-denryoku-U10'],
   pf: ['circuit-b-U11', 'denken3-riron-U04'],
   rel: ['power-system-U12', 'power-system-U13', 'power-system-U14'],
+  conv: ['denken3-kikai-U05', 'denken2-kikai-U05', 'electronic-c-U14'], // 1.10.4 電鉄用の変換所
 };
-export const GATE_NAMES = { dc: '直流の配電・発電所', gen: '交流発電機（三相）', tr: '変圧器・変電所', coal: '石炭火力', hydro: '水力', line: '送電線', dist: '配電（3.3 kV）', freq: '周波数・ガバナ・予備力', econ: '給電の優先順位', prot: '保護', insul: 'がいし・架空地線・相間スペーサ', pf: '進相コンデンサ', rel: '信頼度', hzConv: '周波数をそろえる工事' };
+export const GATE_NAMES = { dc: '直流の配電・発電所', gen: '交流発電機（三相）', tr: '変圧器・変電所', coal: '石炭火力', hydro: '水力', line: '送電線', dist: '配電（3.3 kV）', freq: '周波数・ガバナ・予備力', econ: '給電の優先順位', prot: '保護', insul: 'がいし・架空地線・相間スペーサ', pf: '進相コンデンサ', rel: '信頼度', hzConv: '周波数をそろえる工事', conv: '電鉄用の変換所' };
 // 設計図（大型・特殊）：その単元の試験レベルに正解、または関係する外部試験の科目で取れる点が満点の3割以上
 export const BLUEPRINTS = {
   bigCoal: { name: '大型の石炭火力', units: ['denken2-denryoku-U02'] },
@@ -379,9 +397,9 @@ export function newGrid(seed = 1, nowMs = 0, { terrain = 'standard', start = nul
     fuel: { base: 1, contract: 1, spot: 0.85 },
     priority: ['P1'], nextId: 2,
     plants: [{ id: 'P1', type: 'dcCoal', kw: 25, site: home, cost: 3000, proto: false, builtAt: 0, readyAt: 0, on: false, onAt: null, downUntil: 0, idle: false, store: 0, hold: 0, done: true }],
-    lines: [], subs: [],
+    lines: [], subs: [], convs: [], // 1.10.4 電鉄用の変換所
     loads: [{ id: 'L1', town: home, type: 'lamp', kw: 20, cap: false }],
-    apps: [], rep: {}, black: {},
+    apps: [], rep: {}, black: {}, tramDown: {}, tramStep: 0, tramDone: [], // 1.10.4 架線事故停止・史実の電鉄順
     events: [], incidents: [], reports: [], cool: {}, buffs: {},
     perfMax: { ...perfMax },
     hist: [], last: null, lossRatio: 0.03,
@@ -424,6 +442,10 @@ export function upgrade(G) {
     if (!Object.keys(G.litTowns).length) for (const l of G.loads || []) G.litTowns[l.town] = G.t;
   }
   if (!Array.isArray(G.freshLit)) G.freshLit = [];
+  if (!Array.isArray(G.convs)) G.convs = []; // 1.10.4 電鉄用の変換所
+  if (!G.tramDown) G.tramDown = {};
+  if (!Array.isArray(G.tramDone)) G.tramDone = Array.from({ length: G.tramStep || 0 }, (_, i) => i);
+  if (G.tramStep == null) G.tramStep = G.tramDone.length;
   return G;
 }
 // ---- 1.8.0 史実モードと自由モード ----
@@ -552,11 +574,11 @@ export function loadKw(G, ld, t, raw = false) {
 // C 最大電力の指定：ふだんの山の 7 割で頭打ち。減らした・移した需要は停電に数えない（需要そのものが減る）。それでも足りなければ今の負荷遮断の規則
 export const RESTRICT_ERA = 5;
 export const RESTRICT = {
-  A: { name: '使用時間の指定', short: 'A 使用時間の指定', text: '工場・町の動力の昼（8〜17 時）の 3 割を夜（22〜5 時）へ移す。1日の量と料金は同じ。昼の山が下がり、夜が上がる' },
-  B: { name: '大口の使用量の制限', short: 'B 大口の使用量の制限', text: '工場・町の動力の需要を、どの時間も 0.7 倍（1日の量が 3 割減る。その分の売電はない）' },
-  C: { name: '最大電力の指定', short: 'C 最大電力の指定', text: '工場・町の動力の需要を、ふだんの山の 7 割で頭打ち（量は少し減る）' },
+  A: { name: '使用時間の指定', short: 'A 使用時間の指定', text: '工場・町の動力の昼（8〜17 時）の 3 割を夜（22〜5 時）へ移す。電鉄は朝夕の山を外せないため昼を少し減らすだけで効きが小さい' },
+  B: { name: '大口の使用量の制限', short: 'B 大口の使用量の制限', text: '工場・町の動力・電鉄の需要を、どの時間も 0.7 倍（1日の量が 3 割減る。その分の売電はない）' },
+  C: { name: '最大電力の指定', short: 'C 最大電力の指定', text: '工場・町の動力・電鉄の需要を、ふだんの山の 7 割で頭打ち（量は少し減る）' },
 };
-export const RESTRICT_TYPES = ['factory', 'shop'];
+export const RESTRICT_TYPES = ['factory', 'shop', 'tram'];
 export const RESTRICT_K = 0.7;
 const R_DAY = (h) => h >= 8 && h <= 17, R_NIGHT = (h) => h >= 22 || h <= 5;
 const R_SHAPES = new Map();
@@ -566,9 +588,14 @@ export function restrictShape(r, type) {
   const s0 = LOADS[type].shape;
   let s;
   if (r === 'A') {
-    const moved = s0.reduce((a, v, h) => a + (R_DAY(h) ? v * (1 - RESTRICT_K) : 0), 0);
-    const nN = s0.filter((_, h) => R_NIGHT(h)).length;
-    s = s0.map((v, h) => (R_DAY(h) ? v * RESTRICT_K : R_NIGHT(h) ? v + moved / nN : v));
+    if (type === 'tram') {
+      // 1.10.4 電鉄は朝夕の山を外せず深夜（運休）へも移せないため、昼（10〜15時）のみ 15% 削るだけで制限の効きが小さい
+      s = s0.map((v, h) => (h >= 10 && h <= 15 ? v * 0.85 : v));
+    } else {
+      const moved = s0.reduce((a, v, h) => a + (R_DAY(h) ? v * (1 - RESTRICT_K) : 0), 0);
+      const nN = s0.filter((_, h) => R_NIGHT(h)).length;
+      s = s0.map((v, h) => (R_DAY(h) ? v * RESTRICT_K : R_NIGHT(h) ? v + moved / nN : v));
+    }
   } else if (r === 'B') s = s0.map((v) => v * RESTRICT_K);
   else {
     const cap = RESTRICT_K * Math.max(...s0);
@@ -584,6 +611,9 @@ export function setRestrict(G, r) {
   if (r && G.era < RESTRICT_ERA) return { ok: false, why: '使用制限は戦後復興から' };
   G.restrict = r || null;
   if (r) G.restrictUsed = true;
+  if (r === 'A' && G.loads.some((l) => l.type === 'tram')) {
+    addReport(G, { title: '使用制限 A と電鉄', what: '使用時間の指定（A）にした。電鉄は朝夕の山を外せず運休の深夜へも移せないため、工場や町の動力にくらべて制限の効きが小さい。', units: RESTRICT_UNITS });
+  }
   return { ok: true };
 }
 const loadTan = (ld) => tanOf(ld.cap && LOADS[ld.type].pfFixed ? LOADS[ld.type].pfFixed : LOADS[ld.type].pf);
@@ -919,34 +949,65 @@ function runNet(G, lc, t, net, dem, fc, o) {
 }
 
 // 1時間分を解く（直流の網 → 残りを交流の網）。o.dry：状態を変えない。o.assume：使える発電機はすべて運転中とみなす
+// 1.10.4 電鉄（tram）：交流の網から電鉄用の変換所（G.convs）を通してのみ届く。変換所の容量までしか届かず、損失（電鉄 kW ÷ 効率 − 電鉄 kW）を交流側の需要に足す
+function convAvgEff(G, town, t, lc) {
+  const cs = convsAt(G, town, t);
+  if (!cs.length) return { cap: 0, eff: 0.9 };
+  const cap = cs.reduce((a, c) => a + c.kw, 0);
+  const w = cs.reduce((a, c) => a + c.kw * convEff(c, lc, G), 0);
+  return { cap, eff: cap > 0 ? w / cap : 0.9 };
+}
 export function solve(G, lc, t, o = {}) {
   const fcCache = new Map();
-  const fcTown = (tt) => {
-    if (!fcCache.has(tt)) fcCache.set(tt, townForecast(G, tt));
+  const fcTownSplit = (tt) => {
+    if (!fcCache.has(tt)) {
+      const gen = new Map(), tram = new Map();
+      for (const ld of G.loads) {
+        const v = loadKw(G, ld, tt);
+        if (ld.type === 'tram') tram.set(ld.town, (tram.get(ld.town) || 0) + v);
+        else gen.set(ld.town, (gen.get(ld.town) || 0) + v);
+      }
+      fcCache.set(tt, { gen, tram });
+    }
     return fcCache.get(tt);
   };
   const sigma = o.noNoise ? 0 : 0.03 * (1 - 0.5 * perfNow(G, lc, 'freq'));
-  const dem = new Map();
-  const f0 = fcTown(t);
+  const dem = new Map(); // 町全体の需要（表示・合計用）
+  const demGen = new Map(); // 一般需要（直流・交流どちらでも届く）
+  const tramInfo = new Map(); // 電鉄需要と変換所 { f, a, cap, eff, ok, acA, acF, why }
+  const f0 = fcTownSplit(t);
   for (const n of nodesOf(G)) {
     if (!n.town) continue;
-    const f = f0.get(n.id) || 0;
-    const a = Math.max(0, f * (1 + sigma * (sigma ? gauss(G) : 0)));
-    if (!(f > 0 || a > 0)) continue;
-    const q = G.loads.filter((ld) => ld.town === n.id).reduce((s, ld) => s + loadKw(G, ld, t) * loadTan(ld), 0) * (f > 0 ? a / f : 0);
-    dem.set(n.id, { f, a, q });
+    const fg = f0.gen.get(n.id) || 0;
+    const ft = f0.tram.get(n.id) || 0;
+    if (!(fg > 0 || ft > 0)) continue;
+    const noise = 1 + sigma * (sigma ? gauss(G) : 0);
+    const ag = Math.max(0, fg * noise);
+    const at = Math.max(0, ft * noise);
+    if (!(fg + ft > 0 || ag + at > 0)) continue;
+    const qg = G.loads.filter((ld) => ld.town === n.id && ld.type !== 'tram').reduce((s, ld) => s + loadKw(G, ld, t) * loadTan(ld), 0) * (fg > 0 ? ag / fg : 0);
+    dem.set(n.id, { f: fg + ft, a: ag + at, q: qg, genA: ag, tramA: at });
+    if (fg > 0 || ag > 0) demGen.set(n.id, { f: fg, a: ag, q: qg });
+    if (ft > 0 || at > 0) {
+      const down = (G.tramDown?.[n.id] || 0) > t;
+      const { cap, eff } = convAvgEff(G, n.id, t, lc);
+      const ok = down ? 0 : Math.min(at, cap);
+      const okF = down ? 0 : Math.min(ft, cap);
+      const why = down ? { k: 'tramDown', h: G.tramDown[n.id] - t } : cap <= 1e-6 ? { k: 'noConv' } : at > cap + 1e-6 ? { k: 'convCap', need: at - cap } : null;
+      tramInfo.set(n.id, { f: ft, a: at, cap, eff, ok, acA: ok > 0 ? ok / eff : 0, acF: okF > 0 ? okF / eff : 0, why });
+    }
   }
   const dcNets = networks(G, t, true);
   const acNets = networks(G, t, false);
-  const sumTowns = (net, tt) => net.nodes.reduce((s, n) => s + (fcTown(tt).get(n) || 0), 0);
-  // 直流の発電所は、つないだ町の需要だけをまかなう。交流の網は、その残りを受け持つ
+  const sumTownsDc = (net, tt) => net.nodes.reduce((s, n) => s + (fcTownSplit(tt).gen.get(n) || 0), 0);
+  // 直流の発電所は、つないだ町の一般需要だけをまかなう（電鉄には送れない）。交流の網は、一般の残り＋電鉄（変換所の損失込み）を受け持つ
   const dcCap = (net, tt) => net.plants.filter((p) => plantReady(p, tt)).reduce((s, p) => s + p.kw, 0);
   const dcOf = new Map();
   for (const net of dcNets) for (const n of net.nodes) dcOf.set(n, net);
   const acOf = new Map();
   for (const net of acNets) for (const n of net.nodes) acOf.set(n, net);
   const acCan = (n) => acOf.get(n).plants.some((p) => plantReady(p, t));
-  // 直流の電気は、交流が来ていない町に先に回す。戻り値：町 → 直流でまかなえる割合
+  // 直流の電気は、交流が来ていない町に先に回す。戻り値：町 → 直流でまかなえる一般需要の割合
   const share = (net, total, val) => {
     const m = new Map();
     let left = total;
@@ -961,22 +1022,29 @@ export function solve(G, lc, t, o = {}) {
   const fcShare = new Map();
   const NONE = new Map();
   const dcShareAt = (d, tt) => {
-    if (!d.plants.length) return NONE; // 直流の発電所のない網（1.6.0：地点が多いので、先に省く）
+    if (!d.plants.length) return NONE;
     const key = `${d.nodes[0]}|${tt}`;
-    if (!fcShare.has(key)) fcShare.set(key, share(d, dcCap(d, t) * 0.95, (n) => fcTown(tt).get(n) || 0));
+    if (!fcShare.has(key)) fcShare.set(key, share(d, dcCap(d, t) * 0.95, (n) => fcTownSplit(tt).gen.get(n) || 0));
     return fcShare.get(key);
   };
   const acFc = (net, tt) => {
-    const fc = fcTown(tt);
+    const sp = fcTownSplit(tt);
     let x = 0;
     for (const n of net.nodes) {
-      const v = fc.get(n);
-      if (v) x += v * (1 - (dcShareAt(dcOf.get(n), tt).get(n) || 0));
+      const vg = sp.gen.get(n) || 0;
+      if (vg) x += vg * (1 - (dcShareAt(dcOf.get(n), tt).get(n) || 0));
+      const vt = sp.tram.get(n) || 0;
+      if (vt && !((G.tramDown?.[n] || 0) > tt)) {
+        const { cap, eff } = convAvgEff(G, n, tt, lc);
+        if (cap > 0) x += Math.min(vt, cap) / eff;
+      }
     }
     return x;
   };
   const results = [];
-  const served = new Map(); // 町 → 届いた割合
+  const genServed = new Map(); // 町 → 一般需要に届いた割合
+  const tramServed = new Map(); // 町 → 電鉄需要に届いた割合
+  const served = new Map(); // 町 → 全体の届いた割合
   const rest = new Map();
   const src = new Map(); // 1.7.4 町 → { dc, ac }（直流・交流から届いた kW）
   const srcAdd = (n, k, v) => {
@@ -986,40 +1054,68 @@ export function solve(G, lc, t, o = {}) {
   };
   for (const net of dcNets) {
     if (!net.plants.length) continue;
-    const r = runNet(G, lc, t, net, dem, sumTowns, o);
+    const r = runNet(G, lc, t, net, demGen, sumTownsDc, o);
     r.net = net;
     results.push(r);
-    const got = [...r.served].reduce((x, [n, ratio]) => x + dem.get(n).a * ratio, 0);
-    r.served = share(net, got, (n) => dem.get(n)?.a || 0);
-    for (const [n, ratio] of r.served) served.set(n, ratio), srcAdd(n, 'dc', (dem.get(n)?.a || 0) * ratio);
+    const got = [...r.served].reduce((x, [n, ratio]) => x + (demGen.get(n)?.a || 0) * ratio, 0);
+    r.served = share(net, got, (n) => demGen.get(n)?.a || 0);
+    for (const [n, ratio] of r.served) genServed.set(n, ratio), srcAdd(n, 'dc', (demGen.get(n)?.a || 0) * ratio);
   }
   for (const [n, d] of dem) {
-    const k = 1 - (served.get(n) || 0);
-    const fk = 1 - (dcShareAt(dcOf.get(n), t).get(n) || 0);
-    if (k > 1e-9) rest.set(n, { f: d.f * fk, a: d.a * k, q: d.q * k });
+    const dg = demGen.get(n);
+    const k = dg ? 1 - (genServed.get(n) || 0) : 0;
+    const fk = dg ? 1 - (dcShareAt(dcOf.get(n), t).get(n) || 0) : 0;
+    const ti = tramInfo.get(n);
+    const acNeedA = (dg ? dg.a * k : 0) + (ti ? ti.acA : 0);
+    const acNeedF = (dg ? dg.f * fk : 0) + (ti ? ti.acF : 0);
+    if (acNeedA > 1e-9 || acNeedF > 1e-9) rest.set(n, { f: acNeedF, a: acNeedA, q: dg ? dg.q * k : 0, genRemA: dg ? dg.a * k : 0, tramAcA: ti ? ti.acA : 0 });
   }
+  const convs = new Map(); // 町 → 変換所の使用率
+  const tramWhy = new Map(); // 町 → 電鉄が届いていない原因
+  let convLoss = 0;
   for (const net of acNets) {
-    // 発電機のない網（線だけ・地点1つだけ）は計算しない：交流の電気は届かない（1.6.0。地点が多いので）
     if (!net.plants.length) continue;
     const r = runNet(G, lc, t, net, rest, acFc, o);
     r.net = net;
     results.push(r);
     for (const [n, ratio] of r.served) {
-      const d = dem.get(n);
-      served.set(n, (served.get(n) || 0) + (d.a > 0 ? (rest.get(n).a * ratio) / d.a : 0));
-      srcAdd(n, 'ac', rest.get(n).a * ratio);
+      const rn = rest.get(n);
+      if (!rn) continue;
+      const dg = demGen.get(n);
+      if (dg && dg.a > 0 && rn.genRemA > 0) {
+        genServed.set(n, (genServed.get(n) || 0) + (rn.genRemA * ratio) / dg.a);
+        srcAdd(n, 'ac', rn.genRemA * ratio);
+      }
+      const ti = tramInfo.get(n);
+      if (ti && ti.a > 0 && ti.ok > 0) {
+        const deliv = ti.ok * ratio;
+        tramServed.set(n, deliv / ti.a);
+        srcAdd(n, 'ac', deliv);
+        convLoss += ti.acA * ratio - deliv;
+        if (ti.cap > 0) convs.set(n, deliv / ti.cap);
+      }
     }
   }
-  // 直流だけの町で少し足りないとき：1 割までは電圧の低下（電灯が暗くなる）で済み、3% を超えると品質の低下。それ以上は停電
-  const dim = new Set();
-  for (const n of dem.keys()) {
-    const r = served.get(n) || 0;
-    served.set(n, r);
-    if (!dcOf.get(n)?.plants.length || r >= 1 - 1e-9 || r < 0.9) continue;
-    if (r < 0.97) dim.add(n);
-    served.set(n, 1);
+  for (const [n, ti] of tramInfo) {
+    if (ti.why) tramWhy.set(n, ti.why);
+    if (!convs.has(n) && ti.cap > 0) convs.set(n, 0);
   }
-  return { dem, served, results, dim, src };
+  // 直流だけの町で少し足りないとき（一般需要のみ）：1 割までは電圧の低下（電灯が暗くなる）で済む
+  const dim = new Set();
+  for (const [n, d] of dem) {
+    const dg = demGen.get(n);
+    let gr = dg ? Math.min(1, genServed.get(n) || 0) : 1;
+    if (dg && dcOf.get(n)?.plants.length && gr < 1 - 1e-9 && gr >= 0.9) {
+      if (gr < 0.97) dim.add(n);
+      gr = 1;
+      genServed.set(n, 1);
+    }
+    const ti = tramInfo.get(n);
+    const tr = ti ? Math.min(1, tramServed.get(n) || 0) : 1;
+    const totGot = (dg ? dg.a * gr : 0) + (ti ? ti.a * tr : 0);
+    served.set(n, d.a > 0 ? Math.min(1, totGot / d.a) : 1);
+  }
+  return { dem, served, genServed, tramServed, results, dim, src, convs, convLoss, tramWhy };
 }
 
 // ---- 1.7.4 いま何が起きているか：届いていない原因・発電所が全開でない理由・網ごとの予備 ----
@@ -1118,13 +1214,17 @@ function townWhy(G, sol, byNode, n, t) {
   if (ac?.black) return { k: 'black', h: Math.max(0, (G.black[n] || t) - t) };
   if (ac?.shed > 0) return { k: 'shed', v: ac.shed };
   const d = sol.dem.get(n);
+  // 1.10.4 一般需要は足りているが電鉄が届いていない原因（変換所なし・容量不足・架線事故停止）
+  const tw = sol.tramWhy?.get(n);
+  if (tw && (!d?.genA || (sol.genServed?.get(n) || 0) >= 0.999)) return tw;
   const left = d ? d.a * (1 - Math.min(1, sol.served.get(n) || 0)) : 0;
   if (dc && !dc.noGen && (dc.dim || 0) > 0 && !(ac && !ac.noGen)) return { k: 'dcShort', kw: left };
   const r = (ac?.noGen && ac) || (dc?.noGen && dc);
   // 交流の網に入れていない町で、交流の線があれば、その理由も添える（also。例：直流の火力は休止中で、送電線の先には変電所がない）
   const also = !ac && G.lines.some((l) => !LINES[l.kind].dc && (l.a === n || l.b === n)) ? linkWhy(G, n, t, false) : null;
   const w = r ? netPlantsWhy(G, r.net.plants, r, t) : !ac && !dc ? linkWhy(G, n, t) : !ac ? { k: 'dcShort', kw: left } : { k: 'short', kw: left };
-  if (also && also.k !== w.k && w.k !== 'noAcGen') w.also = also;
+  if (tw && tw.k !== w.k) w.also = tw;
+  else if (also && also.k !== w.k && w.k !== 'noAcGen') w.also = also;
   return w;
 }
 // step のあとに G.last に残す分を作る
@@ -1189,6 +1289,9 @@ export function whyText(G, w) {
     case 'lineWork': return `途中の線が工事中：${ln(w.line)}（あと${hh(w.h)}）`;
     case 'lineHz': return `途中の線が切れている（周波数違い）：${ln(w.line)}（50 Hz と 60 Hz の網を交流の線でつなぐと、脱調して保護装置で切れる）`;
     case 'dim': return '直流の電圧が下がっている（電灯が暗い。品質の低下で料金が少し減る）';
+    case 'noConv': return '電鉄用の変換所がない（交流を直流 600 V に変える設備が要る）';
+    case 'convCap': return `電鉄用の変換所の容量が足りない（あと ${fmtKw(w.need)}）`;
+    case 'tramDown': return `架線の事故で電鉄が止まっている（あと${hh(w.h)}）`;
     default: return '';
   }
 }
@@ -1245,6 +1348,7 @@ export const INCIDENTS = {
   arc: { q: ['Q17'], title: '地絡のアークが消えない', units: ['denken3-denryoku-U09'] },
   drought: { q: ['Q18'], title: '渇水', units: ['denken3-denryoku-U01', 'power-system-U05'] },
   outOfStep: { q: ['Q19', 'Q20'], title: '周波数の違う網をつないだ（脱調）', units: ['denken3-denryoku-U08', 'denken2-denryoku-U08', 'circuit-b-U13'] }, // 1.8.0
+  catenary: { q: ['Q21', 'Q22', 'Q23'], title: '電鉄の架線で短絡と火災', units: ['denken3-denryoku-U09', 'denken3-kikai-U01', 'denken3-kikai-U05'] }, // 1.10.4
 };
 // 1.8.0 脱調の事故報告書の「なぜ」（対処したとき・標準の被害で片づいたとき）
 const incWhy = (key) => (key === 'outOfStep' ? { why: OOS_WHY } : {});
@@ -1379,6 +1483,12 @@ export function resolveIncident(G, id, correct) {
       ok('火力を前もって動かし、需要家にも協力してもらった（渇水の間、需要 −10%・水力の落ち込みも小さい）。', '手当てが遅れ、ピークの時間に負荷遮断が出た。町の信用が下がった。');
       break;
     }
+    case 'catenary':
+      // 1.10.4 桜木町事故（1951年）：正解＝高速度遮断器ですぐ給電を止め被害を小さく（半日）、誤答＝給電が続いて車両が燃え3日停止
+      if (inc.town) (G.tramDown ||= {})[inc.town] = inc.at + (correct ? 12 : 72);
+      if (!correct && inc.town) repHit(G, [inc.town], 0.15);
+      ok('高速度遮断器ですぐ給電を止め、被害を小さく抑えた。この町の電鉄は半日止まる。', '給電を止められず車両が燃え、大きな被害が出た。この町の電鉄は 3 日止まり、町の信用が下がった。');
+      break;
     default:
       text = '';
   }
@@ -1413,9 +1523,10 @@ export function startEvent(G, lc, key, o = {}) {
   const y = o.y1939 ? '1939' : o.y1951 ? '1951' : '';
   const rHint = key === 'drought' && G.era >= RESTRICT_ERA; // 1.10.0 渇水のとき、使用制限の案内
   note(G, `${E.name}（${E.text}）${y ? `・${y}年の渇水に準じる` : ''}`);
+  const tramNote1939 = o.y1939 && G.loads.some((l) => l.type === 'tram') ? '史実：1940年1月からの電力制限で、名古屋市電は約 25% の節電を迫られ、朝夕に急行運転をした（S27・確かめた）。' : '';
   addReport(G, {
     title: y ? `${E.name}（${y}年の渇水に準じる）` : E.name,
-    what: `${E.text}。${E.days}日間。${o.y1939 ? '史実モード：昭和前期に入ったあとの夏に、1939年の渇水に準じて決まって起きる。' : ''}${o.y1951 ? `史実モード：戦後復興に入ったあとの夏に、1951年の渇水に準じて決まって起きる。史実：${Y1951_FACT}（S17）。` : ''}${rHint ? `${RESTRICT_HINT}。` : ''}`,
+    what: `${E.text}。${E.days}日間。${o.y1939 ? '史実モード：昭和前期に入ったあとの夏に、1939年の渇水に準じて決まって起きる。' : ''}${tramNote1939}${o.y1951 ? `史実モード：戦後復興に入ったあとの夏に、1951年の渇水に準じて決まって起きる。史実：${Y1951_FACT}（S17）。` : ''}${rHint ? `${RESTRICT_HINT}。` : ''}`,
     units: key === 'drought' ? [...INCIDENTS.drought.units, ...(rHint ? RESTRICT_UNITS : [])] : [],
   });
   if (key === 'coalSpike') G.fuel.base = 1.8;
@@ -1488,12 +1599,35 @@ function daily(G, lc) {
     }
   } else if (fits) fits = roll(0.6 * repAvg);
   if (fits) {
-    const town = pickWeighted(G, towns.map((n) => [n.id, (G.rep[n.id] ?? 1) * appWeight(G, n)]));
-    const type = pickWeighted(G, Object.entries(loadMix(G.era)));
-    const raw = lc.dmax * (0.05 + 0.15 * rnd(G));
+    // 1.10.4 史実モード（日本列島）：明治後期（E2）から史実の町の順に、開いていて電気が届いている町から電鉄の申し込みが1件ずつ来る
+    const tramDone = (G.tramDone ||= []);
+    const histTownLit = (tid) => G.litTowns?.[tid] != null || (G.last?.towns?.[tid]?.r || 0) > 0.5;
+    let histIdx = -1;
+    if (isJapan(G) && modeOf(G) === 'history' && G.era >= 2 && !G.apps.some((a) => a.tramHist != null)) {
+      histIdx = J.TRAM_HISTORY.findIndex((x, i) => !tramDone.includes(i) && towns.some((n) => n.id === x.town) && histTownLit(x.town));
+    }
+    let town, type, tramHist = null;
+    if (histIdx >= 0) {
+      town = J.TRAM_HISTORY[histIdx].town;
+      type = 'tram';
+      tramHist = histIdx;
+    } else {
+      town = pickWeighted(G, towns.map((n) => [n.id, (G.rep[n.id] ?? 1) * appWeight(G, n)]));
+      const mix = { ...loadMix(G.era) };
+      const tn = nodeOf(G, town);
+      const sz = tn?.size || 2;
+      const canRandomTram =
+        G.era >= 2 &&
+        (isJapan(G) && modeOf(G) === 'history'
+          ? (tramDone.length >= J.TRAM_HISTORY.length || G.era >= 3) && sz >= 3
+          : !isJapan(G) || sz >= 2);
+      if (canRandomTram) mix.tram = 1;
+      type = pickWeighted(G, Object.entries(mix));
+    }
+    const raw = type === 'tram' ? lc.dmax * (0.1 + 0.15 * rnd(G)) : lc.dmax * (0.05 + 0.15 * rnd(G));
     const kw = Math.max(1, Math.min(raw, lc.dmax - used));
     const r = kw >= 100 ? Math.round(kw / 10) * 10 : Math.round(kw);
-    const app = { id: `A${G.nextId++}`, town, type, kw: Math.max(1, r), at: t };
+    const app = { id: `A${G.nextId++}`, town, type, kw: Math.max(1, r), at: t, ...(tramHist != null ? { tramHist } : {}) };
     G.apps.push(app);
     G.acc.apps++;
     if (type === 'factory') raise(G, lc, 'factoryPf', { what: `${nodeOf(G, town).name}の工場（${fmtKw(app.kw)}、力率 0.75）から申し込みが来た。`, cool: 24 * 30 });
@@ -1513,13 +1647,29 @@ function daily(G, lc) {
   }
   const fac = G.loads.find((l) => l.type === 'factory' && G.loads.some((o) => o.town === l.town && o.type !== 'factory'));
   if (fac && roll(0.02)) raise(G, lc, 'motor', { town: fac.town, what: `${nodeOf(G, fac.town).name}で、工場のモータが回り始めるたびに電灯がちらつく。`, cool: month });
+  // 1.10.4 E4b〜：電鉄の需要があり変換所が動いている町で、まれに架線の短絡と火災（桜木町事故の枠）
+  if (G.era >= 5) {
+    const tramTowns = [...new Set(G.loads.filter((l) => l.type === 'tram').map((l) => l.town))].filter((tid) => convCapAt(G, tid, t) > 0 && !((G.tramDown?.[tid] || 0) > t));
+    if (tramTowns.length && roll(0.008)) {
+      const tid = tramTowns[Math.floor(rnd(G) * tramTowns.length)];
+      const inc = raise(G, lc, 'catenary', { town: tid, what: `${nodeOf(G, tid).name}の電鉄で、架線が垂れ下がり電車の集電装置と車体の間で短絡してアークが出た。`, cool: month });
+      if (inc) (G.tramDown ||= {})[tid] = t + 24;
+    }
+  }
   // 年の変わり目：スコアを残す
   if (day > 0 && day % YEAR_DAYS === 0) closeYear(G);
   G.dayMark = { idx: G.yr.idx, profit: G.yr.profit };
 }
 // 1.6.4 保留の取り下げ：評判・収益は変えない。G.withdrawn に残し（画面の「したことの帯」で出す。新しいもの 10 件まで）、前回からの結果にも
 export const withdrawText = (G, a) => `${nodeOf(G, a.town).name}の申し込み（${LOADS[a.type].name} ${fmtKw(a.kw)}）は取り下げられた（保留の枠が埋まっていたため）`;
+function markTramHist(G, idx) {
+  if (idx == null) return;
+  const d = (G.tramDone ||= []);
+  if (!d.includes(idx)) d.push(idx);
+  G.tramStep = d.length;
+}
 function withdrawApp(G, a) {
+  markTramHist(G, a.tramHist);
   G.withdrawn = [...(G.withdrawn || []), { id: a.id, town: a.town, type: a.type, kw: a.kw, t: G.t }].slice(-10);
   note(G, withdrawText(G, a));
 }
@@ -1708,6 +1858,23 @@ function failures(G, lc, prev) {
     const name = `${nodeOf(G, s.town).name}の変電所`;
     addReport(G, { title: `${name}の変圧器が故障`, what: `${name}の変圧器（${s.mva} MVA）が止まった。修理に ${dur}時間。${util > 1.2 ? '定格の 120% を超えて使っていた。' : ''}`, why: util > 1.2 ? '過負荷' : '設備の故障', units: INCIDENTS.trLoss.units });
     note(G, `${name}の変圧器が故障`);
+  }
+  for (const c of G.convs || []) {
+    if (c.readyAt > t || c.downUntil > t) continue;
+    const D = CONVS[c.type];
+    const age = Math.max(0, (t - c.builtAt) / (24 * YEAR_DAYS));
+    const util = prev?.convs?.[c.town] || 0;
+    const rate = D.fail * (1 + 0.1 * age) * (util > 1.2 ? 3 : 1) * (c.proto ? 3 : 1) * (1 - 0.5 * perfNow(G, lc, 'conv')) * (G.maint === 'defer' ? 2.5 : 1);
+    if (rnd(G) >= rate / 24) continue;
+    if (shielded()) continue;
+    const dur = Math.round((24 + 48 * rnd(G)) * prot);
+    const cost = repairCost(c);
+    c.downUntil = t + dur;
+    recordRepair(G, cost);
+    G.acc.fails++;
+    const name = `${nodeOf(G, c.town).name}の${D.short}`;
+    addReport(G, { title: `${name}が故障`, what: `${name}（${fmtKw(c.kw)}）が止まった。修理に ${dur}時間。`, why: '設備の故障', units: GATES.conv });
+    note(G, `${name}が故障`);
   }
   return trip;
 }
@@ -2092,6 +2259,7 @@ export function step(G, lc) {
     s.done = true;
     if (G.subs.filter((x) => x.town === s.town && x.done).length >= 2) raise(G, lc, 'trParallel', { sub: s.id, what: `${nodeOf(G, s.town).name}の変電所で、2台目の変圧器の並行運転を始める。`, cool: 1 });
   }
+  for (const c of G.convs || []) if (!c.done && c.readyAt <= t) (c.done = true), note(G, `${nodeOf(G, c.town).name}の${CONVS[c.type].short}（${fmtKw(c.kw)}）が使えるようになった`);
   for (const l of G.lines) if (!l.done && l.readyAt <= t) (l.done = true), note(G, `${lineName(G, l)}が開通した`);
   finishCircuits(G, t);
 
@@ -2119,7 +2287,7 @@ export function step(G, lc) {
   // お金と記録
   const quality = new Map();
   let fuel = 0, loss = 0, lineLossSum = 0, subLossSum = 0, wasteSum = 0, worst = 0, anyShed = false, anyBlack = false, anyBad = false, hzLoad = -1;
-  const last = { t, plants: {}, lines: {}, subs: {}, towns: {}, x: 0, hz: 0, demand: 0, served: 0, loss: 0, cap: 0, K: 0 };
+  const last = { t, plants: {}, lines: {}, subs: {}, convs: {}, towns: {}, x: 0, hz: 0, demand: 0, served: 0, loss: 0, cap: 0, K: 0 };
   const gen = { dc: 0, coal: 0, hydro: 0 };
   const ec = (G.econCur ||= newEconDay());
   const price = fuelPrice(G, t) * (1 - 0.05 * perfNow(G, lc, 'econ'));
@@ -2187,16 +2355,19 @@ export function step(G, lc) {
     if (r.over) addReport(G, { title: '周波数の上がりすぎ', what: '需要が急に減り、発電機が1台 保護で外れた。', why: '需要の急減', units: INCIDENTS.genTrip.units });
   }
   for (const n of sol.dim) (anyBad = true), quality.set(n, 0.95);
+  if (sol.convs) for (const [n, u] of sol.convs) last.convs[n] = u;
+  if (sol.convLoss > 0) (loss += sol.convLoss), (subLossSum += sol.convLoss);
   let rev = 0, demand = 0, served = 0;
   const war = evOn(G, 'priceWar', t) ? 0.8 : 1;
-  const f0 = townForecast(G, t);
   for (const [n, d] of sol.dem) {
     const ratio = Math.min(1, sol.served.get(n) || 0);
+    const gr = Math.min(1, sol.genServed?.get(n) || 0);
+    const tr = Math.min(1, sol.tramServed?.get(n) || 0);
     demand += d.a;
     served += d.a * ratio;
     const sv = sol.src.get(n);
-    // 1.7.4 dc・ac：直流・交流から届いた kW（直流の電圧の低下で済んだ分は直流に数える）
-    last.towns[n] = { d: d.a, r: ratio, dc: Math.max(0, d.a * ratio - Math.min(d.a * ratio, sv?.ac || 0)), ac: Math.min(d.a * ratio, sv?.ac || 0) };
+    // 1.7.4 dc・ac：直流・交流から届いた kW（直流の電圧の低下で済んだ分は直流に数える）。1.10.4 tramD・tramR：電鉄分
+    last.towns[n] = { d: d.a, r: ratio, dc: Math.max(0, d.a * ratio - Math.min(d.a * ratio, sv?.ac || 0)), ac: Math.min(d.a * ratio, sv?.ac || 0), ...(d.tramA > 1e-6 ? { tramD: d.tramA, tramR: tr } : {}) };
     // 1.10.3 初めて電気が届いた町を記録（同じ町は 1 回だけ。t=0 でも未記録扱いにならないよう == null で判定）
     if (ratio > 1e-6 && d.a > 1e-6 && G.litTowns?.[n] == null) {
       (G.litTowns ||= {})[n] = t;
@@ -2205,8 +2376,16 @@ export function step(G, lc) {
     }
     // 停電のあった町は申し込みが減る（1か月で回復）
     if (ratio < 0.95) G.rep[n] = Math.max(0.2, (G.rep[n] ?? 1) - 0.02);
-    const k = (f0.get(n) || 0) > 0 ? d.a / f0.get(n) : 0;
-    for (const ld of G.loads) if (ld.town === n) rev += loadKw(G, ld, t) * k * ratio * LOADS[ld.type].rate * war * (quality.get(n) || 1);
+    const loadsN = G.loads.filter((ld) => ld.town === n);
+    const fg = loadsN.filter((ld) => ld.type !== 'tram').reduce((a, ld) => a + loadKw(G, ld, t), 0);
+    const ft = loadsN.filter((ld) => ld.type === 'tram').reduce((a, ld) => a + loadKw(G, ld, t), 0);
+    const kg = fg > 0 ? (d.genA ?? d.a) / fg : 0;
+    const kt = ft > 0 ? (d.tramA || 0) / ft : 0;
+    const qn = quality.get(n) || 1;
+    for (const ld of loadsN) {
+      const got = ld.type === 'tram' ? loadKw(G, ld, t) * kt * tr : loadKw(G, ld, t) * kg * gr;
+      rev += got * LOADS[ld.type].rate * war * qn;
+    }
   }
   for (const n of Object.keys(G.rep)) G.rep[n] = Math.min(1, G.rep[n] + investK(G, n, INVEST_REP) / (24 * MONTH_DAYS)); // 1.8.2 町への投資で速く戻る
   // 1.10.0 使用制限で減らした量（kWh。ふだんの需要との差の合計。A は昼に減らして夜に足すので1日でほぼ 0）と移した量（A の昼に減らした分）
@@ -2633,6 +2812,29 @@ export function buildSub(G, lc, spec) {
   G.yr.built = (G.yr.built || 0) + 1;
   return { ...q, sub: s };
 }
+// 1.10.4 電鉄用の変換所（回転変流機・水銀整流器）：交流の変圧器がある町に2台まで
+export function quoteConv(G, lc, { type, kw, town }) {
+  const D = CONVS[type];
+  if (!D || !nodeOf(G, town)?.town || !CONV_SIZES.includes(kw)) return { ok: false, why: '町と種類・容量を選ぶ' };
+  if (!nodeOpen(G, town)) return { ok: false, why: closedWhy(G, nodeOf(G, town)), closed: true };
+  const st = eraStatus(lc, D.era);
+  if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
+  const gc = gateCheck(lc, D.gates, !!D.masteredGate);
+  if (gc) return gc;
+  if (!G.subs.some((s) => s.town === town)) return { ok: false, why: '交流の変圧器がある町に建てられる（先に変圧器を置く）', needSub: true };
+  if ((G.convs || []).filter((c) => c.town === town).length >= 2) return { ok: false, why: '電鉄用の変換所は1つの町に2台まで' };
+  const proto = st === 'proto';
+  const base = convCost(type, kw) * (proto ? 3 : 1);
+  return { ok: true, cost: coinOf(base), base, hours: buildHours(D.build, lc, D.perf, G), proto };
+}
+export function buildConv(G, lc, spec) {
+  const q = quoteConv(G, lc, spec);
+  if (!q.ok) return q;
+  const c = { id: `V${G.nextId++}`, type: spec.type, town: spec.town, kw: spec.kw, cost: q.base, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, downUntil: 0, done: false };
+  (G.convs ||= []).push(c);
+  G.yr.built = (G.yr.built || 0) + 1;
+  return { ...q, conv: c };
+}
 export function quoteCap(G, lc, loadId) {
   const ld = G.loads.find((l) => l.id === loadId);
   if (!ld || !LOADS[ld.type].pfFixed || ld.cap) return { ok: false, why: '進相コンデンサを付けられる需要ではない' };
@@ -2650,7 +2852,7 @@ export function addCap(G, lc, loadId) {
 }
 // 手放す（撤去）：円の側の値打ち（建設費 × YEN_K）の 30% が収益に戻る
 export function removeAsset(G, kind, id) {
-  const list = { plant: G.plants, line: G.lines, sub: G.subs }[kind];
+  const list = { plant: G.plants, line: G.lines, sub: G.subs, conv: G.convs || [] }[kind];
   const i = list.findIndex((x) => x.id === id);
   if (i < 0) return 0;
   const [x] = list.splice(i, 1);
@@ -2684,7 +2886,9 @@ export function previewApp(G, lc, appId) {
   const reach = (sol.served.get(app.town) || 0) > 0.999;
   // 1.6.4 net：町が発電機のある網（交流・直流）に入っているか。届かないときの文を、道がないのか・設備が足りないのかで分ける
   const net = sol.results.some((r) => r.net?.nodes.includes(app.town));
-  return { reach, net, served: sol.served.get(app.town) || 0, line, sub, cap, load, margin: load > 0 ? cap / load - 1 : 0, hour: t % 24 };
+  const conv = sol.convs?.get(app.town) || 0;
+  const tramWhy = sol.tramWhy?.get(app.town) || null;
+  return { reach, net, served: sol.served.get(app.town) || 0, line, sub, conv, tramWhy, cap, load, margin: load > 0 ? cap / load - 1 : 0, hour: t % 24 };
 }
 // 1.8.1 町の次の24時間の需給の見込み（申し込みのカード・町の詳細のグラフ）。previewApp と同じ考え：
 // 使える発電機がすべて動いているとして、申し込み（appIds）を足して dry で解く。時刻は今から step 時間おきに 24 時間分。
@@ -2712,10 +2916,11 @@ export function townOutlook(G, lc, town, appIds = [], step = 2) {
         cap += r.readyCap || r.cap || 0;
         load += r.load;
       }
+      const conv = sol.convs?.get(town) || 0;
       const margin = load > 0 ? cap / load - 1 : 1;
       const short = d * (1 - ratio);
       const ng = short > Math.max(0.5, d * 0.001);
-      const warn = !ng && d > 0 && (line > 0.9 || sub > 0.9 || margin < G.reserve);
+      const warn = !ng && d > 0 && (line > 0.9 || sub > 0.9 || conv > 0.9 || margin < G.reserve);
       let why = null;
       if (ng) {
         const byNode = new Map([[town, rs]]);
@@ -2766,6 +2971,7 @@ export function acceptApp(G, appId) {
   const i = G.apps.findIndex((a) => a.id === appId);
   if (i < 0) return null;
   const [app] = G.apps.splice(i, 1);
+  markTramHist(G, app.tramHist);
   const ld = { id: `L${G.nextId++}`, town: app.town, type: app.type, kw: app.kw, cap: false };
   G.loads.push(ld);
   return ld;
@@ -2806,6 +3012,7 @@ export const RD_KEYS = {
   line: { era: 2, what: '送電線の事故・建設の時間' },
   dist: { era: 2, what: '配電線（3.3 kV）の事故・建設の時間' },
   tr: { era: 2, what: '変圧器の故障・建設の時間' },
+  conv: { era: 2, what: '電鉄用変換所の効率・故障・建設の時間' },
   freq: { era: 2, what: '需要の読み違い（周波数の乱れ）' },
   econ: { era: 2, what: '燃料の値段' },
   prot: { era: 2, what: '事故で止まる時間' },

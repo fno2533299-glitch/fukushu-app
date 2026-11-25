@@ -948,6 +948,7 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gmap .gasset.k-coal, .gmap .gasset.k-bigcoal { --gi: var(--gcoal); }
 .gmap .gasset.k-wheel, .gmap .gasset.k-dam { --gi: var(--ghydro); }
 .gmap .gasset.k-sub { --gi: var(--gline); }
+.gmap .gasset.k-conv { --gi: #2f7a5f; }
 .gmap .gasset.s-stop { --gi: var(--gidleplant); }
 .gmap .gasset.s-work { --gi: var(--muted); }
 .gmap .gasset.s-down { --gi: var(--ng); }
@@ -1402,10 +1403,11 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 @keyframes gmmboat { 0%, 100% { transform: translateX(-8px); } 50% { transform: translateX(8px); } }
 .gmap .gmm-rail { stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 2 2; }
 .gmap .gmm-tbody { fill: #2f7a5f; stroke: var(--card); stroke-width: .5; }
+.gmap .gmm-tram.dark .gmm-tbody { fill: var(--muted); opacity: .65; }
 .gmap .gmm-tspark { fill: #bfe3ff; opacity: 0; }
-.gmap .gmm-tram.run .gmm-car { animation: gmmtram 5s linear infinite; }
+.gmap .gmm-tram.run .gmm-car { animation: gmmtram 5s ease-in-out infinite alternate; }
 .gmap .gmm-tram.run .gmm-tspark { animation: tspark 1.5s linear infinite; }
-@keyframes gmmtram { 0% { transform: translateX(-16px); } 100% { transform: translateX(16px); } }
+@keyframes gmmtram { 0% { transform: translateX(-11px); } 100% { transform: translateX(11px); } }
 
 /* 3章：4つの演出（初めて電気が届いた・完成の瞬間・1年のまとめ・事故と復旧の波及） */
 .gmap .gdoneline { stroke: #ffd21f; stroke-dasharray: 100; stroke-dashoffset: 100; animation: gdoneline 1.5s ease-out forwards; }

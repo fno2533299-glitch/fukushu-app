@@ -14,6 +14,11 @@ export const TOWN_OBJECTS = {
     name: '変電所',
     units: ['denken3-denryoku-U05', 'denken2-denryoku-U05', 'denken3-kikai-U04', 'denken2-kikai-U04', 'generation-U12'],
   },
+  conv: {
+    name: '電鉄用の変換所',
+    pic: 'sub',
+    units: ['denken3-kikai-U05', 'denken2-kikai-U05', 'denken3-kikai-U03', 'electronic-c-U14'],
+  },
   pole: {
     name: '柱上変圧器・配電線',
     units: ['denken3-denryoku-U07', 'denken2-denryoku-U07', 'denken3-kikai-U04', 'denken2-kikai-U04'],
@@ -49,6 +54,7 @@ export const TOWN_OBJECTS = {
   },
   tram: {
     name: '電鉄（電車）',
+    pic: 'load_tram',
     units: ['denken3-kikai-U01', 'denken2-kikai-U01', 'denken3-kikai-U05'],
   },
   decor: {
@@ -126,7 +132,7 @@ export function townSceneState(g, townId) {
   const demandBy = {};
   let totalNow = 0;
   let totalMax = 0;
-  for (const k of ['lamp', 'home', 'shop', 'factory']) {
+  for (const k of ['lamp', 'home', 'shop', 'factory', 'tram']) {
     const ls = loads.filter((l) => l.type === k);
     if (!ls.length) continue;
     const maxKw = ls.reduce((a, l) => a + l.kw, 0);
@@ -142,6 +148,9 @@ export function townSceneState(g, townId) {
   const lineK = line ? Gm.LINES[line.kind] : null;
   const subs = (g.subs || []).filter((s) => s.town === townId && s.readyAt <= t);
   const subMva = subs.reduce((a, s) => a + s.mva, 0);
+  const convs = (g.convs || []).filter((c) => c.town === townId && c.readyAt <= t);
+  const convKw = convs.reduce((a, c) => a + c.kw, 0);
+  const convActiveKw = convs.filter((c) => c.downUntil <= t).reduce((a, c) => a + c.kw, 0);
   const dcOnly = (!line || lineK.dc) && !subs.length && (g.plants || []).some((p) => p.site === townId && !Gm.PLANTS[p.type].ac);
 
   const buildings = townBuildings(g, townId);
@@ -160,6 +169,11 @@ export function townSceneState(g, townId) {
           : 'clear';
   const lineAlert = !!line && (line.downUntil > t || line.c1Until > t || (g.incidents || []).some((i) => i.line === line.id));
   const subAlert = subs.some((s) => s.downUntil > t || (g.incidents || []).some((i) => i.sub === s.id));
+  const convAlert = convs.some((c) => c.downUntil > t);
+  const hasTram = !!demandBy.tram;
+  const tramDown = (g.tramDown?.[townId] || 0) > t;
+  const tramRate = !hasTram ? 0 : black || tramDown ? 0 : st?.tramR != null ? st.tramR : convActiveKw > 0 ? Math.min(1, convActiveKw / Math.max(1e-6, demandBy.tram.nowKw || 1)) : 0;
+  const tramRunning = hasTram && !tramDown && tramRate >= 0.5 && (demandBy.tram.shape || 0) > 0;
 
   // 流れの速さ（その町へ入る量に応じて 0.5〜1.8s）
   const flowKw = servedNow;
@@ -170,6 +184,8 @@ export function townSceneState(g, townId) {
     era,
     line ? line.kind : dcOnly ? 'dc' : 'none',
     subs.length ? subMva : 0,
+    convs.length ? `${convs.map((c) => c.type).join(',')}:${convKw}` : 0,
+    hasTram ? 1 : 0,
     buildings.map((b) => b.id).join(','),
     decors.map((d) => d.kind).join(','),
   ].join('|');
@@ -187,6 +203,9 @@ export function townSceneState(g, townId) {
     dcOnly,
     subs,
     subMva,
+    convs,
+    convKw,
+    convActiveKw,
     buildings,
     darks,
     decors,
@@ -199,8 +218,12 @@ export function townSceneState(g, townId) {
     hasLoad,
     lineAlert,
     subAlert,
+    convAlert,
     fs,
-    hasTram: false, // 4章：電鉄の需要はこの版では未追加
+    hasTram,
+    tramDown,
+    tramRate,
+    tramRunning,
     structKey,
   };
 }
@@ -224,6 +247,12 @@ export function townObjectInfo(g, townId, key) {
       title = `変電所（合計 ${st.subMva} MVA）`;
       text = `変圧器で ${st.lineK ? `${st.lineK.kv} kV` : '高圧'} を配電の 3.3 kV に下げる。鉄損（容量の 0.5% が常時）と銅損（負荷率の 2 乗）があり、負荷率 58% 前後で効率が最大になる。`;
       break;
+    case 'conv': {
+      const names = [...new Set(st.convs.map((c) => Gm.CONVS[c.type].short))].join('・');
+      title = `電鉄用の変換所（${names || '変換所'}・合計 ${kw(st.convKw)}）`;
+      text = '交流の電気を、路面電車・郊外電車が使う直流 600 V に変える設備。電鉄の需要はこの容量までしか届かず、変換の損失（電鉄 kW ÷ 効率 − 電鉄 kW）が交流側に足される。回転変流機は効率 90% 前後、水銀整流器は 95% 前後で保守も楽。';
+      break;
+    }
     case 'pole':
       text = st.dcOnly
         ? '直流配電の電柱。発電所から 200 V のまま家や街灯へ配っている。'
@@ -250,9 +279,18 @@ export function townObjectInfo(g, townId, key) {
     case 'furnace':
       text = '昭和前期ごろから増えた工場の電気炉（電熱）。電気抵抗やアークの熱で金属を溶かし、大きな電力を消費する。';
       break;
-    case 'tram':
-      text = '架線から直流の電気をとって走る電車（電鉄の版で需要に追加予定）。交流を直流に変える変電所が要る。';
+    case 'tram': {
+      const tr = st.demandBy.tram;
+      const note = st.tramDown
+        ? 'いま架線の事故で止まっている。'
+        : st.convActiveKw <= 0
+          ? '電鉄用の変換所（交流 → 直流 600 V）がないため走れない。'
+          : tr && tr.nowKw > st.convActiveKw + 1e-6
+            ? `変換所の容量（${kw(st.convActiveKw)}）が足りない。`
+            : '';
+      text = `電鉄の需要（いま ${kw(tr?.nowKw || 0)}／契約 ${kw(tr?.maxKw || 0)}、直流 600 V）。朝 6〜8 時と夕方 16〜19 時に山があり、深夜 0〜4 時は運休。交流を直流 600 V に変える電鉄用の変換所が要る。${note}`;
       break;
+    }
     case 'decor': {
       const names = st.decors.map((d) => Gm.DECOR[d.kind]?.name).filter(Boolean).join('・');
       title = names ? `記念の建物（${names}）` : '記念の建物';
@@ -274,16 +312,16 @@ export function skyColors(nightLvl, weather) {
   return ['#6fa8dc', '#cfe6f5'];
 }
 
-// 4章：電鉄の準備部品（架線・電車・線路）。hasTram が真のときだけ描く
+// 1.10.4 電鉄（架線・電車・線路）。hasTram が真のときだけ描く
 export function tramSvg({ running = false, night = false } = {}) {
   const wins = [22, 48, 74, 100]
-    .map((x) => `<rect x="${x}" y="302" width="20" height="12" rx="1.5" fill="${running ? '#ffd36b' : '#25304d'}"/>`)
+    .map((x) => `<rect x="${x}" y="302" width="20" height="12" rx="1.5" data-tramwin fill="${running ? '#ffd36b' : '#25304d'}"/>`)
     .join('');
-  return `<g class="ttram" data-k="tram">
+  return `<g class="ttram tobj" data-k="tram">
     <path d="M0 262 H900" stroke="#c9cfdb" stroke-width="1"/>
-    <g class="${running ? 'ttram-run' : ''}" style="${running ? '' : 'transform:translateX(360px)'}">
+    <g data-tramcar class="${running ? 'ttram-run' : ''}" style="${running ? '' : 'transform:translateX(360px)'}">
       <path d="M70 296 L92 263" stroke="#2a2f3a" stroke-width="2.5"/>
-      ${running ? '<circle cx="92" cy="263" r="4.5" fill="#bfe3ff" class="tspark"/>' : ''}
+      <circle cx="92" cy="263" r="4.5" fill="#bfe3ff" class="tspark" data-tramspark style="display:${running ? '' : 'none'}"/>
       <rect x="12" y="296" width="126" height="34" rx="7" fill="#2f7a5f"/>
       <rect x="12" y="320" width="126" height="10" fill="#235c48"/>
       ${wins}
@@ -388,18 +426,38 @@ export function townSvgHtml(st) {
     </g>`;
   }
 
-  // 変電所（あれば）
+  // 変電所（あれば）。1.10.4 変換所もあるときは左を少し詰めて横に並べる
   if (st.subs.length) {
     const vText = st.lineK && st.lineK.kv >= 11 ? `${st.lineK.kv}→3.3 kV` : '変圧器';
-    s += `<g data-k="sub" class="tobj"><rect x="128" y="168" width="108" height="136" fill="transparent"/>
-      <path d="M134 300 V214 M228 300 V214 M134 214 H228" stroke="#6b7793" stroke-width="2" stroke-dasharray="3 3"/>
-      <rect x="148" y="232" width="34" height="56" rx="3" fill="#5c6680"/>
-      <rect x="188" y="242" width="28" height="46" rx="3" fill="#56607a"/>
-      ${[0, 1, 2, 3].map((i) => `<rect x="${150 + i * 8}" y="236" width="4" height="48" fill="#46506a"/>`).join('')}
-      <path d="M156 232 V196 M168 232 V196 M195 242 V212 M208 242 V212" stroke="#c9cfdb" stroke-width="2"/>
-      <text x="181" y="320" text-anchor="middle" font-size="11.5" fill="#fff">変電所 ${st.subMva} MVA</text>
-      <text x="181" y="334" text-anchor="middle" font-size="10.5" fill="#cfd6e8">${vText}</text>
-      <g data-salert style="display:${st.subAlert ? '' : 'none'}"><circle cx="222" cy="192" r="11" fill="#e8452c"/><text x="222" y="197" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">!</text></g>
+    const hasC = st.convs.length > 0;
+    const sx = hasC ? -12 : 0;
+    s += `<g data-k="sub" class="tobj" transform="translate(${sx},0)"><rect x="128" y="168" width="100" height="136" fill="transparent"/>
+      <path d="M134 300 V214 M222 300 V214 M134 214 H222" stroke="#6b7793" stroke-width="2" stroke-dasharray="3 3"/>
+      <rect x="146" y="232" width="32" height="56" rx="3" fill="#5c6680"/>
+      <rect x="184" y="242" width="26" height="46" rx="3" fill="#56607a"/>
+      ${[0, 1, 2, 3].map((i) => `<rect x="${148 + i * 7}" y="236" width="4" height="48" fill="#46506a"/>`).join('')}
+      <path d="M154 232 V196 M166 232 V196 M191 242 V212 M204 242 V212" stroke="#c9cfdb" stroke-width="2"/>
+      <text x="178" y="320" text-anchor="middle" font-size="11" fill="#fff">変電所 ${st.subMva} MVA</text>
+      <text x="178" y="334" text-anchor="middle" font-size="10" fill="#cfd6e8">${vText}</text>
+      <g data-salert style="display:${st.subAlert ? '' : 'none'}"><circle cx="216" cy="192" r="11" fill="#e8452c"/><text x="216" y="197" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">!</text></g>
+    </g>`;
+  }
+  // 1.10.4 電鉄用の変換所（変電所の横。交流 → 直流 600 V）
+  if (st.convs.length) {
+    const isMerc = st.convs.some((c) => c.type === 'mercury');
+    const cName = st.convs.length === 1 ? Gm.CONVS[st.convs[0].type].short : isMerc ? '水銀整流器等' : '回転変流機';
+    const cRun = !st.convAlert && st.convActiveKw > 0 && st.tramRunning;
+    s += `<g data-k="conv" data-conv class="tobj${cRun ? ' trun' : ''}" style="--gs:1.6s">
+      <rect x="206" y="218" width="46" height="84" fill="transparent"/>
+      <path d="M196 248 H212" stroke="#c9cfdb" stroke-width="1.6"/>
+      ${st.hasTram ? '<path d="M230 232 V262" stroke="#ffd36b" stroke-width="1.6" stroke-dasharray="3 2"/>' : ''}
+      <rect x="210" y="232" width="38" height="68" rx="4" fill="#3f5d6b" stroke="#8fb6c8" stroke-width="1.4"/>
+      ${isMerc
+        ? `<ellipse cx="229" cy="258" rx="9" ry="12" fill="${cRun ? '#6ce0ff' : '#2e4a56'}" class="tconvglow"/><path d="M224 268 L229 274 L234 268" stroke="#d8f4ff" stroke-width="1.4" fill="none"/>`
+        : `<g transform="translate(229 260)"><circle r="10" fill="#2f434e" stroke="#9ec4d4" stroke-width="1.4"/><g class="tgear"><path d="M0 -8 V8 M-8 0 H8 M-5.5 -5.5 L5.5 5.5 M-5.5 5.5 L5.5 -5.5" stroke="#d9ebf2" stroke-width="1.6"/></g></g>`}
+      <text x="229" y="294" text-anchor="middle" font-size="8.5" font-weight="700" fill="#e6f5fa">DC600V</text>
+      <text x="229" y="348" text-anchor="middle" font-size="10" fill="#bfe8f7">${cName} ${Gm.fmtKw(st.convKw)}</text>
+      <g data-calert style="display:${st.convAlert ? '' : 'none'}"><circle cx="244" cy="232" r="9.5" fill="#e8452c"/><text x="244" y="236.5" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">!</text></g>
     </g>`;
   }
 
@@ -493,8 +551,8 @@ export function townSvgHtml(st) {
     }
   }
 
-  // 電鉄（4章：今は hasTram = false のため描かない）
-  if (st.hasTram) s += tramSvg({ running: st.rate >= 0.5, night: N });
+  // 1.10.4 電鉄（架線と路面電車）
+  if (st.hasTram) s += tramSvg({ running: st.tramRunning, night: N });
 
   // 天気の層（大雪・台風）
   s += `<g data-snow style="display:${snow ? '' : 'none'}" pointer-events="none">${Array.from(
@@ -540,6 +598,18 @@ export function patchTownSvg(svg, st) {
   if (la) la.style.display = st.lineAlert ? '' : 'none';
   const sa = svg.querySelector('[data-salert]');
   if (sa) sa.style.display = st.subAlert ? '' : 'none';
+  const ca = svg.querySelector('[data-calert]');
+  if (ca) ca.style.display = st.convAlert ? '' : 'none';
+  const cv = svg.querySelector('[data-conv]');
+  if (cv) cv.classList.toggle('trun', !st.convAlert && st.convActiveKw > 0 && st.tramRunning);
+  const tc = svg.querySelector('[data-tramcar]');
+  if (tc) {
+    tc.classList.toggle('ttram-run', st.tramRunning);
+    tc.style.transform = st.tramRunning ? '' : 'translateX(360px)';
+    const sp = svg.querySelector('[data-tramspark]');
+    if (sp) sp.style.display = st.tramRunning ? '' : 'none';
+    svg.querySelectorAll('[data-tramwin]').forEach((w) => w.setAttribute('fill', st.tramRunning ? '#ffd36b' : '#25304d'));
+  }
   const sn = svg.querySelector('[data-snow]');
   if (sn) sn.style.display = snow ? '' : 'none';
   const sr = svg.querySelector('[data-storm]');

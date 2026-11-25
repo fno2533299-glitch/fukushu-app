@@ -129,7 +129,7 @@ export function moneyDay(money) {
 const LINE_KEYS = { salt: 'coast', gallop: 'snow', lightning: 'thunder', backFlash: 'thunder', arc: null, lineOver: null };
 const PLANT_KEYS = ['parallelIn', 'genTrip', 'genShort'];
 const SUB_KEYS = ['trLoss', 'trParallel', 'trShare'];
-const TOWN_KEYS = ['dcDrop', 'factoryPf', 'motor'];
+const TOWN_KEYS = ['dcDrop', 'factoryPf', 'motor', 'catenary'];
 // tag：事故の文に添える呼び名（開発者モード／デモ）
 // 1.10.2 デモ・開発者モードで事故をすぐ起こしたときの修理費も、直近24刻みの収益内訳（money）に載せる
 export function addMoneyRepair(money, t, cost) {
@@ -196,8 +196,12 @@ export function triggerIncident(G, lc, key, tag = '開発者モード', money = 
     const s = G.subs[0];
     if (s) Object.assign(info, { sub: s.id, what: `${Gm.nodeOf(G, s.town).name}の変電所から報告が来た（${tag}）。` });
   } else if (TOWN_KEYS.includes(key)) {
-    const town = G.loads[0]?.town || 'T1';
-    Object.assign(info, { town, what: `${Gm.nodeOf(G, town).name}で起きた（${tag}）。` });
+    const tramTown = key === 'catenary' ? G.loads.find((l) => l.type === 'tram')?.town : null;
+    const town = tramTown || G.loads[0]?.town || Gm.startId(G) || 'T1';
+    if (key === 'catenary') {
+      (G.tramDown ||= {})[town] = t + 24;
+      Object.assign(info, { town, what: `${Gm.nodeOf(G, town).name}の電鉄で、架線が垂れ下がり電車の集電装置と車体の間で短絡してアークが出た（${tag}）。` });
+    } else Object.assign(info, { town, what: `${Gm.nodeOf(G, town).name}で起きた（${tag}）。` });
   }
   info.what ||= `${tag}で起こした。`;
   G.cool[key] = 0;

@@ -76,6 +76,16 @@ export function lineFact(a, b) {
 }
 export const confText = (c) => (c === true ? '確かめた' : c === 'part' ? '一部を確かめた' : '未確認');
 
+// ---- 1.10.4 電鉄（路面電車）の史実の順（史実モードの申し込み順と年表） ----
+export const TRAM_HISTORY = [
+  { id: 'tram-kyoto', town: 'kyoto', year: 1895, short: '京都電気鉄道の開業（日本初の営業電車）', text: '1895年2月1日、京都電気鉄道が伏見線（七条停車場〜下油掛、約 6.7 km）を直流で開業。日本で最初の営業の電車', src: 'S22', conf: true },
+  { id: 'tram-nagoya', town: 'nagoya', year: 1898, short: '名古屋電気鉄道の開業', text: '1898年、名古屋電気鉄道が開業（未確認）', src: 'G2', conf: false },
+  { id: 'tram-kawasaki', town: 'kawasaki', year: 1899, short: '大師電気鉄道の開業', text: '1899年1月21日、大師電気鉄道が六郷橋〜大師（約 2 km）を開業。自社の火力発電所の電気で走り、1901年から沿線に電灯も売った', src: 'S23', conf: true },
+  { id: 'tram-tokyo', town: 'tk-shiba', year: 1903, short: '東京電車鉄道の開業（品川〜新橋）', text: '1903年8月22日、東京電車鉄道が品川〜新橋に路面電車を開業', src: 'S24', conf: true },
+  { id: 'tram-osaka', town: 'osaka', year: 1903, short: '大阪市営路面電車の開業', text: '1903年9月12日、大阪市が花園橋〜築港桟橋に日本で最初の公営の路面電車を開業', src: 'S25', conf: true },
+];
+export const tramFactOf = (town) => TRAM_HISTORY.find((x) => x.town === town) || null;
+
 // ---- 時代が進んだときのまとめに出す史実（確かめたものだけ。1〜2行） ----
 export const ERA_FACTS = {
   2: ['1891年、京都の蹴上で日本初の事業用の水力。1907年、駒橋から東京へ 55kV・76km', '1895年、浅草の火力が 50Hz（ドイツ製）、1897年、大阪の幸町が 60Hz（アメリカ製）。今の東西の周波数の始まり'],
@@ -108,6 +118,12 @@ export const SOURCES = [
   ['S19', '文化庁 近代遺跡調査 中国電力大三島支線（旧中四幹線）（1.10.0。最長径間 2,357 m。海峡線の長さの目安にだけ使う）', 'https://www.bunka.go.jp/kindai/kenzoubutsu/research_doboku/denryoku/soudensisetsu/t005/index.html'],
   ['S20', '産総研 地質調査総合センター『地質ニュース』（1.10.1。わが国の代表的な炭田：石狩・筑豊・釧路・三池・常磐）', 'https://www.gsj.jp/data/chishitsunews/66_03_07.pdf'],
   ['S21', '産総研 地質調査総合センター『地質調査所月報』32巻11号（1.10.1。主要炭田の一覧に宇部炭田）', 'https://www.gsj.jp/data/bull-gsj/32-11_01.pdf'],
+  ['S22', '電気学会「第3回でんきの礎」（1.10.4。1895年2月1日 京都電気鉄道伏見線の開業）', 'https://www.iee.jp/file/foundation/data05/ishi3.pdf'],
+  ['S23', '京急「京急歴史館 創業期」（1.10.4。1899年1月21日 大師電気鉄道の開業）', 'https://www.keikyu.co.jp/history/chronology01.html'],
+  ['S24', '東京都交通局「交通局のあゆみ 都電荒川線」（1.10.4。1903年8月22日 東京電車鉄道の開業）', 'https://www.kotsu.metro.tokyo.jp/about/ayumi/toden.html'],
+  ['S25', '大阪市教育委員会 文化財の紹介（市電 501 型）（1.10.4。1903年9月12日 大阪市営路面電車の開業）', 'https://www.city.osaka.lg.jp/kyoiku/cmsfiles/contents/0000674/674333/8.pdf'],
+  ['S26', '東急「池上電気鉄道の歴史（1-2-3-1）」（1.10.4。玉川電気鉄道の発電所 525 kW のうち 450 kW が電車用）', 'https://www.tokyu.co.jp/history/chapter01_2_3/'],
+  ['S27', '名古屋市交通局『名古屋市営交通百年史』第2編第1章（1.10.4。1922年 2,800 kW・600 V、1929年水銀整流器、1940年 25% 節電・朝夕急行）', ''],
   ['G1', 'Gemini の調査（1回目、2026-11-15）。出典を Claude が確かめていない行は「未確認」', ''],
   ['G2', 'Gemini の調査（2回目、2026-11-16）。出典を Claude が確かめていない行は「未確認」', ''],
 ];

@@ -65,11 +65,11 @@ export const MAP_DEFS = `<defs><radialGradient id="gtownglow"><stop offset="0" s
 
 // ---- 発電所・変電所のアイコン ----
 // 種類 → 絵の形。石炭火力（直流・交流・大型）は建物と煙突、流れ込み式は水車小屋、調整池式はダム、変電所は鉄の骨組みと変圧器
-export const ICON_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'bigcoal', ror: 'wheel', pond: 'dam', sub: 'sub' };
-const ORDER = ['dcCoal', 'acCoal', 'bigCoal', 'ror', 'pond', 'sub'];
+export const ICON_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'bigcoal', ror: 'wheel', pond: 'dam', sub: 'sub', rotary: 'conv', mercury: 'conv' };
+const ORDER = ['dcCoal', 'acCoal', 'bigCoal', 'ror', 'pond', 'sub', 'rotary', 'mercury'];
 // 大きさの段（1〜3）：その種類の大きさの一覧のどのあたりか（同じ種類が複数あれば合計の出力で）
 export function sizeTier(type, kw) {
-  const list = type === 'sub' ? Gm.SUB_SIZES.map((m) => m * 1000) : Gm.PLANTS[type].sizes.map((z) => z[0]);
+  const list = type === 'sub' ? Gm.SUB_SIZES.map((m) => m * 1000) : type === 'rotary' || type === 'mercury' ? Gm.CONV_SIZES : Gm.PLANTS[type].sizes.map((z) => z[0]);
   let r = 0;
   for (let i = 0; i < list.length; i++) if (kw >= list[i] - 1e-9) r = i;
   return 1 + Math.min(2, Math.floor((3 * r) / list.length));
@@ -87,6 +87,10 @@ export function assetGroups(g, nodeId) {
     if (!by.has('sub')) by.set('sub', []);
     by.get('sub').push({ x: s, kw: s.mva * 1000 });
   }
+  for (const c of (g.convs || []).filter((x) => x.town === nodeId)) {
+    if (!by.has(c.type)) by.set(c.type, []);
+    by.get(c.type).push({ x: c, kw: c.kw });
+  }
   const out = [];
   for (const type of ORDER) {
     const items = by.get(type);
@@ -96,7 +100,7 @@ export function assetGroups(g, nodeId) {
     let state;
     if (!built.length) state = 'work';
     else if (built.some((i) => i.x.downUntil > t)) state = 'down';
-    else if (type === 'sub') state = 'run';
+    else if (type === 'sub' || type === 'rotary' || type === 'mercury') state = 'run';
     else state = built.some((i) => !i.x.idle && (g.last?.plants[i.x.id] || 0) > 0) ? 'run' : 'stop';
     out.push({ type, icon: ICON_OF[type], count: items.length, kw, tier: sizeTier(type, kw), state, building: built.length < items.length, ids: items.map((i) => i.x.id) });
   }
@@ -133,6 +137,7 @@ const SHAPE = {
   wheel: '<path class="gi-b" d="M-9 8V-1l5-4 5 4V8z"/><g class="gwheel gsync"><circle cx="4.5" cy="2.5" r="4.6" class="gi-r"/><path class="gi-s" d="M4.5-2.1v9.2M-.1 2.5h9.2M1.2-.8l6.6 6.6M7.8-.8L1.2 5.8"/></g><path class="gwater gsync" d="M-9.5 9.4q1.6-1.6 3.2 0t3.2 0 3.2 0 3.2 0 3.2 0 3.2 0"/>',
   dam: '<path class="gi-lake" d="M-10-4h7V8h-7z"/><path class="gi-b" d="M-3-8h3.4L7 8H-3z"/><path class="gspray gsync" d="M7.4 3.6q2 1.6 2.4 4.4M5.6 1q3 1.2 4.2 2.6"/>',
   sub: '<path class="gi-f" d="M-8 8V-7M8 8V-7M-9.5-7h19M-8-3h16M-8-3l3.4-4M8-3L4.6-7M-5-7v-2.6M0-7v-2.6M5-7v-2.6"/><rect class="gi-b" x="-4.8" y="0" width="9.6" height="8" rx="1.2"/><circle class="gi-c" cx="-1.7" cy="4" r="2"/><circle class="gi-c" cx="1.7" cy="4" r="2"/>',
+  conv: '<rect class="gi-b" x="-7.5" y="-5" width="15" height="12.5" rx="2"/><path class="gi-c" d="M-5.2-1c1-2 2-2 3 0s2 2 3 0M-5.2 3.5h10.4M-5.2 5.4h4M1.2 5.4h4"/>',
 };
 // 足場（工事中）
 const SCAFFOLD = '<path class="gi-sc" d="M-8 9V-8M0 9V-8M8 9V-8M-8-5h16M-8 1h16M-8 7h16M-8-5l8 6M0 1l8 6"/>';
@@ -213,19 +218,26 @@ export function mapTownMotionSvg(g, n, x, y, t = g.t) {
         + `</g>`;
     }
   }
+  // 1.10.4 電鉄（路面電車）：町の上に短い線路と小さな電車（届いていなければ暗く停止）
+  if (loads.some((l) => l.type === 'tram')) {
+    const f = Gm.LOADS.tram.shape[h] || 0;
+    const tramOk = st?.tramR != null ? st.tramR > 0.01 : lit && Gm.convCapAt(g, n.id, t) > 0;
+    const run = tramOk && f > 0 && !((g.tramDown?.[n.id] || 0) > t);
+    s += mapTramSvg({ x: x - 16, y: y - 22 }, { x: x + 16, y: y - 22 }, run);
+  }
   return s;
 }
 
-// 4章：電鉄の準備部品（地図用。この版では呼ばない）
+// 1.10.4 電鉄（地図用）：短い線路と小さな電車（running が真なら往復、偽なら暗く停止）
 export function mapTramSvg(a, b, running = false) {
   const dx = b.x - a.x, dy = b.y - a.y;
   const len = Math.hypot(dx, dy);
   if (len < 6) return '';
   const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
   const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-  return `<g class="gmm-tram${running ? ' run' : ''}">`
+  return `<g class="gmm gmm-tram${running ? ' run' : ' dark'}">`
     + `<line x1="${f1(a.x)}" y1="${f1(a.y)}" x2="${f1(b.x)}" y2="${f1(b.y)}" class="gmm-rail"/>`
     + `<g transform="translate(${f1(mx)},${f1(my)}) rotate(${f1(ang)})">`
-    + `<g class="gmm-car gsync"><rect x="-5" y="-2.2" width="10" height="4.4" rx="1.2" class="gmm-tbody"/><circle cx="0" cy="-2.6" r="1.1" class="gmm-tspark"/></g>`
+    + `<g class="gmm-car gsync"><rect x="-5" y="-2.2" width="10" height="4.4" rx="1.2" class="gmm-tbody"/>${running ? '<circle cx="0" cy="-2.6" r="1.1" class="gmm-tspark"/>' : ''}</g>`
     + `</g></g>`;
 }
