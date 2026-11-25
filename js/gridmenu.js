@@ -68,11 +68,12 @@ export function incidentsAt(g, id) {
   const subs = new Set(g.subs.filter((s) => s.town === id).map((s) => s.id));
   return g.incidents.filter((i) => i.town === id || plants.has(i.plant) || subs.has(i.sub));
 }
-// 地点を押したときのメニュー：建設・線を引く・詳細・撤去・事故（あるものだけ）
+// 地点を押したときのメニュー：建設・線を引く・町を見る（町だけ）・詳細・撤去・事故（あるものだけ）
 export function nodeMenu(g, lc, id) {
   const items = [];
   if (buildChoices(g, lc, id).length) items.push({ k: 'build', label: '建設', branch: true });
   if (lineChoices(g, lc, id).length) items.push({ k: 'line', label: '線を引く', branch: true });
+  if (Gm.nodeOf(g, id)?.town) items.push({ k: 'town', label: '町を見る' });
   items.push({ k: 'detail', label: '詳細' });
   const rm = removables(g, id);
   if (rm.length) items.push({ k: 'rm', label: '撤去', branch: rm.length > 1 });

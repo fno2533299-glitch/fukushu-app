@@ -168,3 +168,64 @@ export function decorSvg(kind, x, y, scale = 1) {
 }
 // 画面の文字の前に添える小さな絵（HTML）
 export const decorIcon = (kind) => `<svg class="gdeci" viewBox="-10.5 -10.5 21 21" aria-hidden="true">${decorSvg(kind, 0, 0)}</svg>`;
+
+// ---- 1.10.3 地図の使い手側の動き（案2）：幅 60 km 以下・画面の中の町だけ ----
+// 工場（動力）＝小さな工場＋回る歯車＋稼働中の煙、町の動力＝商店の看板の明滅、海沿い石炭火力＝運搬船。届いていなければ暗く停止
+export function mapTownMotionSvg(g, n, x, y, t = g.t) {
+  const h = ((t % 24) + 24) % 24;
+  const st = g.last?.towns?.[n.id];
+  const lit = !!st && st.d > 1e-6 && st.r > 0.01;
+  const night = h >= 17 || h < 6;
+  const loads = (g.loads || []).filter((l) => l.town === n.id);
+  let s = '';
+  // 工場（動力）：町の右下（アイコンや名前と重なりにくい位置）
+  if (loads.some((l) => l.type === 'factory')) {
+    const f = Gm.LOADS.factory.shape[h] || 0;
+    const run = lit && f >= 0.4;
+    const fx = f1(x + 22), fy = f1(y + 18);
+    s += `<g class="gmm gmm-fac${run ? ' run' : ' dark'}" transform="translate(${fx},${fy})">`
+      + `<rect x="-8" y="-2" width="12" height="8" rx=".8" class="gmm-b"/>`
+      + `<path d="M-8,-2 L-4,-6 V-2 L0,-6 V-2 L4,-6 V-2Z" class="gmm-r"/>`
+      + `<rect x="4" y="-9" width="3" height="15" class="gmm-ch"/>`
+      + `<g transform="translate(-2,2)"><g class="gmm-gear gsync"><circle r="2.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-dasharray="1.7 1.3"/></g></g>`
+      + (run ? `<circle cx="5.5" cy="-11" r="2.2" class="gmm-sm gsync"/>` : '')
+      + `</g>`;
+  }
+  // 町の動力（商店）：町の左下（看板がゆっくり明滅）
+  if (loads.some((l) => l.type === 'shop')) {
+    const f = Gm.LOADS.shop.shape[h] || 0;
+    const run = lit && (f >= 0.4 || night);
+    const sx = f1(x - 22), sy = f1(y + 18);
+    s += `<g class="gmm gmm-shop${run ? ' run' : ' dark'}" transform="translate(${sx},${sy})">`
+      + `<rect x="-6.5" y="-3" width="13" height="9" rx=".8" class="gmm-b"/>`
+      + `<rect x="-5.5" y="-6.2" width="11" height="3.2" rx=".8" class="gmm-sign gsync"/>`
+      + `<rect x="-4" y="0" width="3" height="3" class="gmm-w"/><rect x="1" y="0" width="3" height="3" class="gmm-w"/>`
+      + `</g>`;
+  }
+  // 海沿いの完成済み石炭火力：石炭運搬船が沖と発電所の間を行き来する
+  if (n.tags?.includes('coast')) {
+    const coals = (g.plants || []).filter((p) => p.site === n.id && p.readyAt <= t && Gm.PLANTS[p.type].coal);
+    if (coals.length) {
+      const active = coals.some((p) => !p.idle && p.downUntil <= t && (g.last?.plants?.[p.id] || 0) > 0);
+      const bx = f1(x + 28), by = f1(y + 28);
+      s += `<g class="gmm gmm-ship${active ? ' run' : ' dark'}" transform="translate(${bx},${by})">`
+        + `<g class="gmm-boat gsync"><path d="M-7,1 L-5,4.2 H5 L7,1 Z" class="gmm-hull"/><rect x="-3" y="-2" width="5" height="3" class="gmm-cab"/><path d="M-5.5,1 L-3.5,-1 L-1.5,1Z" class="gmm-coal"/></g>`
+        + `</g>`;
+    }
+  }
+  return s;
+}
+
+// 4章：電鉄の準備部品（地図用。この版では呼ばない）
+export function mapTramSvg(a, b, running = false) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 6) return '';
+  const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  return `<g class="gmm-tram${running ? ' run' : ''}">`
+    + `<line x1="${f1(a.x)}" y1="${f1(a.y)}" x2="${f1(b.x)}" y2="${f1(b.y)}" class="gmm-rail"/>`
+    + `<g transform="translate(${f1(mx)},${f1(my)}) rotate(${f1(ang)})">`
+    + `<g class="gmm-car gsync"><rect x="-5" y="-2.2" width="10" height="4.4" rx="1.2" class="gmm-tbody"/><circle cx="0" cy="-2.6" r="1.1" class="gmm-tspark"/></g>`
+    + `</g></g>`;
+}

@@ -1,6 +1,6 @@
 // オフライン用：アプリ本体をすべて端末に保存し、以後は保存したものから表示する
 // アプリを更新したら CACHE の番号を上げる（index.html の APP_VERSION も合わせる）
-const CACHE = 'fukushu-1.10.2';
+const CACHE = 'fukushu-1.10.3';
 const FILES = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const FILES = [
   './js/gridmenu.js',
   './js/gridimg.js',
   './js/gridart.js',
+  './js/gridtown.js',
   './js/japan.js',
   './js/japan_terrain.js',
   './js/japan_water.js',
@@ -48,6 +49,19 @@ const FILES = [
   './img/grid/G21.webp',
   './img/grid/G22.webp',
   './img/grid/G23.webp',
+  './img/grid/G24.webp',
+  './img/grid/G25.webp',
+  './img/grid/G26.webp',
+  './img/grid/G27.webp',
+  './img/grid/G28.webp',
+  './img/grid/G29.webp',
+  './img/grid/G30.webp',
+  './img/grid/G31.webp',
+  './img/grid/G32.webp',
+  './img/grid/G33.webp',
+  './img/grid/G34.webp',
+  './img/grid/G35.webp',
+  './img/grid/G36.webp',
   './img/grid/I01.webp',
   './img/grid/I02.webp',
   './img/grid/I03.webp',

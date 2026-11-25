@@ -1317,3 +1317,151 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .gnodeplant { border-top: 1px solid var(--line); padding: 4px 0; }
 .gnodeplant:first-of-type { border-top: 0; }
 .gnodeplant p { margin: 2px 0; }
+
+/* ---- 1.10.3 町の画面（案1）・地図の動き（案2）・4つの演出・絵 G24〜G36 ---- */
+/* 案1：町を見る画面 */
+.gtownview { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; -webkit-overflow-scrolling: touch; background: var(--bg); }
+.gtownview[hidden] { display: none; }
+.gtownhead { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--card); border-bottom: 1px solid var(--line); flex: none; }
+.gtownhead .btn { margin: 0; min-height: 40px; }
+.gtowntitle { min-width: 0; display: flex; flex-direction: column; }
+.gtowntitle b { font-size: 1rem; line-height: 1.25; }
+.gtowntitle small { font-size: 0.78rem; color: var(--muted); }
+.gtownscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; background: #0e172a; border-bottom: 1px solid var(--line); flex: none; }
+.gtownsvg { display: block; width: 900px; height: 340px; max-height: 48vh; }
+.gtownhint { margin: 4px 12px 0; color: var(--muted); }
+.gtowninfo { padding: 8px 12px 20px; }
+.gtstats { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.gtstats > p { margin: 0 0 6px; }
+.gtrow { display: grid; grid-template-columns: minmax(96px, auto) 1fr auto; align-items: center; gap: 8px; margin: 5px 0; font-size: 0.82rem; }
+.gtlbl { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.gtbar { display: block; height: 9px; border-radius: 5px; background: var(--line); overflow: hidden; }
+.gtbar i { display: block; height: 100%; border-radius: 5px; transition: width .3s ease; }
+.gtval { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* 案1：SVG 内部の状態と動き（位置・回転・透明度のみ） */
+.gtownsvg .tobj { cursor: pointer; }
+.gtownsvg .tflow { stroke-dasharray: 8 10; animation: tflow var(--fs, 1.2s) linear infinite; }
+@keyframes tflow { to { stroke-dashoffset: -18; } }
+.gtownsvg .tgear { transform-box: fill-box; transform-origin: center; }
+.gtownsvg .trun .tgear { animation: tspin var(--gs, 2s) linear infinite; }
+@keyframes tspin { to { transform: rotate(360deg); } }
+.gtownsvg .tsmoke { opacity: 0; }
+.gtownsvg .trun .tsmoke { animation: tsmoke 3.2s linear infinite; }
+@keyframes tsmoke { 0% { transform: translate(0, 0) scale(.65); opacity: .78; } 100% { transform: translate(26px, -44px) scale(1.65); opacity: 0; } }
+.gtownsvg .tbox { opacity: 0; }
+.gtownsvg .trun .tbox { animation: tbox 4s linear infinite; }
+@keyframes tbox { 0% { transform: translateX(0); opacity: 0; } 12% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translateX(28px); opacity: 0; } }
+.gtownsvg .tlit .twin, .gtownsvg .tlit .tbulb { fill: #ffd36b; }
+.gtownsvg .tdark .twin, .gtownsvg .tdark .tbulb { fill: #25304d; }
+.gtownsvg .tlit .troom { fill: #4a3f28; }
+.gtownsvg .tdark .troom { fill: #1b2235; }
+.gtownsvg .tlit .thalo { opacity: .88; transition: opacity .4s; }
+.gtownsvg .tdark .thalo { opacity: 0; transition: opacity .4s; }
+.gtownsvg .tlit .tsign { fill: #ff7b6b; }
+.gtownsvg .trun .tsign { animation: tsign 2.2s ease-in-out infinite; }
+@keyframes tsign { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+.gtownsvg .tdark .tsign { fill: #353a4d; }
+.gtownsvg .tsnowf { animation: tsnow 4.4s linear infinite; }
+@keyframes tsnow { 0% { transform: translate(0, -10px); opacity: 0; } 15% { opacity: .85; } 100% { transform: translate(-24px, 290px); opacity: .2; } }
+.gtownsvg .trainf { animation: train .85s linear infinite; }
+@keyframes train { 0% { transform: translate(0, -20px); opacity: .75; } 100% { transform: translate(-40px, 160px); opacity: .1; } }
+.gtownsvg .ttram-run { animation: ttram 14s linear infinite; }
+@keyframes ttram { 0% { transform: translateX(-160px); } 100% { transform: translateX(940px); } }
+.gtownsvg .tspark { animation: tspark 1.6s linear infinite; }
+@keyframes tspark { 0%, 92%, 100% { opacity: 0; } 95% { opacity: 1; } }
+.gtownsvg.twave-dark .tb { animation: twavedark 1s ease-out both; }
+.gtownsvg.twave-lit .tb { animation: twavelit 1s ease-out both; }
+@keyframes twavedark { 0% { opacity: 1; } 45% { opacity: .35; } 100% { opacity: 1; } }
+@keyframes twavelit { 0% { opacity: .4; } 55% { opacity: 1; } 100% { opacity: 1; } }
+
+/* 案2：地図の使い手側の動き（工場・商店・石炭運搬船・電鉄準備部品） */
+.gmap .gmotions { pointer-events: none; }
+.gmap .gmotions.gdim { opacity: .28; }
+.gmap .gmotions.paused * { animation-play-state: paused !important; }
+.gmap .gmm.dark { opacity: .45; }
+.gmap .gmm-b { fill: var(--ghouse); stroke: var(--gedge); stroke-width: .6; }
+.gmap .gmm-r { fill: var(--groof); stroke: var(--gedge); stroke-width: .5; }
+.gmap .gmm-ch { fill: var(--gcoal); }
+.gmap .gmm-w { fill: var(--gwinon); }
+.gmap .gmm.dark .gmm-w { fill: var(--gwinoff); }
+.gmap .gmm-fac { color: var(--gcoal); }
+.gmap .gmm-fac .gmm-gear { transform-box: fill-box; transform-origin: center; }
+.gmap .gmm-fac.run .gmm-gear { animation: tspin 2.4s linear infinite; }
+.gmap .gmm-sm { fill: var(--muted); opacity: .75; }
+.gmap .gmm-fac.run .gmm-sm { animation: gmmsmoke 2.6s ease-out infinite; }
+@keyframes gmmsmoke { 0% { transform: translate(0, 0) scale(.7); opacity: .85; } 100% { transform: translate(4px, -7px) scale(1.4); opacity: 0; } }
+.gmap .gmm-sign { fill: #f06d5b; }
+.gmap .gmm.dark .gmm-sign { fill: var(--muted); }
+.gmap .gmm-shop.run .gmm-sign { animation: gmmsign 2.4s ease-in-out infinite; }
+@keyframes gmmsign { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+.gmap .gmm-hull { fill: #4d5668; stroke: var(--card); stroke-width: .5; }
+.gmap .gmm-cab { fill: #e8e2d2; }
+.gmap .gmm-coal { fill: #262930; }
+.gmap .gmm-ship.run .gmm-boat { animation: gmmboat 6s ease-in-out infinite; }
+@keyframes gmmboat { 0%, 100% { transform: translateX(-8px); } 50% { transform: translateX(8px); } }
+.gmap .gmm-rail { stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 2 2; }
+.gmap .gmm-tbody { fill: #2f7a5f; stroke: var(--card); stroke-width: .5; }
+.gmap .gmm-tspark { fill: #bfe3ff; opacity: 0; }
+.gmap .gmm-tram.run .gmm-car { animation: gmmtram 5s linear infinite; }
+.gmap .gmm-tram.run .gmm-tspark { animation: tspark 1.5s linear infinite; }
+@keyframes gmmtram { 0% { transform: translateX(-16px); } 100% { transform: translateX(16px); } }
+
+/* 3章：4つの演出（初めて電気が届いた・完成の瞬間・1年のまとめ・事故と復旧の波及） */
+.gmap .gdoneline { stroke: #ffd21f; stroke-dasharray: 100; stroke-dashoffset: 100; animation: gdoneline 1.5s ease-out forwards; }
+@keyframes gdoneline { 0% { stroke-dashoffset: 100; opacity: 1; } 70% { stroke-dashoffset: 0; opacity: .95; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+.gmap .gfirstline { stroke: #ffe159; stroke-dasharray: 100; stroke-dashoffset: 100; animation: gfirstline 2s ease-out forwards; filter: drop-shadow(0 0 4px #ffd21f); }
+@keyframes gfirstline { 0% { stroke-dashoffset: 100; opacity: 1; } 60% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+.gmap .gdoneplant { animation: gdoneplant 1.6s cubic-bezier(.25, 1.4, .5, 1) both; }
+@keyframes gdoneplant { 0% { transform: scale(.85); } 35% { transform: scale(1.24); } 100% { transform: scale(1); } }
+.gmap .gdoneburst, .gmap .gdonesubring, .gmap .gfirstburst { fill: none; pointer-events: none; transform-box: fill-box; transform-origin: center; }
+.gmap .gdoneburst { stroke: #ffd21f; stroke-width: 2.6; animation: gburst 1.5s ease-out forwards; }
+.gmap .gdonesubring { stroke: var(--primary); stroke-width: 2.2; animation: gburst 1.4s ease-out forwards; }
+.gmap .gfirstburst { stroke: #ffe159; stroke-width: 3; animation: gburst 2s ease-out forwards; }
+@keyframes gburst { 0% { transform: scale(.4); opacity: .95; } 100% { transform: scale(1.9); opacity: 0; } }
+.gmap .gfirsttown { animation: gfirsttown 1.8s ease-out both; }
+@keyframes gfirsttown { 0% { transform: scale(.92); } 40% { transform: scale(1.16); } 100% { transform: scale(1); } }
+.gmap .gfirsttown .gwin.on { animation: gwinpop .45s ease-out both; }
+.gmap .gfirsttown .gwin.on:nth-of-type(2n) { animation-delay: .18s; }
+.gmap .gfirsttown .gwin.on:nth-of-type(3n) { animation-delay: .36s; }
+@keyframes gwinpop { 0% { opacity: 0; } 100% { opacity: 1; } }
+.gmap .gwave-dark { animation: gwavedark 1.1s ease-out var(--wdelay, 0ms) both; }
+@keyframes gwavedark { 0% { opacity: 1; } 35% { opacity: .22; } 100% { opacity: 1; } }
+.gmap .gwave-lit { animation: gwavelit 1.2s ease-out var(--wdelay, 0ms) both; }
+@keyframes gwavelit { 0% { opacity: .35; } 45% { opacity: 1; filter: drop-shadow(0 0 6px #ffd21f); } 100% { opacity: 1; filter: none; } }
+
+/* 1年のまとめオーバーレイ */
+.goverlay.gyrsum { padding: 14px; }
+.gyrbox { position: relative; isolation: isolate; overflow: hidden; width: min(440px, 100%); max-height: 88vh; overflow-y: auto; border-radius: 16px; border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 16px 16px 14px; text-align: left; box-shadow: 0 12px 36px rgba(0, 0, 0, .35); }
+.goverlay.gyrsum.hasimg .gyrbox::before { content: ""; position: absolute; inset: 0; z-index: -2; background: var(--eraimg) center / cover no-repeat; opacity: .22; }
+.goverlay.gyrsum.hasimg .gyrbox::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, color-mix(in srgb, var(--card) 75%, transparent), color-mix(in srgb, var(--card) 94%, transparent) 60%); }
+.gyrkick { margin: 0; font-size: 0.74rem; font-weight: 700; color: var(--primary); letter-spacing: .06em; }
+.gyrbox h2 { margin: 2px 0 10px; font-size: 1.2rem; }
+.gyrgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.gyrcell { padding: 8px 9px; border-radius: 10px; background: color-mix(in srgb, var(--bg) 82%, transparent); border: 1px solid var(--line); }
+.gyrcell small { display: block; font-size: 0.72rem; color: var(--muted); }
+.gyrcell b { font-size: 0.96rem; font-variant-numeric: tabular-nums; }
+.gyrsub { display: block; font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+.gyarr { display: inline-block; margin-left: 4px; font-weight: 800; font-size: 0.86rem; }
+.gyarr.up { color: var(--ok); }
+.gyarr.dn { color: var(--ng); }
+.gyarr.same { color: var(--muted); }
+.gyraim { margin: 6px 0 10px; padding: 8px 10px; border-radius: 10px; background: var(--trivia-bg); font-size: 0.86rem; line-height: 1.5; }
+.gyrsnote { text-align: center; color: var(--muted); margin: 0 0 8px; }
+
+/* 6章：需要のミニ絵（G25〜G28）とミッション絵（G29〜G36） */
+.gapphead, .gmheadrow { align-items: center; gap: 8px; }
+.gappname { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.gapppic, .gmpic { width: 40px; height: 30px; flex: none; border-radius: 6px; overflow: hidden; }
+.gloadrow > span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.gloadpic { width: 28px; height: 21px; flex: none; border-radius: 5px; overflow: hidden; }
+.gmcardpic { margin: -4px -4px 8px; border-radius: 10px; overflow: hidden; }
+.gmcardpic .gpic.wide { margin: 0; }
+
+/* 動きを減らす設定：町の画面・地図の使い手側の動き・4演出を静かに */
+@media (prefers-reduced-motion: reduce) {
+  .gtownsvg *, .gmap .gmotions *, .gmap .gdoneline, .gmap .gfirstline, .gmap .gdoneplant, .gmap .gdoneburst, .gmap .gdonesubring, .gmap .gfirsttown, .gmap .gfirstburst, .gmap .gfirsttown .gwin.on, .gmap .gwave-dark, .gmap .gwave-lit {
+    animation: none !important;
+    transition: none !important;
+  }
+}

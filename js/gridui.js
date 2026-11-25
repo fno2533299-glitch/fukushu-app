@@ -15,6 +15,7 @@ import * as Mc from './mapcanvas.js';
 import * as Rc from './gridrec.js';
 import * as J from './gridjapan.js';
 import * as Ms from './gridmission.js';
+import * as Tw from './gridtown.js';
 
 let A = null; // app.js から渡される部品（S・db・show・on・esc・toast など）
 // チュートリアル（1.5.2）：練習の島（kv「gridTutorial」）で動かす。DEV と同じ仕組み（tut: true）
@@ -31,6 +32,8 @@ let B = null; // 建設モード：{ kind: 'plant'|'line'|'sub', ... }
 let whyOpen = null; // 建設のパネルで、理由を開いている種類
 let listTab = 'list'; // 1.8.0 一覧のパネルのタブ：list（一覧）／mission（ミッション。史実モードだけ）
 let econTab = '7d'; // 1.10.2 収支のまとめのタブ：7d（直近7日の1日あたり）／1d（昨日）
+let townView = null; // 1.10.3 「町を見る」画面を開いている町の ID（null＝地図）
+let townNeedMapSync = false; // 町を見る画面を開いている間に時間が進んだ印（戻ったときに地図を最新化）
 // 1.5.2 地点のメニュー：{ kind: 'node'|'line', id, branch: null|'build'|'line'|'rm', detail: false, anim: 'menu'|'branch'|null }
 let sel = null;
 // 開発者モード（1.5.1）：本番とは別の系統（kv「gridDev」）。入っているかどうかは保存しない（開き直すと本番に戻る）
@@ -173,7 +176,7 @@ const timeShort = (g) => `${Gm.yearOf(g.t) + 1}年目 ${Gm.SEASONS[Gm.seasonOf(g
 const eraName = (n) => Gm.ERAS[n - 1].name;
 
 // ---- 絵（本人が Gemini で作った画像があれば使い、なければ仮の絵）。番号は 試作/系統ゲーム_画像プロンプト.md ----
-const PIC = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5: 'G23', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', ror: 'G08', pond: 'G09', sub: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22' };
+const PIC = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5: 'G23', era6: 'G24', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', ror: 'G08', pond: 'G09', sub: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22', load_lamp: 'G25', load_home: 'G26', load_shop: 'G27', load_factory: 'G28', M01: 'G29', M02: 'G30', M03: 'G31', M04: 'G32', M05: 'G33', M06: 'G34', M07: 'G35', M08: 'G36' };
 const PH = {
   coal: '<path d="M8 30V16h6v-5h5v5h6v14z M30 30V20l8 4v-4l8 4v6z" fill="currentColor"/><path d="M16 9c0-3 3-3 3-6" fill="none" stroke="currentColor" stroke-width="1.5"/>',
   hydro: '<path d="M4 30L18 8l8 12 5-7 13 17z" fill="currentColor" opacity=".5"/><path d="M20 30c2-6 2-9 0-14M26 30c2-6 2-9 0-12" fill="none" stroke="currentColor" stroke-width="1.6"/>',
@@ -184,7 +187,7 @@ const PH = {
   dark: '<circle cx="24" cy="20" r="11" fill="currentColor" opacity=".25"/><path d="M19 15l10 10M29 15L19 25" stroke="currentColor" stroke-width="2.5"/>',
   light: '<circle cx="24" cy="18" r="8" fill="currentColor" opacity=".7"/><path d="M24 4v4M24 28v4M10 18h4M34 18h4M14 8l3 3M34 8l-3 3" stroke="currentColor" stroke-width="2"/>',
 };
-const PH_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'coal', ror: 'hydro', pond: 'hydro', sub: 'sub', line: 'line', era1: 'town', era2: 'town', era3: 'town', era4: 'town', era5: 'town', heat: 'light', cold: 'storm', typhoon: 'storm', snowstorm: 'storm', coalSpike: 'coal', priceWar: 'town', drought: 'hydro', blackout: 'dark', recover: 'light', rebuild: 'town', island: 'hydro' };
+const PH_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'coal', ror: 'hydro', pond: 'hydro', sub: 'sub', line: 'line', era1: 'town', era2: 'town', era3: 'town', era4: 'town', era5: 'town', era6: 'town', heat: 'light', cold: 'storm', typhoon: 'storm', snowstorm: 'storm', coalSpike: 'coal', priceWar: 'town', drought: 'hydro', blackout: 'dark', recover: 'light', rebuild: 'town', island: 'hydro', load_lamp: 'light', load_home: 'town', load_shop: 'town', load_factory: 'coal' };
 // 上の帯の背景に、時代の絵を薄く（絵がないときは出さない）
 const eraImg = (g) => {
   const src = picSrc(PIC[`era${g.era}`]);
@@ -300,6 +303,7 @@ export async function screen(p, entering = false) {
         <div class="gbcard" data-bcard></div>
         <section class="gpanel${panel ? ' open' : ''}" data-panel aria-hidden="${panel ? 'false' : 'true'}"><div class="gpin" data-pin></div></section>
       </div>
+      <div class="gtownview" data-townview hidden></div>
       <nav class="gdock" data-dock>${dockHtml(g)}</nav>
     </div>`,
     () => {
@@ -312,6 +316,7 @@ export async function screen(p, entering = false) {
         B = null;
         panel = null;
         sel = null;
+        townView = null;
         A.home();
       });
       A.on('[data-hud]', 'click', (e) => (e.target.closest('[data-hstate]') ? nowSheet() : togglePanel('supply')));
@@ -329,7 +334,11 @@ export async function screen(p, entering = false) {
       if (sel && !selOk()) sel = null;
       drawMenu();
       drawDetail();
+      if (townView && Gm.nodeOf(g, townView)?.town) showTownViewDom(true);
+      else townView = null;
+      syncWaveBaseline(g);
       effects(g);
+      drainFreshLit(g);
       tutPlace();
       if (entering || AL.g !== G()) markSeen(); // 閉じていた間に起きたもの・切り替えた系統のものは、演出ではなく前回からの結果・状態の札で
       if (entering) offerTutorial();
@@ -352,6 +361,19 @@ function live() {
   const mini = q('[data-mini]');
   if (mini) mini.innerHTML = miniHtml(g);
   revenueFx(g);
+  checkWave(g);
+  drainFreshLit(g);
+  if (townView) {
+    // 1.10.3 町を見る画面が開いている間は地図を描き直さず、町の画面だけ差分更新する
+    townNeedMapSync = true;
+    renderTownView(false);
+    const bandEl = q('.gdevband [data-devops]');
+    if (bandEl) bandEl.textContent = devSpeedText();
+    if (!!g.rebuild !== !!q('[data-rebuild]')) screen();
+    showYearSummary(g);
+    drainMissions();
+    return;
+  }
   drawMap();
   q('[data-dock]').innerHTML = dockHtml(g);
   bindDock();
@@ -367,6 +389,7 @@ function live() {
   const dbusy = q('[data-detail]')?.contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
   if (sel?.detail && !dbusy && Date.now() - detailAt > 4000) drawDetail(true);
   if (!!g.rebuild !== !!q('[data-rebuild]')) screen();
+  showYearSummary(g);
   drainMissions(); // 1.8.0
 }
 
@@ -466,7 +489,7 @@ function drawPanel(keep = false) {
   bindOutlook(pin);
 }
 
-// 時代が進んだとき・全域停電からの復旧（演出ありでは少し派手に）
+// 時代が進んだとき・全域停電からの復旧・1年のまとめ（演出ありでは少し派手に）
 function effects(g) {
   if (g.eraUp) {
     const E = Gm.ERAS[g.eraUp - 1];
@@ -480,14 +503,16 @@ function effects(g) {
     delete g.eraUpFrom;
     save();
   } else if (g.blackoutFx && !Object.values(g.black).some((u) => u > g.t)) {
-    overlay('recover', '全域停電から復旧した', '町に明かりが戻った。予備力の目標と、最大の発電機1台分を見比べてみよう。', [392, 523.3, 659.3]);
+    overlay('recover', '全域停電から復旧した', '町に明かりが戻った。予備力の目標と、最大の発電機1台分を見比べてみよう。', [392, 523.3, 659.3], [], () => triggerWave(g, 'lit'));
     delete g.blackoutFx;
     save();
+  } else {
+    showYearSummary(g);
   }
 }
 // lines：本文の下に出す短い行（1.6.0：開いたエリア・その時代の史実）
 // 1.8.2：絵を画面いっぱいに大きく。絵の上に名前と年、少しずつ寄っていく動き（演出あり。動きを減らす設定・シンプルでは止めた絵）。そのあと文と行
-function overlay(picKey, title, text, notes, lines = []) {
+function overlay(picKey, title, text, notes, lines = [], onClose = null) {
   const ov = document.createElement('div');
   const src = picSrc(PIC[picKey]);
   ov.className = `goverlay${src ? ' gbig' : ''}`;
@@ -500,6 +525,8 @@ function overlay(picKey, title, text, notes, lines = []) {
   if (A.fx()) A.playNotes(notes.map((f, i) => [f, i * 0.12]));
   ov.querySelector('[data-close]').onclick = () => {
     ov.remove();
+    onClose?.();
+    showYearSummary(G());
     drainAlerts();
   };
 }
@@ -515,6 +542,7 @@ function markSeen() {
 }
 function leaveGrid() {
   inGrid = false;
+  townView = null;
   AL.queue = [];
   // 1.7.3：地図の canvas のメモリを手放す。別の画面に入れ替わってから（保存を待つ間に地図が消えて見えないように）
   const cv = liveCv;
@@ -677,6 +705,16 @@ function chipTap(c) {
 const miniOn = () => (DEV.on ? DEV.state.opts.mini !== false : A.S.settings.gridMini !== false);
 // 1.6.2 地形（山地・平野の塗り分け・川・県境）を出すか。経営のパネルでオン・オフ（初期値はオン。開発者モード・デモ・チュートリアルはその系統の設定）
 const terrainOn = () => (DEV.on ? DEV.state.opts.terrain !== false : A.S.settings.gridTerrain !== false);
+// 1.10.3 地図の使い手側の動き（工場・商店・石炭船）を出すか。経営のパネルでオン・オフ（初期値はオン）
+const mapAnimOn = () => (DEV.on ? DEV.state.opts.mapAnim !== false : A.S.settings.gridMapAnim !== false);
+async function setMapAnim(on) {
+  if (DEV.on) {
+    DEV.state.opts.mapAnim = on;
+    return save();
+  }
+  A.S.settings.gridMapAnim = on;
+  return A.db.putKV('settings', A.S.settings);
+}
 async function setTerrain(on) {
   if (DEV.on) {
     DEV.state.opts.terrain = on;
@@ -933,9 +971,9 @@ function coinFloat(coins) {
   document.body.append(el);
   setTimeout(() => el.remove(), 1500);
 }
-// 地図の上の印（工事の印がぽんと出る・完成した施設が弾む・開通した線が一度光る）。id → { kind, until }
+// 地図の上の印（工事の印がぽんと出る・完成した施設が弾む・開通した線が一度光る・1.10.3 豪華演出）。id → { kind, until }
 const marks = new Map();
-const MARK_MS = { work: 1400, done: 1600, glow: 1800 };
+const MARK_MS = { work: 1400, done: 1600, glow: 1800, doneplant: 2200, doneline: 2200, donesub: 1900, firstline: 2500, firsttown: 2700 };
 function mark(id, kind) {
   marks.set(id, { kind, until: Date.now() + MARK_MS[kind] });
 }
@@ -946,15 +984,296 @@ const markOf = (id) => {
 // 開いている間に完成したものを、帯と地図の印で知らせる（閉じている間の分は、開いたときのまとめに出る）
 function announceDone(g, before) {
   const done = Mn.finished(g, before);
+  const rich = !tutOn() && !demoOn() && !still();
   for (const f of done) {
     band(Mn.doneText(g, f));
     if (f.kind === 'withdraw') continue; // 1.6.4 保留の取り下げ：帯だけ
-    if (f.kind === 'line') mark(f.x.id, 'glow');
-    else if (f.kind === 'opt' || f.kind === 'circ') mark(f.x.line.id, 'glow');
-    else mark(f.kind === 'plant' ? f.x.site : f.kind === 'hz' ? f.x.node : f.x.town, 'done');
+    if (f.kind === 'line') mark(f.x.id, rich ? 'doneline' : 'glow');
+    else if (f.kind === 'opt' || f.kind === 'circ') mark(f.x.line.id, rich ? 'doneline' : 'glow');
+    else if (f.kind === 'plant') mark(f.x.site, rich ? 'doneplant' : 'done');
+    else if (f.kind === 'sub') mark(f.x.town, rich ? 'donesub' : 'done');
+    else mark(f.x.node, 'done');
   }
-  if (done.length && onGrid()) drawMap();
+  if (done.length && onGrid() && !townView) drawMap();
   return done.length;
+}
+
+// ---- 1.10.3 演出（初めて電気が届いた・1年のまとめ・事故と復旧の波及） ----
+function drainFreshLit(g) {
+  if (!g?.freshLit?.length) return;
+  const items = g.freshLit.splice(0);
+  if (demoOn()) return; // デモでは出さない（チュートリアルでは出してよい）
+  let changed = false;
+  for (const it of items) {
+    const townId = typeof it === 'string' ? it : it?.town;
+    const n = townId && Gm.nodeOf(g, townId);
+    if (!n) continue;
+    changed = true;
+    const path = typeof it === 'object' && it?.path?.length ? it.path : Gm.litPathLines(g, townId, g.t);
+    for (const lid of path) mark(lid, 'firstline');
+    mark(townId, 'firsttown');
+    const yr = Gm.isJapan(g) && n.year && confOf(n.conf) === '確かめた' ? `（史実 ${n.year}年）` : '';
+    band(`${n.name}に初めて電気が届いた${yr}`);
+  }
+  if (changed) {
+    if (A.fx()) A.playNotes([[523.3, 0], [659.3, 0.09], [784, 0.18], [1046.5, 0.28]]);
+    if (onGrid() && !townView) drawMap();
+    if (!DEV.on) recordNow();
+    save();
+  }
+}
+
+// 事故と復旧の波及演出（全域停電・負荷遮断の発生と復旧を距離順に波及させる）
+const WAVE = { g: null, black: false, shed: false, marks: new Map(), until: 0 };
+const isBlackNow = (g) => !!g && Object.values(g.black || {}).some((u) => u > g.t);
+const isShedNow = (g) => !!g?.last?.shed;
+function syncWaveBaseline(g) {
+  WAVE.g = g;
+  WAVE.black = isBlackNow(g);
+  WAVE.shed = isShedNow(g);
+}
+function triggerWave(g, kind) {
+  if (!g || tutOn() || demoOn()) return;
+  let origins = [];
+  if (kind === 'dark') {
+    for (const i of g.incidents || []) {
+      if (i.town) origins.push(i.town);
+      const p = i.plant && g.plants.find((x) => x.id === i.plant);
+      if (p) origins.push(p.site);
+      const l = i.line && g.lines.find((x) => x.id === i.line);
+      if (l) origins.push(l.a, l.b);
+      const s = i.sub && g.subs.find((x) => x.id === i.sub);
+      if (s) origins.push(s.town);
+    }
+  }
+  if (!origins.length) origins = (g.plants || []).filter((p) => p.readyAt <= g.t).map((p) => p.site);
+  if (!origins.length) origins = [Gm.startId(g)];
+  const order = Gm.townWaveOrder(g, origins, g.t);
+  WAVE.marks = new Map();
+  const stepMs = still() ? 0 : 120;
+  for (const o of order) WAVE.marks.set(o.id, { kind, delay: Math.min(1200, o.hop * stepMs) });
+  WAVE.until = Date.now() + 2600;
+  if (townView) {
+    const svg = document.querySelector('[data-townsvg]');
+    if (svg) {
+      svg.classList.remove('twave-dark', 'twave-lit');
+      void svg.offsetWidth;
+      svg.classList.add(kind === 'dark' ? 'twave-dark' : 'twave-lit');
+      setTimeout(() => svg.classList.remove('twave-dark', 'twave-lit'), 1800);
+    }
+  } else if (onGrid()) {
+    drawMap();
+  }
+}
+function checkWave(g) {
+  if (WAVE.g !== g) return syncWaveBaseline(g);
+  const b = isBlackNow(g), sh = isShedNow(g);
+  const prevBad = WAVE.black || WAVE.shed;
+  const nowBad = b || sh;
+  WAVE.black = b;
+  WAVE.shed = sh;
+  if (!prevBad && nowBad) triggerWave(g, 'dark');
+  else if (prevBad && !nowBad) triggerWave(g, 'lit');
+}
+const waveOf = (id) => (WAVE.until > Date.now() ? WAVE.marks.get(id) || null : null);
+
+// 1年のまとめ（年の変わり目のあと、次に系統を開いたときに1回。時代の絵背景・カウントアップ・前年比矢印・次の1年のねらい）
+function showYearSummary(g) {
+  if (!g?.yearSummary || tutOn() || demoOn() || DEV.running) return;
+  if (!onGrid() || document.querySelector('.modal, .goverlay, .galert, .gtut, .gmcard')) return;
+  const ys = g.yearSummary;
+  const src = picSrc(PIC[`era${Math.min(g.era, 5)}`]);
+  const arr = (d, invert = false) => {
+    if (d == null) return '';
+    if (Math.abs(d) < 1e-6) return '<span class="gyarr same">→</span>';
+    const up = d > 0;
+    const good = invert ? !up : up;
+    return `<span class="gyarr ${good ? 'up' : 'dn'}">${up ? '↑' : '↓'}</span>`;
+  };
+  const diff = (cur, prev) => (prev == null ? null : cur - prev);
+  const accGain = (ys.accepted || 0) - (ys.prevAccepted || 0);
+  const items = [
+    { label: '最大の需要', val: ys.maxDemand || 0, fmt: (v) => kw(v), arrow: arr(diff(ys.maxDemand, ys.prevMaxDemand)) },
+    { label: '受けた需要の増え方', val: accGain, fmt: (v) => `${v >= 0 ? '+' : '−'}${kw(Math.abs(v))}`, arrow: '' },
+    { label: '届いた割合', val: (ys.servedPct ?? 1) * 100, fmt: (v) => `${v.toFixed(1)}%`, sub: ys.blackH || ys.shedH ? `全域停電 ${ys.blackH}h・負荷遮断 ${ys.shedH}h` : '停電なし', arrow: arr(diff(ys.servedPct, ys.prevServedPct)) },
+    { label: '1年の利益', val: ys.profit || 0, fmt: (v) => `${v >= 0 ? '+' : '−'}${yen(Math.abs(v))}`, arrow: arr(diff(ys.profit, ys.prevProfit)) },
+    { label: '建てた設備', val: ys.built || 0, fmt: (v) => `${Math.round(v)} 件`, arrow: '' },
+    { label: '事故の対処', val: ys.incOk || 0, fmt: (v) => (ys.incTotal ? `${Math.round(v)}／${ys.incTotal} 件正解` : '事故なし'), arrow: '' },
+    { label: '初めて電気が届いた町', val: ys.litTowns || 0, fmt: (v) => `${Math.round(v)} か所`, arrow: '' },
+  ];
+  const ov = document.createElement('div');
+  ov.className = `goverlay gyrsum${src ? ' hasimg' : ''}${A.fx() ? ' fx' : ''}`;
+  ov.setAttribute('role', 'dialog');
+  ov.setAttribute('aria-modal', 'true');
+  ov.innerHTML = `<div class="gyrbox" style="${src ? `--eraimg:url('${src}')` : ''}">
+    <p class="gyrkick">1年のまとめ</p>
+    <h2>${ys.yearNo}年目のふり返り</h2>
+    <div class="gyrgrid">${items
+      .map((it, i) => `<div class="gyrcell"><small>${it.label}</small><b data-yv="${i}">${it.fmt(0)}</b>${it.arrow}${it.sub ? `<span class="gyrsub">${A.esc(it.sub)}</span>` : ''}</div>`)
+      .join('')}</div>
+    <p class="gyraim"><b>次の1年のねらい：</b>${A.esc(ys.goal || '')}</p>
+    <p class="small gyrsnote" data-yskip>画面を押すと演出をとばします</p>
+    <button class="btn primary gwide" data-yclose>閉じる</button>
+  </div>`;
+  document.body.append(ov);
+  if (A.fx()) A.playNotes([[523.3, 0], [659.3, 0.1], [784, 0.2], [1046.5, 0.34]]);
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    items.forEach((it, i) => {
+      const b = ov.querySelector(`[data-yv="${i}"]`);
+      if (b) b.textContent = it.fmt(it.val);
+    });
+    const sk = ov.querySelector('[data-yskip]');
+    if (sk) sk.hidden = true;
+  };
+  if (still() || !A.fx()) finish();
+  else {
+    const t0 = performance.now(), dur = 1100;
+    const step = (now) => {
+      if (done || !ov.isConnected) return;
+      const k = Math.min(1, (now - t0) / dur);
+      const e = 1 - (1 - k) ** 3;
+      items.forEach((it, i) => {
+        const b = ov.querySelector(`[data-yv="${i}"]`);
+        if (b) b.textContent = it.fmt(it.val * e);
+      });
+      if (k < 1) requestAnimationFrame(step);
+      else finish();
+    };
+    requestAnimationFrame(step);
+  }
+  const close = () => {
+    done = true;
+    ov.remove();
+    delete g.yearSummary;
+    save();
+    drainAlerts();
+    drainMissions();
+  };
+  ov.addEventListener('click', (e) => {
+    if (e.target.closest('[data-yclose]')) return close();
+    if (!done) finish();
+  });
+}
+
+// ---- 1.10.3 町を見る（案1）：地図を描き直さずに隠して切り替え、SVG は差分更新 ----
+function openTownView(id) {
+  const g = G();
+  if (!Gm.nodeOf(g, id)?.town) return;
+  townView = id;
+  townNeedMapSync = false;
+  sel = null;
+  panel = null;
+  B = null;
+  showTownViewDom(true);
+}
+function closeTownView() {
+  if (!townView) return;
+  townView = null;
+  const tv = document.querySelector('[data-townview]');
+  const mid = document.querySelector('[data-mid]');
+  const dock = document.querySelector('[data-dock]');
+  if (tv) (tv.hidden = true), (tv.innerHTML = '');
+  if (mid) mid.hidden = false;
+  if (dock) dock.hidden = false;
+  if (townNeedMapSync) {
+    townNeedMapSync = false;
+    drawMap();
+    if (dock) (dock.innerHTML = dockHtml(G())), bindDock();
+  }
+  drawMenu();
+  drawDetail();
+}
+function showTownViewDom(first) {
+  const mid = document.querySelector('[data-mid]');
+  const dock = document.querySelector('[data-dock]');
+  const tv = document.querySelector('[data-townview]');
+  if (!tv) return;
+  if (mid) mid.hidden = true;
+  if (dock) dock.hidden = true;
+  tv.hidden = false;
+  renderTownView(first);
+}
+const LOAD_BAR_COL = { lamp: '#f5b83d', home: '#6ba8e5', shop: '#5bc28c', factory: '#d97652' };
+function townStatsHtml(g, st) {
+  const rows = ['lamp', 'home', 'shop', 'factory']
+    .filter((k) => st.demandBy[k])
+    .map((k) => {
+      const d = st.demandBy[k];
+      const w = st.totalMax > 1e-6 ? Math.max(2, Math.min(100, Math.round((d.nowKw / st.totalMax) * 100))) : 0;
+      return `<div class="gtrow"><span class="gtlbl">${pic(`load_${k}`, 'mini gloadpic')}${A.esc(d.name)}</span><span class="gtbar"><i style="width:${w}%;background:${LOAD_BAR_COL[k]}"></i></span><b class="gtval">${kw(d.nowKw)}</b></div>`;
+    })
+    .join('');
+  const townSt = g.last?.towns?.[st.townId];
+  const sup = townSt && townSt.d > 1e-6 ? `<p class="small">${townSupplyText(g, st.townId, townSt)}</p>` : '';
+  return `<div class="gtstats">
+    <p class="spread"><b>いま ${st.h}時のこの町</b><small>合計 ${kw(st.totalNow)} ・ 届いている ${kw(st.servedNow)}（${pct(st.rate)}）</small></p>
+    ${rows || '<p class="small">まだ接続している需要はありません</p>'}
+    ${sup}
+  </div>`;
+}
+function renderTownView(first) {
+  const tv = document.querySelector('[data-townview]');
+  if (!tv || !townView) return;
+  const g = G(), lc = learningNow();
+  const st = Tw.townSceneState(g, townView);
+  const held = g.apps.filter((a) => a.town === townView && a.held).map((a) => a.id);
+  const existingSvg = tv.querySelector('[data-townsvg]');
+  if (first || !existingSvg) {
+    tv.innerHTML = `<div class="gtownhead">
+        <button class="btn small" data-tback>‹ 地図に戻る</button>
+        <div class="gtowntitle"><b>${A.esc(st.name)}</b><small data-tmeta>${st.h}時 ・ 届いている ${pct(st.rate)}</small></div>
+      </div>
+      <div class="gtownscroll" data-tscroll>
+        <svg class="gtownsvg" viewBox="0 0 900 380" role="img" aria-label="${A.esc(st.name)}の町の電気の流れ" data-townsvg></svg>
+      </div>
+      <p class="small gtownhint">横にスクロールできます。設備や建物を押すと説明と関係する単元が出ます。</p>
+      <div class="gtowninfo" data-towninfo>
+        <div data-tstats>${townStatsHtml(g, st)}</div>
+        <div data-toutlook>${st.hasLoad || held.length ? outlookHtml(g, lc, townView, held, false) : ''}</div>
+      </div>`;
+    const svg = tv.querySelector('[data-townsvg]');
+    Tw.patchTownSvg(svg, st);
+    tv.querySelector('[data-tback]').onclick = closeTownView;
+    svg.addEventListener('click', (e) => {
+      const obj = e.target.closest('[data-k]');
+      if (!obj) return;
+      townObjectSheet(townView, obj.dataset.k);
+    });
+    const info = tv.querySelector('[data-towninfo]');
+    bindOutlook(info);
+    tv.dataset.th = String(g.t);
+    return;
+  }
+  // 差分更新：SVG の動きを止めず、数値と属性だけ変える
+  const meta = tv.querySelector('[data-tmeta]');
+  if (meta) meta.textContent = `${st.h}時 ・ 届いている ${pct(st.rate)}`;
+  Tw.patchTownSvg(existingSvg, st);
+  const stats = tv.querySelector('[data-tstats]');
+  if (stats) stats.innerHTML = townStatsHtml(g, st);
+  if (tv.dataset.th !== String(g.t)) {
+    tv.dataset.th = String(g.t);
+    const out = tv.querySelector('[data-toutlook]');
+    if (out && (st.hasLoad || held.length)) {
+      out.innerHTML = outlookHtml(g, lc, townView, held, false);
+      bindOutlook(out);
+    }
+  }
+}
+function townObjectSheet(townId, key) {
+  const g = G();
+  const info = Tw.townObjectInfo(g, townId, key);
+  if (!info) return;
+  if (info.pic) seen(PIC[info.pic]);
+  sheet(
+    `<h2>${A.esc(info.title)}</h2>
+    ${info.pic ? pic(info.pic, 'wide') : ''}
+    <p>${A.esc(info.text)}</p>
+    ${info.units.length ? `<h3>関係する単元</h3>${unitButtons(info.units)}` : ''}`,
+    ({ onAll }) => onAll('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo)),
+  );
 }
 
 // ---- 前回からの結果（開いたとき） ----
@@ -1241,8 +1560,9 @@ function topInner(g) {
     if (L2.len > 70 || selLine === l.id || cAdd) lineLabs.push({ l, K, L2, a, b, label, building, cAdd: !!cAdd, hzT, flowing, mk, sel: selLine === l.id });
     else if (!building) lineDots += optMarks(l, L2.lx, L2.ly, t, true);
     const hz = !K.dc && !hzT && hzN.get(l.a);
-    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${L2.d}" fill="none" stroke="transparent" stroke-width="22"/>${hz ? `<path d="${L2.d}" class="ghzhalo h${hz}" stroke-width="${wdt + 5}"/>` : ''}${selLine === l.id ? `<path d="${L2.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${mk === 'glow' ? `<path d="${L2.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : ''}<path d="${L2.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : hzT ? 'stroke-dasharray="1.5 4.5" class="ghztrip"' : down ? 'stroke-dasharray="7 5"' : ''}/>${flowing ? flowArrow(L2, a, b, fl.to !== l.a, wdt, u) : ''}</g>`;
-    flows += flowPath(g, l, a, b, L2, mk === 'glow');
+    const lineFx = mk === 'doneline' ? `<path d="${L2.d}" class="gdoneline" pathLength="100" fill="none" stroke-width="${wdt + 5}" stroke-linecap="round"/>` : mk === 'firstline' ? `<path d="${L2.d}" class="gfirstline" pathLength="100" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : mk === 'glow' ? `<path d="${L2.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : '';
+    s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${L2.d}" fill="none" stroke="transparent" stroke-width="22"/>${hz ? `<path d="${L2.d}" class="ghzhalo h${hz}" stroke-width="${wdt + 5}"/>` : ''}${selLine === l.id ? `<path d="${L2.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${lineFx}<path d="${L2.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : hzT ? 'stroke-dasharray="1.5 4.5" class="ghztrip"' : down ? 'stroke-dasharray="7 5"' : ''}/>${flowing ? flowArrow(L2, a, b, fl.to !== l.a, wdt, u) : ''}</g>`;
+    flows += flowPath(g, l, a, b, L2, mk === 'glow' || mk === 'doneline' || mk === 'firstline');
   }
   s += `<g class="gflows${B ? ' gdim' : ''}" aria-hidden="true">${flows}</g>`;
   // 建設モードの仮の線（点線）
@@ -1258,6 +1578,8 @@ function topInner(g) {
   const vis = nodes.filter((n) => onScreen(P.get(n.id))).sort((a, b) => prio2(b) - prio2(a));
   const placed = [], labels = [];
   const iconBoxes = []; // 1.8.1 町・用地の横の発電所・変電所のアイコン（線の名前を重ねない）
+  const animOk = mapAnimOn() && (!japan || Mg.sceneLevel(VIEW.w) > 0); // 1.10.3 案2：幅 60 km 以下・画面の中の町だけ
+  let motions = '', motionCnt = 0;
   let wardNamed = false;
   const out = [];
   for (const n of vis) {
@@ -1268,6 +1590,10 @@ function topInner(g) {
     const full = force || !near;
     if (full) {
       placed.push({ x, y });
+      if (animOk && motionCnt < 14 && inView({ x, y })) {
+        const ms = Art.mapTownMotionSvg(g, n, x, y, t);
+        if (ms) (motions += ms), motionCnt++;
+      }
       const ng = Art.assetGroups(g, n.id).length;
       if (ng) {
         const S = Art.slotsFor(Art.iconSide(nodes, n.id));
@@ -1319,6 +1645,7 @@ function topInner(g) {
   s += `<g class="${B ? 'gdim' : ''}">${lineDots}${placeLineLabels(lineLabs, labels, placed, iconBoxes, inView, t)}</g>`;
   // 目立つものを上に重ねる（描く順は逆）
   s += out.reverse().join('');
+  if (motions) s += `<g class="gmotions${B ? ' gdim' : ''}" aria-hidden="true">${motions}</g>`;
   return s;
 }
 // 1.8.1 線の名前の置き方：選んでいる線 → 画面の中の線 → 電圧の高い線 → 長い線 の順に、
@@ -1488,7 +1815,13 @@ function nodeSvg(g, n, x, y, { full, c, selId, lines, open, pos = 'b', hz = null
   // 工事中の発電所・変圧器：残りの時間を小さく添える
   const work = [...plants, ...subs].filter((v) => v.readyAt > t).map((v) => v.readyAt - t);
   if (work.length) body += `<text x="${f(x)}" y="${f(y - 25)}" class="glabel gwork">工事 あと${hoursText(Math.min(...work))}</text>${cone(x + 14, y + 13, markOf(n.id) === 'work')}`;
-  if (markOf(n.id) === 'done') body = `<g class="gbounce">${body}</g>`;
+  const mk = markOf(n.id);
+  if (mk === 'done') body = `<g class="gbounce">${body}</g>`;
+  else if (mk === 'doneplant') body = `<g class="gdoneplant" style="transform-origin:${f(x)}px ${f(y)}px">${body}<circle cx="${f(x)}" cy="${f(y)}" r="22" class="gdoneburst"/></g>`;
+  else if (mk === 'donesub') body = `<g class="gdonesub">${body}<circle cx="${f(x)}" cy="${f(y)}" r="18" class="gdonesubring"/></g>`;
+  else if (mk === 'firsttown') body = `<g class="gfirsttown" style="transform-origin:${f(x)}px ${f(y)}px">${body}<circle cx="${f(x)}" cy="${f(y)}" r="26" class="gfirstburst"/></g>`;
+  const wv = n.town ? waveOf(n.id) : null;
+  if (wv) body = `<g class="gwave-${wv.kind}" style="--wdelay:${wv.delay}ms">${body}</g>`;
   const ring = !B ? (selId === n.id ? `<circle cx="${f(x)}" cy="${f(y)}" r="17" class="gselring"/>` : '') : c === 'sel' ? `<circle cx="${f(x)}" cy="${f(y)}" r="17" class="gselring"/>` : c ? `<circle cx="${f(x)}" cy="${f(y)}" r="16" class="gpulse"/><circle cx="${f(x)}" cy="${f(y)}" r="16" class="gring"/>` : '';
   // 名前（pos：b＝下・t＝上・r＝右・l＝左）
   const nh = lines.length * 10.5;
@@ -1597,12 +1930,14 @@ function bindMap() {
     if (fresh || !GS.rect) GS.rect = box.getBoundingClientRect();
     return { x: e.clientX - GS.rect.left, y: e.clientY - GS.rect.top };
   };
-  // 1.7.2：動かしている間はメニュー・線のメニューを隠す。地図の祖先（.gscreen）のクラスは変えず、メニューの要素の style だけを変える
+  // 1.7.2：動かしている間はメニュー・線のメニューを隠す（祖先クラスは変えない）。1.10.3：使い手側の動き層だけ止める
   const hideMenu = (h) => {
     if (GS.hid === h) return;
     GS.hid = h;
     const m = document.querySelector('[data-menu]');
     if (m) m.style.visibility = h ? 'hidden' : '';
+    const gm = document.querySelector('[data-top] .gmotions');
+    if (gm) gm.classList.toggle('paused', h);
   };
   // 1.6.4：動かしている途中の形も、地図の範囲と拡大の限度に収める（離したとき・途中の描き直しで、地図が跳ね戻らないように）
   // 画面の点 p' ＝ s・p ＋ t のとき、新しい見え方は x' ＝ x − t／(s・k)、w' ＝ w／s
@@ -1837,6 +2172,7 @@ const SVGI = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const MI_ICON = {
   build: '<path d="M4 20h16M6 20V9l6-4 6 4v11M10 20v-5h4v5"/>',
   line: '<circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="5.5" r="2.5"/><path d="M7.5 16.5l9-9" stroke-dasharray="2.6 2.4"/>',
+  town: '<path d="M3 20h18M5 20V11l4-3 4 3v9M13 20V7h6v13M7.5 14h2M7.5 17h2M15.5 11h2M15.5 15h2"/>',
   detail: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v6M12 7.2v.6"/>',
   rm: '<path d="M5 7h14M9.5 7V5h5v2M7 7l1 13h8l1-13M10.5 10.5v6M13.5 10.5v6"/>',
   inc: '<path d="M12 3.5l9 16H3z"/><path d="M12 10v4.5M12 17v.6"/>',
@@ -1929,6 +2265,7 @@ function drawMenu() {
 }
 function menuAct(k) {
   const g = G(), lc = learningNow();
+  if (k === 'town' && sel?.kind === 'node') return openTownView(sel.id);
   if (k === 'detail') {
     sel.detail = !sel.detail;
     sel.branch = null;
@@ -2529,9 +2866,11 @@ function nodePanel(g, lc, id) {
     const total = loads.reduce((x, l) => x + l.kw, 0);
     const pend = g.apps.filter((a) => a.town === id);
     const held = pend.filter((a) => a.held).map((a) => a.id);
-    h += `<h3>需要</h3><p class="small"><b>需要の合計 ${kw(total)}</b>（受けている分）${st ? ` ・ いま ${kw(st.d)}` : ''}</p>${st && st.d > 1e-6 ? `<p class="small">${townSupplyText(g, id, st)}</p>` : ''}
+    for (const l of loads) if (PIC[`load_${l.type}`]) seen(PIC[`load_${l.type}`]);
+    h += `<p><button class="btn primary gwide" data-opentown="${id}">町を見る（電気の使われ方）</button></p>
+      <h3>需要</h3><p class="small"><b>需要の合計 ${kw(total)}</b>（受けている分）${st ? ` ・ いま ${kw(st.d)}` : ''}</p>${st && st.d > 1e-6 ? `<p class="small">${townSupplyText(g, id, st)}</p>` : ''}
       ${loads.length || held.length ? outlookHtml(g, lc, id, held, false) : ''}${pend.length ? `<p><button class="btn small" data-goapp="${pend[0].id}">この町の申し込み（${pend.length}件）を見る</button></p>` : ''}
-      ${loads.length ? loads.map((l) => `<p class="spread grow"><span>${Gm.LOADS[l.type].name} ${kw(l.kw)}${Gm.LOADS[l.type].pfFixed ? `（力率 ${l.cap ? Gm.LOADS[l.type].pfFixed : Gm.LOADS[l.type].pf}）` : ''}</span>${Gm.LOADS[l.type].pfFixed && !l.cap ? `<button class="btn small" data-cap="${l.id}">進相コンデンサ</button>` : ''}</p>`).join('') : '<p class="small">まだありません</p>'}
+      ${loads.length ? loads.map((l) => `<p class="spread grow gloadrow"><span>${pic(`load_${l.type}`, 'mini gloadpic')}<span>${Gm.LOADS[l.type].name} ${kw(l.kw)}${Gm.LOADS[l.type].pfFixed ? `（力率 ${l.cap ? Gm.LOADS[l.type].pfFixed : Gm.LOADS[l.type].pf}）` : ''}</span></span>${Gm.LOADS[l.type].pfFixed && !l.cap ? `<button class="btn small" data-cap="${l.id}">進相コンデンサ</button>` : ''}</p>`).join('') : '<p class="small">まだありません</p>'}
       ${st ? `<p class="small">届いている割合 ${pct(st.r)} ・ 町の信用 ${pct(rep)}${rep < 1 ? '（停電があると下がり、1か月で戻る）' : ''}</p>` : ''}
       ${st && st.d > 1e-6 && st.dc != null ? `<p class="small">${townSrcText(st)}</p>` : ''}
       ${why ? `<p class="small gwhy1${why.k === 'dim' ? '' : ' bad'}">${why.k === 'dim' ? '' : '届いていない原因：'}${A.esc(Gm.whyText(g, why))}</p>` : ''}
@@ -2552,6 +2891,11 @@ function nodePanel(g, lc, id) {
     title: `${A.esc(n.name)}${!Gm.townActive(g, n) || !Gm.nodeOpen(g, n) ? ` <span class="tag">${eraName(Gm.isJapan(g) ? Gm.openEra(g, n) : n.era)}から</span>` : ''}`,
     html: h,
     bind: ({ onAll }) => {
+      onAll('[data-opentown]', 'click', (e) => {
+        const tid = e.currentTarget.dataset.opentown;
+        setPanel(null);
+        openTownView(tid);
+      });
       onAll('[data-sources]', 'click', sourcesSheet);
       onAll('[data-golist]', 'click', () => setPanel('list'));
       onAll('[data-goapp]', 'click', (e) => goApp(e.currentTarget.dataset.goapp));
@@ -3014,8 +3358,9 @@ function listPanel(g, lc) {
     .map((a) => {
       const p = Gm.previewApp(g, lc, a.id);
       const n = Gm.nodeOf(g, a.town);
+      if (PIC[`load_${a.type}`]) seen(PIC[`load_${a.type}`]);
       const warn = [!p.reach ? (p.net ? '今の設備では電気が足りない（受けると停電する）' : '電気が届く道がない（線・変電所がつながっていない）') : '', p.reach && p.margin < g.reserve ? `供給の余裕が小さい（${pct(p.margin)}）` : '', p.line > 1 ? `線の使用率 ${pct(p.line)}` : '', p.sub > 1 ? `変圧器の使用率 ${pct(p.sub)}` : ''].filter(Boolean);
-      return `<div class="gitem" data-appcard="${a.id}"><p class="spread"><b>${A.esc(n.name)}：${Gm.LOADS[a.type].name} ${kw(a.kw)}</b><small>${Gm.LOADS[a.type].rate} 円/kWh</small></p>
+      return `<div class="gitem" data-appcard="${a.id}"><p class="spread gapphead"><span class="gappname">${pic(`load_${a.type}`, 'mini gapppic')}<b>${A.esc(n.name)}：${Gm.LOADS[a.type].name} ${kw(a.kw)}</b></span><small>${Gm.LOADS[a.type].rate} 円/kWh</small></p>
         <p class="small">売値 ${Gm.LOADS[a.type].rate} 円/kWh（${Gm.LOADS[a.type].name}）・いまの燃料費は売れた 1 kWh あたり ${fuelPerKwhNow}</p>
         <p class="small">受けたときの見込み（${p.hour}時ごろのピーク）：供給の余裕 ${pct(p.margin)} ・ 線の使用率 最大 ${pct(p.line)}${p.sub ? ` ・ 変圧器 ${pct(p.sub)}` : ''}${Gm.LOADS[a.type].pf < 1 ? ' ・ 力率 0.75（受けたあと、町の建設から進相コンデンサで直せる）' : ''}</p>
         ${warn.length ? `<p class="warn small">${warn.join(' ・ ')}</p>` : ''}
@@ -3073,12 +3418,12 @@ function missionsHtml(g) {
   const todo = open.filter((m) => !Gm.missionDone(g, m.id));
   const done = open.filter((m) => Gm.missionDone(g, m.id));
   const later = Ms.MISSIONS.filter((m) => !Gm.missionOpen(g, m));
-  const row = (m) => `<div class="gitem gmission"><p class="spread"><b>${A.esc(m.name)}</b><small>${eraName(m.era)}${m.level ? `（Lv${m.level}）` : ''}</small></p>
+  const row = (m) => `<div class="gitem gmission"><p class="spread gmheadrow"><span class="gappname">${PIC[m.id] ? pic(m.id, 'mini gmpic') : ''}<b>${A.esc(m.name)}</b></span><small>${eraName(m.era)}${m.level ? `（Lv${m.level}）` : ''}</small></p>
     <p class="small">${A.esc(m.goal)}</p>
     <p class="small gmprog">進み具合：${A.esc(Gm.missionProgress(g, m))}</p>
     <p class="small gmhint">ヒント：${A.esc(m.hint)}</p>
     ${unitButtons(m.units)}</div>`;
-  const drow = (m) => `<button class="gitem grow2 gmdone" data-mcard="${m.id}"><span><b>✓ ${A.esc(m.name)}</b><small>${A.esc(doneWhen(g, m.id))} ・ 答え合わせを見る</small></span><span class="go">›</span></button>`;
+  const drow = (m) => `<button class="gitem grow2 gmdone" data-mcard="${m.id}"><span class="gappname">${PIC[m.id] ? pic(m.id, 'mini gmpic') : ''}<span><b>✓ ${A.esc(m.name)}</b><small>${A.esc(doneWhen(g, m.id))} ・ 答え合わせを見る</small></span></span><span class="go">›</span></button>`;
   return `<p class="small">史実モードのミッション：日本の電気の歴史の大事なところを、自分の系統でたどる。時代が進む条件ではない（いつでも続きができる）。判定はゲームの1日（0時）に、前の日の結果で。達成すると答え合わせ（史実）と、ご褒美の収益（直近 7 日の売電の平均の 5 日分）。</p>
     <h3>ミッション（${todo.length}）</h3>${todo.map(row).join('') || '<p class="note">いま出ているミッションは、すべて達成した</p>'}
     ${later.length ? `<p class="small">これからの時代に出るミッション：${later.length}</p>` : ''}
@@ -3100,7 +3445,10 @@ function missionCard(id) {
   const el = document.createElement('div');
   el.className = 'gmcard';
   el.setAttribute('role', 'dialog');
+  const mpic = PIC[m.id] && picSrc(PIC[m.id]) ? `<div class="gmcardpic">${pic(m.id, 'wide')}</div>` : '';
+  if (PIC[m.id]) seen(PIC[m.id]);
   el.innerHTML = `<div class="gmcardin">
+    ${mpic}
     <p class="gmhead">${d ? 'ミッション達成 ・ 答え合わせ' : '答え合わせ'}</p>
     <h2>${A.esc(m.name)}</h2>
     ${a.year ? `<p class="gmyear">史実 ${a.year}年</p>` : a.physics ? '<p class="gmyear">物理</p>' : ''}
@@ -3320,6 +3668,7 @@ function managePanel(g, lc) {
       <h3>そのほか</h3>
       <label class="row"><input type="checkbox" data-minion ${miniOn() ? 'checked' : ''}><span>小さなグラフを出す<small>上の帯の下に、直近24時間の需要と電源の出力・予備力の残り（押すと需給）</small></span></label>
       <label class="row"><input type="checkbox" data-terrainon ${terrainOn() ? 'checked' : ''}><span>地形と景色を出す<small>日本列島の地図に、山地・平野の塗り分けと県境、拡大したときの田畑・林・市街地（見た目だけ。建てられる場所や費用は変わらない）。川・湖・海岸線は外しても出ます</small></span></label>
+      <label class="row"><input type="checkbox" data-mapanimon ${mapAnimOn() ? 'checked' : ''}><span>地図の動きを出す<small>拡大した地図（幅 60 km 以下）に、工場の歯車と煙・商店の看板・海沿い石炭火力の運搬船を描く（地図を動かしている間は止まります）</small></span></label>
       ${DEV.tut || DEV.demo ? '' : '<button class="btn gwide" data-tutagain>チュートリアルをもう一度</button>'}
       <p class="small">テーマ（シンプル／演出あり）は、ホームの「出題対象の設定」で変えられます。事故・出来事が起きたときの演出と収益の演出は、どちらのテーマでも出ます。演出ありでは、揺れ・光・音が少し強くなります（建設・時代が進んだとき・全域停電からの復旧にも音と光）。</p>
       ${versionHtml()}`,
@@ -3336,6 +3685,10 @@ function managePanel(g, lc) {
       });
       onAll('[data-terrainon]', 'change', async (e) => {
         await setTerrain(e.target.checked);
+        screen();
+      });
+      onAll('[data-mapanimon]', 'change', async (e) => {
+        await setMapAnim(e.target.checked);
         screen();
       });
       bindVersion(onAll);
@@ -3460,6 +3813,7 @@ async function openMode() {
   B = null;
   sel = null;
   panel = null;
+  townView = null;
   await Dv.saveModes(A.db, A.S);
   await screen(null, true);
 }
@@ -3508,6 +3862,7 @@ function islandDialog() {
         summary = null;
         B = null;
         sel = null;
+        townView = null;
         await save();
         close();
         screen(null);
@@ -3611,6 +3966,7 @@ async function startTutorial() {
   B = null;
   sel = null;
   panel = null;
+  townView = null;
   Gm.applyLearning(G(), learningNow());
   delete G().eraUp;
   delete G().eraUpFrom;
@@ -3834,6 +4190,7 @@ async function enterDev() {
   DEV.on = true;
   summary = null;
   B = null;
+  townView = null;
   Gm.applyLearning(G(), learningNow());
   delete G().eraUp;
   delete G().eraUpFrom;
@@ -3847,6 +4204,7 @@ async function exitDev() {
   DEV.on = false;
   summary = null;
   B = null;
+  townView = null;
   document.querySelector('.modal.gsheet')?.remove();
   await sync();
   A.toast('本番の系統に戻った');
@@ -3867,6 +4225,7 @@ export async function enterDemo() {
   B = null;
   sel = null;
   panel = null;
+  townView = null;
   Gm.applyLearning(G(), learningNow());
   delete G().eraUp;
   delete G().eraUpFrom;
@@ -3882,6 +4241,7 @@ async function exitDemo() {
   B = null;
   sel = null;
   panel = null;
+  townView = null;
   document.querySelector('.modal.gsheet')?.remove();
   A.home();
 }
@@ -4031,6 +4391,7 @@ function devSheet() {
         DEV.state.money = [];
         summary = null;
         B = null;
+        townView = null;
         await save();
         close();
         A.toast(`${DEV.demo ? 'デモ' : '開発者'}の系統を最初から（${Gm.placeName(g2)}）`);

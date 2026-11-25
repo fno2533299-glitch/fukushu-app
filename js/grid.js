@@ -385,7 +385,8 @@ export function newGrid(seed = 1, nowMs = 0, { terrain = 'standard', start = nul
     events: [], incidents: [], reports: [], cool: {}, buffs: {},
     perfMax: { ...perfMax },
     hist: [], last: null, lossRatio: 0.03,
-    acc: newAcc(), yr: newYear(0), years: [], best: null, past,
+    acc: newAcc(), yr: newYear(0, 20), years: [], best: null, past,
+    litTowns: {}, freshLit: [], // 1.10.3 初めて電気が届いた町
     econCur: newEconDay(), econDays: [], deficitAlerted: false,
     haulNotice: true, // 1.10.1 新しく始める系統には移行の報告書を出さない
     eraKNotice: true, // 1.10.2 新しく始める系統には移行の報告書を出さない
@@ -416,6 +417,13 @@ export function upgrade(G) {
       addReport(G, { title: '時代の需要の伸びを入れた', what: '時代の需要の伸びを入れた：大正 ×10、昭和前期 ×12、戦後復興 ×24（この時代の町は、電気の使い方が大きく伸びた）。', units: [] });
     }
   }
+  // 1.10.3：古い保存データで litTowns がなければ、すでに電気が届いている町を記録して誤爆を防ぐ
+  if (!G.litTowns) {
+    G.litTowns = {};
+    for (const [nid, st] of Object.entries(G.last?.towns || {})) if (st.r > 1e-6 && st.d > 1e-6) G.litTowns[nid] = G.t;
+    if (!Object.keys(G.litTowns).length) for (const l of G.loads || []) G.litTowns[l.town] = G.t;
+  }
+  if (!Array.isArray(G.freshLit)) G.freshLit = [];
   return G;
 }
 // ---- 1.8.0 史実モードと自由モード ----
@@ -428,7 +436,7 @@ export function maxPerf(a = {}, b = {}) {
   return out;
 }
 const newAcc = () => ({ hours: 0, rev: 0, fuel: 0, maint: 0, repair: 0, loan: 0, unserved: 0, shedH: 0, blackH: 0, badH: 0, fails: 0, apps: 0, notes: [] });
-const newYear = (idx) => ({ idx, profit: 0, unserved: 0, okH: 0, hours: 0, served: 0 });
+const newYear = (idx, startAcc = 0) => ({ idx, profit: 0, unserved: 0, okH: 0, hours: 0, served: 0, maxD: 0, built: 0, incTotal: 0, incOk: 0, litNew: 0, blackH: 0, shedH: 0, startAcc });
 // 1.10.2 日ごとの電力・収支の記録（30日分）。5.1 の横棒・5.2 の発電所ごと・5.3 の赤字判定・5.4 の再建見込みに使う
 const newEconDay = () => ({ h: 0, gen: 0, served: 0, lineLoss: 0, subLoss: 0, waste: 0, rev: 0, fuel: 0, maint: 0, repair: 0, loan: 0, reward: 0, plants: {} });
 // 修理費の増減を系統の残高・まとめ・年・日次収支にまとめて反映する（delta が負なら返金）
@@ -528,7 +536,7 @@ export function lineHazard(G, l, t, lc) {
 
 // ---- 需要 ----
 // raw：使用制限をかけない、ふだんの需要（1.10.0 使用制限で減らした量を数えるとき）
-function loadKw(G, ld, t, raw = false) {
+export function loadKw(G, ld, t, raw = false) {
   const D = LOADS[ld.type];
   const r = raw ? null : restrictOn(G);
   const shape = r && RESTRICT_TYPES.includes(ld.type) ? restrictShape(r, ld.type) : D.shape;
@@ -1374,6 +1382,8 @@ export function resolveIncident(G, id, correct) {
     default:
       text = '';
   }
+  G.yr.incTotal = (G.yr.incTotal || 0) + 1;
+  if (correct) G.yr.incOk = (G.yr.incOk || 0) + 1;
   addReport(G, { title: INCIDENTS[inc.key].title, what: `${inc.what || ''}${correct ? '【正しく対処】' : '【対処を誤った】'}${text}`, ...incWhy(inc.key), units: INCIDENTS[inc.key].units, ok: correct });
   return text;
 }
@@ -1524,13 +1534,107 @@ export function appWeight(G, n) {
   const reached = n.id === startId(G) || G.loads.some((l) => l.town === n.id) || G.lines.some((l) => l.a === n.id || l.b === n.id);
   return (n.size || 1) * (reached ? 1 : 0.3) * investK(G, n.id, INVEST_APP);
 }
+// 1.10.3 1年のまとめ（年の変わり目のスナップショットと次の1年のねらい）
+export function buildYearSummary(G, y, prevY = null) {
+  const accNow = G.loads.reduce((a, l) => a + l.kw, 0);
+  const prevAcc = y.startAcc ?? prevY?.accepted ?? 0;
+  const totalD = (y.served || 0) + (y.unserved || 0);
+  const servedPct = totalD > 1e-6 ? y.served / totalD : 1;
+  const prevTot = prevY ? (prevY.served || 0) + (prevY.unserved || 0) : 0;
+  const prevServedPct = prevY ? (prevTot > 1e-6 ? prevY.served / prevTot : 1) : null;
+  let goal = '需要の伸びに合わせて、次の時代の電源や高圧送電線を計画してみよう。';
+  if ((y.blackH || 0) > 0 || (y.shedH || 0) > 0) goal = '予備力の目標と最大の発電機1台分を見比べて、停電や負荷遮断を減らしてみよう。';
+  else if ((y.unserved || 0) > 10) goal = '届いていない町の原因を確かめて、送電線や電源を補ってみよう。';
+  else if ((y.profit || 0) < 0) goal = '需給の「収支のまとめ」で燃料費・損失・捨てた分を見直して、黒字を目指そう。';
+  else if ((G.apps || []).length >= 3) goal = '保留や未対応の申し込みから、余裕のある町の需要を受けてみよう。';
+  return {
+    yearNo: y.idx + 1,
+    era: G.era,
+    maxDemand: Math.round(y.maxD || 0),
+    prevMaxDemand: prevY ? Math.round(prevY.maxD || 0) : null,
+    accepted: Math.round(accNow),
+    prevAccepted: Math.round(prevAcc),
+    servedPct,
+    prevServedPct,
+    unserved: Math.round(y.unserved || 0),
+    blackH: y.blackH || 0,
+    shedH: y.shedH || 0,
+    profit: Math.round(y.profit || 0),
+    prevProfit: prevY ? Math.round(prevY.profit || 0) : null,
+    built: y.built || 0,
+    incTotal: y.incTotal || 0,
+    incOk: y.incOk || 0,
+    litTowns: y.litNew || 0,
+    goal,
+  };
+}
 function closeYear(G) {
-  const y = { ...G.yr, okRate: G.yr.hours ? G.yr.okH / G.yr.hours : 1 };
+  const prevY = G.years[G.years.length - 1] || null;
+  const accepted = G.loads.reduce((a, l) => a + l.kw, 0);
+  const y = { ...G.yr, okRate: G.yr.hours ? G.yr.okH / G.yr.hours : 1, accepted };
+  G.yearSummary = buildYearSummary(G, y, prevY);
   G.years.push(y);
   if (G.years.length > 6) G.years.shift();
   if (!G.best || y.profit > G.best.profit) G.best = y;
   note(G, `${y.idx + 1}年目の決算：利益 ${Math.round(y.profit).toLocaleString('ja-JP')} 円`);
-  G.yr = newYear(y.idx + 1);
+  G.yr = newYear(y.idx + 1, accepted);
+}
+// 1.10.3 初めて電気が届いた町へ至る送電線の経路（BFS。演出で光を走らせる線 ID の配列）
+export function litPathLines(G, townId, t = G.t) {
+  const readyPlants = new Set(G.plants.filter((p) => plantReady(p, t)).map((p) => p.site));
+  if (readyPlants.has(townId)) return [];
+  const adj = new Map();
+  for (const l of G.lines) {
+    if (!lineActive(G, l, t)) continue;
+    (adj.get(l.a) || adj.set(l.a, []).get(l.a)).push([l.b, l.id]);
+    (adj.get(l.b) || adj.set(l.b, []).get(l.b)).push([l.a, l.id]);
+  }
+  const prev = new Map([[townId, null]]);
+  const q = [townId];
+  let hit = null;
+  while (q.length && !hit) {
+    const u = q.shift();
+    for (const [v, lid] of adj.get(u) || []) {
+      if (prev.has(v)) continue;
+      prev.set(v, [u, lid]);
+      if (readyPlants.has(v)) { hit = v; break; }
+      q.push(v);
+    }
+  }
+  if (!hit) return [];
+  const lines = [];
+  let cur = hit;
+  while (cur !== townId) {
+    const [next, lid] = prev.get(cur);
+    lines.push(lid);
+    cur = next;
+  }
+  return lines;
+}
+// 1.10.3 事故・復旧の波及順：起点（事故の地点・発電所など）から送電線のホップ距離順に町を並べる
+export function townWaveOrder(G, originIds = [], t = G.t) {
+  const starts = originIds.filter(Boolean);
+  if (!starts.length) {
+    const p = G.plants.find((x) => x.readyAt <= t);
+    if (p) starts.push(p.site);
+    else starts.push(startId(G));
+  }
+  const adj = new Map();
+  for (const l of G.lines) {
+    if (l.readyAt > t) continue;
+    (adj.get(l.a) || adj.set(l.a, []).get(l.a)).push(l.b);
+    (adj.get(l.b) || adj.set(l.b, []).get(l.b)).push(l.a);
+  }
+  const dist = new Map();
+  const q = [];
+  for (const s of starts) if (!dist.has(s)) dist.set(s, 0), q.push(s);
+  while (q.length) {
+    const u = q.shift();
+    const d = dist.get(u);
+    for (const v of adj.get(u) || []) if (!dist.has(v)) dist.set(v, d + 1), q.push(v);
+  }
+  const towns = [...new Set(G.loads.map((l) => l.town))];
+  return towns.map((id) => ({ id, hop: dist.has(id) ? dist.get(id) : 99 })).sort((a, b) => a.hop - b.hop);
 }
 
 export function fmtKw(kw) {
@@ -2093,6 +2197,12 @@ export function step(G, lc) {
     const sv = sol.src.get(n);
     // 1.7.4 dc・ac：直流・交流から届いた kW（直流の電圧の低下で済んだ分は直流に数える）
     last.towns[n] = { d: d.a, r: ratio, dc: Math.max(0, d.a * ratio - Math.min(d.a * ratio, sv?.ac || 0)), ac: Math.min(d.a * ratio, sv?.ac || 0) };
+    // 1.10.3 初めて電気が届いた町を記録（同じ町は 1 回だけ。t=0 でも未記録扱いにならないよう == null で判定）
+    if (ratio > 1e-6 && d.a > 1e-6 && G.litTowns?.[n] == null) {
+      (G.litTowns ||= {})[n] = t;
+      G.yr.litNew = (G.yr.litNew || 0) + 1;
+      G.freshLit = [...(G.freshLit || []), { town: n, t, path: litPathLines(G, n, t) }].slice(-20);
+    }
     // 停電のあった町は申し込みが減る（1か月で回復）
     if (ratio < 0.95) G.rep[n] = Math.max(0.2, (G.rep[n] ?? 1) - 0.02);
     const k = (f0.get(n) || 0) > 0 ? d.a / f0.get(n) : 0;
@@ -2151,6 +2261,9 @@ export function step(G, lc) {
   y.profit += rev - loan - fuel;
   y.unserved += unserved;
   y.served += served;
+  y.maxD = Math.max(y.maxD || 0, demand);
+  if (anyBlack) y.blackH = (y.blackH || 0) + 1;
+  if (anyShed) y.shedH = (y.shedH || 0) + 1;
   if (!anyBad && !anyShed && !anyBlack) y.okH++;
   Object.assign(last, { x: worst, demand, served, loss, rev, fuel, shed: anyShed, black: anyBlack }, explainStep(G, sol, t));
   G.last = last;
@@ -2367,6 +2480,7 @@ export function buildPlant(G, lc, spec) {
   if (q.freq) p.hz = q.freq; // 交流の発電機の周波数（網が分かれたり、つながったりしても変えない）
   if (q.newHz) addReport(G, { title: `周波数を ${q.freq} Hz に決めた`, what: `${nodeOf(G, spec.site).name}の交流の網は、これから ${q.freq} Hz で動く。周波数の違う網と交流の線でつなぐと、脱調して切れる（網が分かれたり、つながったりしても、発電機の周波数は変わらない）。`, units: [] });
   G.plants.push(p);
+  G.yr.built = (G.yr.built || 0) + 1;
   // 燃料のいらない水力は、優先順位の先頭に入れる（あとで並べ替えられる）
   if (PLANTS[spec.type].coal) G.priority.push(p.id);
   else G.priority.unshift(p.id);
@@ -2432,6 +2546,7 @@ export function buildLine(G, lc, spec) {
   const l = { id: `W${G.nextId++}`, a: spec.a, b: spec.b, kind: spec.kind, route: spec.route || 'direct', km: q.km, hazards: q.hazards, opts: { ...(spec.opts || {}) }, n: 1, cost: q.base, unit: q.base, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, downUntil: 0, c1Until: 0, graceUntil: 0, overH: 0, saltUntil: 0, done: false };
   if (q.seaKm != null) l.seaKm = Math.round(q.seaKm * 100) / 100; // 1.10.0 海峡を渡る線（海の上の長さ）
   G.lines.push(l);
+  G.yr.built = (G.yr.built || 0) + 1;
   return { ...q, line: l };
 }
 // 回線を増やす（同じルートにもう1回線）。1.10.2：工期（新しく引くときの半分）を追加。工事中は回線の数に数えず、終わってから効く
@@ -2515,6 +2630,7 @@ export function buildSub(G, lc, spec) {
   if (!q.ok) return q;
   const s = { id: `S${G.nextId++}`, town: spec.town, mva: spec.mva, cost: q.base, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, downUntil: 0, lossK: 1, failK: 1, failUntil: 0, done: false };
   G.subs.push(s);
+  G.yr.built = (G.yr.built || 0) + 1;
   return { ...q, sub: s };
 }
 export function quoteCap(G, lc, loadId) {
