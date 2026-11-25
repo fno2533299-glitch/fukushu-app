@@ -1291,3 +1291,29 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
 .svgblank:not(.open) text { fill: transparent; }
 .svgblank.open rect { fill: #ffffff; stroke: #1e8a4c; }
 .svgblank.open text { fill: #1e8a4c; font-weight: 700; }
+
+/* ---- 1.10.2 収支のまとめ（電力・お金の横棒、発電所ごとの燃料費・捨てた分） ---- */
+.gecon { margin: 10px 0 6px; padding-top: 4px; border-top: 1px solid var(--line); }
+.gecon h4 { font-size: 0.84rem; color: var(--muted); margin: 10px 0 4px; }
+.gecontabs { margin: 4px 0 6px; }
+.gebar { display: flex; width: 100%; height: 14px; border-radius: 7px; overflow: hidden; background: var(--line); }
+.gebar i { display: block; height: 100%; min-width: 0; }
+.gebar2 { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 6px; }
+.gebarrow { display: grid; grid-template-columns: 2.5em 1fr auto; align-items: center; gap: 6px; }
+.geblab { font-size: 0.78rem; color: var(--muted); }
+.gebval { font-size: 0.78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gekey { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 4px 0 6px; color: var(--muted); }
+.gekey span { display: inline-flex; align-items: center; gap: 4px; }
+.gekey i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.gs-sold, .gs-rev { background: var(--ok); }
+.gs-loss, .gs-maint { background: var(--gwarn); }
+.gs-waste, .gs-rep { background: var(--ng); }
+.gs-oth { background: var(--muted); opacity: .7; }
+.gs-fuel { background: var(--gcoal); }
+.gs-loan { background: var(--lv3); }
+.geunit { padding: 5px 8px; border-radius: 8px; background: var(--m1); margin: 6px 0; }
+.geplant { border-top: 1px solid var(--line); padding: 6px 0; }
+.geplant p { margin: 2px 0; }
+.gnodeplant { border-top: 1px solid var(--line); padding: 4px 0; }
+.gnodeplant:first-of-type { border-top: 0; }
+.gnodeplant p { margin: 2px 0; }

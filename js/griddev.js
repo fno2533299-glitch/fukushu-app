@@ -131,7 +131,16 @@ const PLANT_KEYS = ['parallelIn', 'genTrip', 'genShort'];
 const SUB_KEYS = ['trLoss', 'trParallel', 'trShare'];
 const TOWN_KEYS = ['dcDrop', 'factoryPf', 'motor'];
 // tag：事故の文に添える呼び名（開発者モード／デモ）
-export function triggerIncident(G, lc, key, tag = '開発者モード') {
+// 1.10.2 デモ・開発者モードで事故をすぐ起こしたときの修理費も、直近24刻みの収益内訳（money）に載せる
+export function addMoneyRepair(money, t, cost) {
+  if (!money || !cost) return;
+  if (money.length && money[money.length - 1].t === t) money[money.length - 1].repair += cost;
+  else {
+    money.push({ t, rev: 0, fuel: 0, maint: 0, repair: cost, loan: 0 });
+    if (money.length > 24) money.splice(0, money.length - 24);
+  }
+}
+export function triggerIncident(G, lc, key, tag = '開発者モード', money = null) {
   if (!Gm.INCIDENTS[key]) return { ok: false, why: '事故の種類がない' };
   if (key === 'drought') {
     const e = Gm.evOn(G, 'drought');
@@ -157,11 +166,12 @@ export function triggerIncident(G, lc, key, tag = '開発者モード') {
       if (key === 'lineOver') info.what = `${name}の使用率が 120% を超えた（${tag}）。`;
       else {
         const dur = 24;
-        const cost = l.cost * 0.05;
+        const cost = Gm.repairCost(l);
         const circuit = Gm.lineCircuits(l, t) >= 2;
         if (circuit) l.c1Until = t + dur;
         else l.downUntil = t + dur;
-        G.yen -= cost;
+        Gm.recordRepair(G, cost);
+        addMoneyRepair(money, t, cost);
         Object.assign(info, { dur, cost, circuit, what: `${name}が止まった（${tag}。${circuit ? '1回線' : '全回線'}）。` });
       }
     }
@@ -173,11 +183,12 @@ export function triggerIncident(G, lc, key, tag = '開発者モード') {
       if (key === 'parallelIn') info.what = `${name}を、系統に並列投入する（${tag}）。`;
       else {
         const dur = 48;
-        const cost = p.cost * 0.05;
+        const cost = Gm.repairCost(p);
         p.on = false;
         p.onAt = null;
         p.downUntil = t + dur;
-        G.yen -= cost;
+        Gm.recordRepair(G, cost);
+        addMoneyRepair(money, t, cost);
         Object.assign(info, { dur, cost, what: `${name}が故障で止まった（${tag}）。` });
       }
     }

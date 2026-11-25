@@ -30,6 +30,7 @@ let buildFor = null; // 建設のパネルを地点から開いたとき：{ sit
 let B = null; // 建設モード：{ kind: 'plant'|'line'|'sub', ... }
 let whyOpen = null; // 建設のパネルで、理由を開いている種類
 let listTab = 'list'; // 1.8.0 一覧のパネルのタブ：list（一覧）／mission（ミッション。史実モードだけ）
+let econTab = '7d'; // 1.10.2 収支のまとめのタブ：7d（直近7日の1日あたり）／1d（昨日）
 // 1.5.2 地点のメニュー：{ kind: 'node'|'line', id, branch: null|'build'|'line'|'rm', detail: false, anim: 'menu'|'branch'|null }
 let sel = null;
 // 開発者モード（1.5.1）：本番とは別の系統（kv「gridDev」）。入っているかどうかは保存しない（開き直すと本番に戻る）
@@ -633,6 +634,7 @@ const CHIP_ICON = {
   shed: '<circle cx="6" cy="7" r="3"/><circle cx="6" cy="17" r="3"/><path d="M8.6 8.5L20 18M8.6 15.5L20 6"/>',
   restrict: '<path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l-4-5"/><path d="M15 5h4M17 3v4"/>', // 1.10.0 使用制限
   hzwork: '<path d="M2 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0"/><path d="M19 4l3 3-3 3"/>', // 1.10.0 周波数をそろえる工事
+  debt: '<path d="M6 4l6 8 6-8M12 12v8M7 13h10M7 17h10"/>', // 1.10.2 借入れ返済中
 };
 function chipIcon(c) {
   const k = c.kind === 'inc' ? Mn.INC_PIC[c.key] : c.kind === 'ev' ? c.key : c.kind;
@@ -655,6 +657,7 @@ function chipTap(c) {
   if (c.kind === 'inc') return incidentScreen(c.id);
   if (c.kind === 'restrict') return togglePanel('run'); // 1.10.0 使用制限は運転のパネル
   if (c.kind === 'hzwork') return openSel('node', c.node, true); // 1.10.0 周波数をそろえる工事：その地点の詳細
+  if (c.kind === 'debt') return togglePanel('manage'); // 1.10.2 借入れの返済中は経営のパネル
   if (c.kind !== 'ev') return togglePanel('supply');
   const e = Gm.evOn(G(), c.key);
   if (!e) return;
@@ -947,7 +950,7 @@ function announceDone(g, before) {
     band(Mn.doneText(g, f));
     if (f.kind === 'withdraw') continue; // 1.6.4 保留の取り下げ：帯だけ
     if (f.kind === 'line') mark(f.x.id, 'glow');
-    else if (f.kind === 'opt') mark(f.x.line.id, 'glow');
+    else if (f.kind === 'opt' || f.kind === 'circ') mark(f.x.line.id, 'glow');
     else mark(f.kind === 'plant' ? f.x.site : f.kind === 'hz' ? f.x.node : f.x.town, 'done');
   }
   if (done.length && onGrid()) drawMap();
@@ -1229,11 +1232,13 @@ function topInner(g) {
     // 1.7.4：直流の線も、使用率が 90% を超えたら使用率の色
     const col = building ? 'var(--muted)' : down ? 'var(--ng)' : K.dc && Mn.utilTier(u) === 0 ? 'var(--gdc)' : utilColor(u);
     const wdt = lineWidth(K);
+    const cAdd = !building && l.cAdd?.length ? l.cAdd : null; // 1.10.2 回線の増設工事中（今の回線は動く）
+    const cAddLeft = cAdd ? Math.max(1, Math.min(...cAdd.map((c) => c.readyAt)) - t) : 0;
     // 1.7.4：拡大して線の名前が出るときは、いま送っている量も
-    const label = building ? `${K.short} 工事 あと${hoursText(l.readyAt - t)}` : hzT ? `${K.short} 切れている（周波数違い）` : `${K.short}${l.n > 1 ? `×${l.n}` : ''}${flowing ? ` ${kw(fl.p)}` : ''}`;
+    const label = building ? `${K.short} 工事 あと${hoursText(l.readyAt - t)}` : hzT ? `${K.short} 切れている（周波数違い）` : `${K.short}${l.n > 1 ? `×${l.n}` : ''}${flowing ? ` ${kw(fl.p)}` : ''}${cAdd ? ` +${cAdd.length}回線工事 あと${hoursText(cAddLeft)}` : ''}`;
     const mk = markOf(l.id);
     // 1.8.1：名前を出すか・どこに置くかは、地点の名前を決めたあと（placeLineLabels）。ここでは候補に入れるだけ
-    if (L2.len > 70 || selLine === l.id) lineLabs.push({ l, K, L2, a, b, label, building, hzT, flowing, mk, sel: selLine === l.id });
+    if (L2.len > 70 || selLine === l.id || cAdd) lineLabs.push({ l, K, L2, a, b, label, building, cAdd: !!cAdd, hzT, flowing, mk, sel: selLine === l.id });
     else if (!building) lineDots += optMarks(l, L2.lx, L2.ly, t, true);
     const hz = !K.dc && !hzT && hzN.get(l.a);
     s += `<g class="gline${selLine === l.id ? ' sel' : ''}${B ? ' gdim' : ''}" data-line="${l.id}"><path d="${L2.d}" fill="none" stroke="transparent" stroke-width="22"/>${hz ? `<path d="${L2.d}" class="ghzhalo h${hz}" stroke-width="${wdt + 5}"/>` : ''}${selLine === l.id ? `<path d="${L2.d}" fill="none" stroke="var(--primary)" stroke-width="${wdt + 5}" stroke-linecap="round" opacity=".3"/>` : ''}${mk === 'glow' ? `<path d="${L2.d}" class="gglow" fill="none" stroke-width="${wdt + 6}" stroke-linecap="round"/>` : ''}<path d="${L2.d}" fill="none" stroke="${col}" stroke-width="${wdt}" stroke-linecap="round" ${building ? 'stroke-dasharray="2 5"' : hzT ? 'stroke-dasharray="1.5 4.5" class="ghztrip"' : down ? 'stroke-dasharray="7 5"' : ''}/>${flowing ? flowArrow(L2, a, b, fl.to !== l.a, wdt, u) : ''}</g>`;
@@ -1341,10 +1346,11 @@ function placeLineLabels(labs, labels, placed, iconBoxes, inView, t) {
   const hit = (r) => labels.some((q) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0) || icon.some((q) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0);
   let s = '';
   for (const o of labs) {
-    const { l, L2, label, building } = o;
+    const { l, L2, label, building, cAdd } = o;
+    const work = building || cAdd;
     const nOpt = building ? 0 : Object.keys(Gm.LINE_OPTS).filter((k) => Gm.optOn(l, k, t)).length;
     const tw = textW7(label);
-    const left = building ? 16 : 0, right = nOpt ? nOpt * 12 + 3 : 0;
+    const left = work ? 16 : 0, right = nOpt ? nOpt * 12 + 3 : 0;
     // 名前の文字の基準線（y）と、そこからの箱
     const boxOf = (x, y) => ({ x0: x - tw / 2 - left - 1, y0: y - 8, x1: x + tw / 2 + right + 1, y1: y + 3 });
     const spots = lineLabelSpots(L2, o.a, o.b).map((p) => {
@@ -1361,7 +1367,7 @@ function placeLineLabels(labs, labels, placed, iconBoxes, inView, t) {
     const { x, y } = pick;
     labels.push(boxOf(x, y));
     const cls = building ? ' gwork' : o.hzT ? ' gtrip' : '';
-    s += `<g class="gline glab${o.sel ? ' sel' : ''}" data-line="${l.id}"><text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="glabel${cls}">${label}</text>${building ? cone(x - tw / 2 - 8, y - 3, o.mk === 'work') : optMarks(l, x + tw / 2 + 9, y - 2.5, t, false, true)}</g>`;
+    s += `<g class="gline glab${o.sel ? ' sel' : ''}" data-line="${l.id}"><text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="glabel${cls}">${label}</text>${work ? cone(x - tw / 2 - 8, y - 3, o.mk === 'work') : ''}${building ? '' : optMarks(l, x + tw / 2 + 9, y - 2.5, t, false, true)}</g>`;
   }
   return s;
 }
@@ -1974,10 +1980,11 @@ function circuitDialog(id) {
   const l = g.lines.find((x) => x.id === id);
   if (!l) return;
   const qc = Gm.quoteCircuit(g, lc, id);
+  const adding = l.cAdd?.length ? `・増設工事中 +${l.cAdd.length}` : '';
   sheet(
     `<h2>回線を増やす</h2>
-    <p class="small">${A.esc(Gm.lineName(g, l))}（いま ${l.n}回線）に、同じルートでもう1回線。送れる量が増え、1回線が止まっても残りで送れる。</p>
-    ${qc.ok ? `<p class="gquote"><b>${A.num(qc.cost)} コイン</b>（残高 ${coinText(balance())}）</p><button class="btn primary gwide" data-ok>増設する</button>` : whyHtml(qc)}`,
+    <p class="small">${A.esc(Gm.lineName(g, l))}（いま ${l.n}回線${adding}）に、同じルートでもう1回線。送れる量が増え、1回線が止まっても残りで送れる。</p>
+    ${qc.ok ? `<p class="gquote"><b>${A.num(qc.cost)} コイン</b>（残高 ${coinText(balance())}）・ 工期 ゲームの ${qc.hours}時間（工事の間も今の回線は動く）</p><button class="btn primary gwide" data-ok>増設する</button>` : whyHtml(qc)}`,
     ({ onAll }) => {
       onAll('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo));
       onAll('[data-ok]', 'click', () => pay(qc, `${Gm.LINES[l.kind].short}の回線の増設`, () => Gm.addCircuit(G(), learningNow(), id), null, 'circuit'));
@@ -2362,7 +2369,7 @@ async function pay(q, what, doBuild, after, kind = null) {
     if (fact && !DEV.tut && !DEV.demo) Mn.recordFact(G(), fact); // 1.6.4 再現した史実の年表に残す（チュートリアル・デモでは残さない）
   }
   else if (kind === 'sub') act('buildSub', r.sub), mark(r.sub.town, 'work');
-  else if (kind === 'circuit') act('circuit', r.line);
+  else if (kind === 'circuit') act('circuit', r), mark(r.line.id, 'work');
   else if (kind === 'cap') act('cap', r.load);
   else if (kind === 'opt') act('lineOpt', r), mark(r.line.id, 'work');
   else if (kind === 'hzConv') act('hzConv', r), mark(r.node, 'work'); // 1.10.0
@@ -2532,7 +2539,14 @@ function nodePanel(g, lc, id) {
       <h3>変電所</h3>${subs.length ? subs.map((x) => `<p class="spread grow"><span>変圧器 ${x.mva} MVA ・ ${stateOf(x, t) || `使用率 ${pct(g.last?.subs[id] || 0)}`}</span><button class="btn small" data-rm="sub:${x.id}">撤去</button></p>`).join('') : '<p class="small">なし（11 kV 以上の送電線をつなぐには変電所が要る）</p>'}`;
   }
   h += hzConvHtml(g, lc, id);
-  h += `<h3>発電所</h3>${plants.length ? plants.map((p) => `<p class="spread grow"><span>${Gm.PLANTS[p.type].short} ${kw(p.kw)}${p.proto ? '（試作）' : ''} ・ ${plantState(g, p)}${Gm.isJapan(g) && Gm.PLANTS[p.type].coal ? ` ・ 燃料費 ${haulShort(g, p.site)}` : ''}${plantWhy(g, p) ? `<small class="gpw">${A.esc(plantWhy(g, p))}</small>` : ''}</span><button class="btn small" data-rm="plant:${p.id}">撤去</button></p>`).join('') : '<p class="small">なし</p>'}
+  const ecNode = Gm.econSummary(g, '7d');
+  h += `<h3>発電所</h3>${plants.length ? plants.map((p) => {
+    const D = Gm.PLANTS[p.type];
+    const ps = ecNode.plants?.[p.id];
+    const fuelLine = D.coal ? `<p class="small">${plantFuelText(g, lc, p)}</p>${unitButtons(perfUnitsOf(lc, D.perf))}` : '';
+    const wasteLine = ps && ps.waste > 0.5 ? `<p class="small gneg">最低出力で捨てた分 ${kwh(ps.waste)}/日</p>` : '';
+    return `<div class="gnodeplant"><p class="spread grow"><span>${D.short} ${kw(p.kw)}${p.proto ? '（試作）' : ''} ・ ${plantState(g, p)}${plantWhy(g, p) ? `<small class="gpw">${A.esc(plantWhy(g, p))}</small>` : ''}</span><button class="btn small" data-rm="plant:${p.id}">撤去</button></p>${fuelLine}${wasteLine}</div>`;
+  }).join('') : '<p class="small">なし</p>'}
 `;
   return {
     title: `${A.esc(n.name)}${!Gm.townActive(g, n) || !Gm.nodeOpen(g, n) ? ` <span class="tag">${eraName(Gm.isJapan(g) ? Gm.openEra(g, n) : n.era)}から</span>` : ''}`,
@@ -2642,7 +2656,7 @@ function removeDialog(kind, id) {
   const name = kind === 'plant' ? `${Gm.PLANTS[x.type].short} ${kw(x.kw)}` : kind === 'line' ? Gm.lineName(g, x) : `変圧器 ${x.mva} MVA`;
   sheet(
     `<h2>撤去する</h2>
-    <p>${A.esc(name)} を手放しますか。建設費の 30%（${yen(x.cost * 0.3)}）が<b>収益</b>に戻ります（コインは戻りません）。</p>
+    <p>${A.esc(name)} を手放しますか。建設費の 30%（${yen(Gm.removeBack(x))}）が<b>収益</b>に戻ります（コインは戻りません）。</p>
     <button class="btn gwide gwarn" data-ok>撤去する</button>`,
     ({ onAll, close }) =>
       onAll('[data-ok]', 'click', async () => {
@@ -2669,9 +2683,10 @@ function linePanel(g, lc, id) {
   const canOpt = Gm.optChoices(g, lc, id).length > 0;
   const fact = Gm.isJapan(g) ? J.lineFact(l.a, l.b) : null;
   const dir = f?.p > 0 && f.to ? ` ・ 向き：${A.esc(Gm.nodeOf(g, f.to === l.a ? l.b : l.a).name)} → ${A.esc(Gm.nodeOf(g, f.to).name)}` : '';
+  const cAdd = l.cAdd?.length ? `（+${l.cAdd.length}回線 増設工事中 あと${Mn.hoursText(Math.max(1, Math.min(...l.cAdd.map((c) => c.readyAt)) - t))}）` : '';
   return {
     title: A.esc(Gm.lineName(g, l)),
-    html: `<p class="small glinehead">${linePic(l.kind)}<span>${K.name} ・ ${l.km.toFixed(1)} km（${l.route === 'detour' ? '回り道' : 'まっすぐ'}）・ ${l.n}回線${l.proto ? ' ・ 試作' : ''}</span></p>
+    html: `<p class="small glinehead">${linePic(l.kind)}<span>${K.name} ・ ${l.km.toFixed(1)} km（${l.route === 'detour' ? '回り道' : 'まっすぐ'}）・ ${l.n}回線${cAdd}${l.proto ? ' ・ 試作' : ''}</span></p>
     ${l.seaKm != null ? `<p class="small gstrait">海峡を渡る線（海の上 ${l.seaKm.toFixed(1)} km。高い鉄塔）</p>` : ''}
     ${fact ? `<p class="small gfact">史実：${A.esc(fact.text)}（出典 ${A.esc(fact.src)}・${J.confText(fact.conf)}） <button class="link" data-sources>出典の一覧</button></p>` : ''}
     ${l.hzTrip ? `<div class="gwarnhz"><b>切れている（周波数違い）</b><br>${l.hzPair ? `${A.esc(l.hzPair[0])}側は ${l.hzPair[1]} Hz、${A.esc(l.hzPair[2])}側は ${l.hzPair[3]} Hz の網。` : ''}周波数が違うと、両側の電圧の位相のずれが回り続け（50 Hz と 60 Hz なら毎秒 10 回転）、ずれが 180° に近づくたびに大きな電流が流れる。同期を保てないので、保護装置が線を切った（電気は送れない）。<br><small>入れ直しても、周波数が違うままなら、すぐにまた切れる。どちらかの網から交流の発電機がなくなるなど、周波数がそろえば入る。</small></div>` : ''}
@@ -2681,7 +2696,7 @@ function linePanel(g, lc, id) {
     <p class="small">送れる量を超えて 120% までは温度が上がるだけ（故障しやすくなる）。120% を2時間超えると保護装置で切れる。</p>
     <div class="gbtns2">
       ${l.hzTrip ? '<button class="btn" data-reclose>入れ直す<small>周波数が違うままなら、また切れる</small></button>' : ''}
-      <button class="btn" data-circ>回線を増やす<small>${qc.ok ? `${A.num(qc.cost)} コイン` : A.esc(qc.why)}</small></button>
+      <button class="btn" data-circ>回線を増やす<small>${qc.ok ? `${A.num(qc.cost)} コイン・${qc.hours}時間` : A.esc(qc.why)}</small></button>
       ${canOpt ? '<button class="btn" data-addopts>対策を足す<small>後から（費用は割増）</small></button>' : ''}
       <button class="btn" data-rm>撤去</button>
     </div>`,
@@ -2716,19 +2731,31 @@ function runPanel(g, lc) {
         <span><button class="btn small" data-idle="${p.id}">${p.idle ? '休止をやめる' : '休止する'}</button><button class="btn small" data-rm="plant:${p.id}">撤去</button></span></span></div>`;
     })
     .join('');
+  const ecRun = Gm.econSummary(g, '7d');
+  const wasteByNet = new Map();
+  for (const p of g.plants) {
+    const w = ecRun.plants?.[p.id]?.waste || 0;
+    if (w <= 0.5) continue;
+    const netName = !Gm.PLANTS[p.type].ac ? '直流の網' : p.hz ? `${p.hz} Hz の網` : '交流の網';
+    wasteByNet.set(netName, (wasteByNet.get(netName) || 0) + w);
+  }
+  const wasteLine = wasteByNet.size ? `<p class="small gneg">最低出力で捨てた分（直近7日の1日あたり）：${[...wasteByNet].map(([nm, v]) => `${nm} ${kwh(v)}/日`).join(' ・ ')}</p>` : '';
+  const mNorm = Gm.dailyMaint(g, 'normal');
+  const mDef = Gm.dailyMaint(g, 'defer');
   return {
     title: '運転',
     html: `<h3>給電の優先順位</h3>
       <p class="small">番号の小さい順に使います。${lc.gate.econ ? '▲▼で並べ替え（燃料の安い順にすると得）' : '並べ替えは、電力系統工学「等増分燃料費」を1問正解すると使えます'}。直流の火力は、つないだ町の需要だけを先にまかないます。</p>
       ${!lc.gate.econ ? unitButtons((lc.tables || Gm.gridTables(null)).gate.econ) : ''}
+      ${wasteLine}
       ${plants || '<p class="note">発電所がありません</p>'}
       ${restrictHtml(g)}
       <h3>予備力の目標</h3>
       <label class="row"><input type="range" min="0" max="30" step="1" value="${Math.round(g.reserve * 100)}" data-reserve><b data-rv>${pct(g.reserve)}</b></label>
       <p class="small">需要のこの割合だけ、発電機の出力に余裕を残す（多いほど安全だが、燃料費は上がる）。いまの目標 ${kw(o.reserveKw)}${lc.gate.rel ? ` ・ 最大の発電機1台分 ${kw(o.biggest)}` : ''}</p>
       <h3>点検の方針</h3>
-      <label class="row"><input type="radio" name="maint" value="normal" ${g.maint !== 'defer' ? 'checked' : ''}><span>ふつうに点検する<small>保守費：1日に建設費の 0.05%</small></span></label>
-      <label class="row"><input type="radio" name="maint" value="defer" ${g.maint === 'defer' ? 'checked' : ''}><span>点検を延ばす<small>保守費は半分。故障は 2〜3 倍に増える</small></span></label>
+      <label class="row"><input type="radio" name="maint" value="normal" ${g.maint !== 'defer' ? 'checked' : ''}><span>ふつうに点検する<small>ふつう：保守費 ${yen(mNorm)}/日（設備の値打ちの ${(Gm.MAINT_RATE * 100).toFixed(2)}%/日）</small></span></label>
+      <label class="row"><input type="radio" name="maint" value="defer" ${g.maint === 'defer' ? 'checked' : ''}><span>点検を延ばす<small>延ばす：保守費 ${yen(mDef)}/日・故障 2.5 倍</small></span></label>
       <h3>燃料（石炭）の買い方</h3>
       <label class="row"><input type="radio" name="fuel" value="contract" ${g.fuelPlan === 'contract' ? 'checked' : ''}><span>長期契約<small>値段は固定（いま ${g.fuel.contract.toFixed(2)} 円/kWh・熱）。1年ごとに見直し</small></span></label>
       <label class="row"><input type="radio" name="fuel" value="spot" ${g.fuelPlan === 'spot' ? 'checked' : ''}><span>スポット<small>毎日 ±30% で変わる（今日 ${g.fuel.spot.toFixed(2)}）。平均は長期契約の 0.85 倍</small></span></label>
@@ -2836,6 +2863,7 @@ function supplyPanel(g, lc) {
       ${netsHtml(g)}
       <h3>需要と電源（直近 ${hs.length}時間）</h3>
       ${chart}
+      ${econSummaryHtml(g, lc)}
       ${devMode() ? devSupplyHtml(g, lc) : ''}
       <h3>いまの系統</h3>
       <p class="spread grow"><span>需要の上限（学習で決まる）</span><b>${kw(o.dmax)}</b></p>
@@ -2846,8 +2874,86 @@ function supplyPanel(g, lc) {
       <p class="spread grow"><span>予備力の目標（${pct(g.reserve)}）</span><b>${kw(o.reserveKw)}</b></p>
       ${lc.gate.rel ? `<p class="small">最大の発電機1台分は ${kw(o.biggest)}。${o.reserveKw >= o.biggest ? '1台止まっても埋められる（N-1）' : '<b class="gneg">1台止まると埋めきれない</b>'}</p>` : `<p class="small">電力系統工学「信頼度指標」を1問正解すると、予備力の目安（最大の発電機1台分との比較）が出ます</p>`}
       ${Gm.freqNow(g) && K ? `<p class="spread grow"><span>系統定数 K</span><b>${kw(K)}/Hz</b></p><p class="small">Δf＝−ΔP/K。いまいちばん出力の大きい発電機（${kw(topOut)}）が止まると、余裕が足りていれば ${(topOut / K).toFixed(2)} Hz 下がる</p>` : ''}`,
-    bind: ({ onAll }) => onAll('[data-nowsheet]', 'click', nowSheet),
+    bind: ({ onAll }) => {
+      onAll('[data-nowsheet]', 'click', nowSheet);
+      onAll('[data-econtab]', 'click', (e) => {
+        econTab = e.currentTarget.dataset.econtab;
+        drawPanel(true);
+      });
+    },
   };
+}
+// 1.10.2 5.2：発電所の性能の単元と、石炭火力の燃料費・効率の1行（運び代倍率込み）
+function perfUnitsOf(lc, key) {
+  return (lc.tables || Gm.gridTables(null)).perf[key] || Gm.PERF[key] || [];
+}
+function perfUnitLabel(lc, key) {
+  const units = perfUnitsOf(lc, key);
+  if (!DEV.demo && A.S.data) {
+    const names = [...new Set(units.map((u) => A.shortName(A.unitName(u))).filter(Boolean))];
+    if (names.length) return names.slice(0, 2).join('・');
+  }
+  return Gm.GATE_NAMES[key] || key;
+}
+function plantFuelText(g, lc, p) {
+  const D = Gm.PLANTS[p.type];
+  if (!D.coal) return '燃料なし';
+  const eff = Gm.plantEff(p, lc, g);
+  const cost = Gm.fuelPrice(g, g.t, p.site) / eff;
+  const haul = Gm.isJapan(g) ? `・運び代 ${haulShort(g, p.site)}` : '';
+  return `燃料費 ${cost.toFixed(1)} 円/kWh（効率 ${(eff * 100).toFixed(1)}%${haul}。${A.esc(perfUnitLabel(lc, D.perf))}の定着で最大 ${(D.eff[1] * 100).toFixed(0)}%）`;
+}
+// 1.10.2 5.1・5.2：収支のまとめ（電力の横棒・お金の横棒・売れた 1 kWh あたり・発電所ごとの燃料費と捨てた分）
+function econSummaryHtml(g, lc) {
+  const raw = Gm.econSummary(g, econTab);
+  const s = raw.days > 0 || raw.hours > 0 ? raw : Gm.econEstimate(g, lc);
+  const tabs = `<div class="gseg gecontabs">${[['7d', '直近 7日の1日あたり'], ['1d', '昨日']].map(([k, lb]) => `<button class="btn small ${econTab === k ? 'on' : ''}" data-econtab="${k}">${lb}</button>`).join('')}</div>`;
+  const span = s.estimated ? '記録がまだないため、いまの系統の1日の見込み' : s.partial ? `今日のこれまで（${s.hours}時間分）` : econTab === '1d' ? '昨日の1日分' : `直近 ${s.days}日の1日あたり`;
+  if (!(s.gen > 0 || s.rev > 0 || s.expense > 0)) {
+    return `<div class="gecon"><h3>収支のまとめ</h3>${tabs}<p class="note">まだ記録がありません</p></div>`;
+  }
+  // 電力の横棒：発電＝売れた分＋送電の損失＋最低出力で捨てた分＋そのほか
+  const gTot = Math.max(s.gen, 1e-6);
+  const pw = (v) => `${Math.max(0, (v / gTot) * 100).toFixed(1)}%`;
+  const pPct = (v) => `${Math.round((v / gTot) * 100)}%`;
+  const pBar = `<div class="gebar" role="img" aria-label="発電 ${kwh(s.gen)}：売れた分 ${pPct(s.served)}、送電の損失 ${pPct(s.lineLoss)}、最低出力で捨てた分 ${pPct(s.waste)}、そのほか ${pPct(s.other)}">
+    <i class="gs-sold" style="width:${pw(s.served)}"></i><i class="gs-loss" style="width:${pw(s.lineLoss)}"></i><i class="gs-waste" style="width:${pw(s.waste)}"></i><i class="gs-oth" style="width:${pw(s.other)}"></i>
+  </div>
+  <p class="small gekey"><span><i class="gs-sold"></i>売れた ${kwh(s.served)}（${pPct(s.served)}）</span><span><i class="gs-loss"></i>送電の損失 ${kwh(s.lineLoss)}（${pPct(s.lineLoss)}）</span><span><i class="gs-waste"></i>捨てた分 ${kwh(s.waste)}（${pPct(s.waste)}）</span><span><i class="gs-oth"></i>そのほか ${kwh(s.other)}（${pPct(s.other)}）</span></p>`;
+  // お金の横棒：収入（売電）と支出（燃料・保守・修理・返済）を同じ縮尺で 2 本並べる
+  const mMax = Math.max(s.rev, s.expense, 1);
+  const mw = (v) => `${Math.max(0, (v / mMax) * 100).toFixed(1)}%`;
+  const netCls = s.net < -0.5 ? 'gneg' : '';
+  const netText = s.net < -0.5 ? `−${yen(-s.net)}（赤字）` : `${s.net >= 0.5 ? '+' : ''}${yen(s.net)}`;
+  const mBars = `<div class="gebar2">
+    <div class="gebarrow"><span class="geblab">収入</span><div class="gebar"><i class="gs-rev" style="width:${mw(s.rev)}"></i></div><b class="gebval">${yenShort(s.rev)}</b></div>
+    <div class="gebarrow"><span class="geblab">支出</span><div class="gebar"><i class="gs-fuel" style="width:${mw(s.fuel)}"></i><i class="gs-maint" style="width:${mw(s.maint)}"></i><i class="gs-rep" style="width:${mw(s.repair)}"></i><i class="gs-loan" style="width:${mw(s.loan)}"></i></div><b class="gebval">${yenShort(s.expense)}</b></div>
+  </div>
+  <p class="spread grow"><span>差し引き（1日あたり）</span><b class="${netCls}">${netText}</b></p>
+  <p class="small gekey"><span><i class="gs-rev"></i>売電 ${yen(s.rev)}</span><span><i class="gs-fuel"></i>燃料 ${yen(s.fuel)}</span><span><i class="gs-maint"></i>保守 ${yen(s.maint)}</span><span><i class="gs-rep"></i>修理 ${yen(s.repair)}</span><span><i class="gs-loan"></i>返済 ${yen(s.loan)}</span></p>
+  ${s.reward > 0.5 ? `<p class="small">ミッションのご褒美（棒には含めない）：+${yen(s.reward)}/日</p>` : ''}`;
+  const perKwh = `<p class="small geunit">売れた 1 kWh あたり：売電 <b>${s.revPerKwh.toFixed(1)} 円</b>・燃料費 <b>${s.fuelPerKwh.toFixed(1)} 円</b>（損失と捨てた分を含む）</p>`;
+  // 5.2 発電所ごとの行
+  const pRows = g.plants
+    .map((p) => {
+      const D = Gm.PLANTS[p.type];
+      const ps = s.plants?.[p.id];
+      const wasteStr = ps && ps.waste > 0.5 ? `<span class="gneg">最低出力で捨てた分 ${kwh(ps.waste)}/日</span>` : '';
+      const genStr = ps && ps.gen > 0.5 ? `発電 ${kwh(ps.gen)}/日` : '発電 0 kWh/日';
+      return `<div class="geplant"><p class="spread grow"><b>${D.short} ${kw(p.kw)}（${A.esc(Gm.nodeOf(g, p.site).name)}）</b><small>${genStr}</small></p>
+        <p class="small">${D.coal ? plantFuelText(g, lc, p) : '燃料なし'}${wasteStr ? `<br>${wasteStr}` : ''}</p>
+        ${D.coal ? unitButtons(perfUnitsOf(lc, D.perf)) : ''}</div>`;
+    })
+    .join('');
+  return `<div class="gecon">
+    <h3>収支のまとめ</h3>
+    ${tabs}
+    <p class="small">${span} ・ 発電 ${kwh(s.gen)}</p>
+    ${pBar}
+    ${mBars}
+    ${perKwh}
+    ${pRows ? `<h4>発電所ごとの燃料費・捨てた分</h4>${pRows}` : ''}
+  </div>`;
 }
 // 開発者モード：数値を確かめやすいように、1日の収益の内訳と発電所ごとの出力・効率
 function devSupplyHtml(g, lc) {
@@ -2861,7 +2967,8 @@ function devSupplyHtml(g, lc) {
     <p class="spread grow"><span>料金（売電）</span><b>${yen(d.rev)}</b></p>
     <p class="spread grow"><span>燃料費</span><b>−${yen(d.fuel)}</b></p>
     <p class="spread grow"><span>保守費</span><b>−${yen(d.maint)}</b></p>
-    ${d.repair ? `<p class="spread grow"><span>修理費</span><b>−${yen(d.repair)}</b></p>` : ''}${d.loan ? `<p class="spread grow"><span>返済</span><b>−${yen(d.loan)}</b></p>` : ''}
+    <p class="spread grow"><span>修理費</span><b>−${yen(d.repair)}</b></p>
+    <p class="spread grow"><span>返済</span><b>−${yen(d.loan)}</b></p>
     <p class="spread grow"><span>利益</span><b class="${d.profit < 0 ? 'gneg' : ''}">${yen(d.profit)}</b></p>
     <h3>発電所ごとの出力・効率</h3>${rows || '<p class="note">発電所がありません</p>'}</div>`;
 }
@@ -2901,12 +3008,15 @@ function listPanel(g, lc) {
     };
   }
   const incs = g.incidents.map((i) => `<div class="gitem"><p class="spread"><b>${A.esc(Gm.INCIDENTS[i.key].title)}</b><small>あと ${Math.max(0, i.deadline - t)}時間</small></p><p class="small">${A.esc(i.what || '')}</p><button class="btn primary" data-inc="${i.id}">対処を選ぶ</button></div>`).join('');
+  const ecList = Gm.econSummary(g, '7d');
+  const fuelPerKwhNow = ecList.served > 1e-6 ? `${ecList.fuelPerKwh.toFixed(1)} 円` : '—';
   const apps = g.apps
     .map((a) => {
       const p = Gm.previewApp(g, lc, a.id);
       const n = Gm.nodeOf(g, a.town);
       const warn = [!p.reach ? (p.net ? '今の設備では電気が足りない（受けると停電する）' : '電気が届く道がない（線・変電所がつながっていない）') : '', p.reach && p.margin < g.reserve ? `供給の余裕が小さい（${pct(p.margin)}）` : '', p.line > 1 ? `線の使用率 ${pct(p.line)}` : '', p.sub > 1 ? `変圧器の使用率 ${pct(p.sub)}` : ''].filter(Boolean);
       return `<div class="gitem" data-appcard="${a.id}"><p class="spread"><b>${A.esc(n.name)}：${Gm.LOADS[a.type].name} ${kw(a.kw)}</b><small>${Gm.LOADS[a.type].rate} 円/kWh</small></p>
+        <p class="small">売値 ${Gm.LOADS[a.type].rate} 円/kWh（${Gm.LOADS[a.type].name}）・いまの燃料費は売れた 1 kWh あたり ${fuelPerKwhNow}</p>
         <p class="small">受けたときの見込み（${p.hour}時ごろのピーク）：供給の余裕 ${pct(p.margin)} ・ 線の使用率 最大 ${pct(p.line)}${p.sub ? ` ・ 変圧器 ${pct(p.sub)}` : ''}${Gm.LOADS[a.type].pf < 1 ? ' ・ 力率 0.75（受けたあと、町の建設から進相コンデンサで直せる）' : ''}</p>
         ${warn.length ? `<p class="warn small">${warn.join(' ・ ')}</p>` : ''}
         ${outlookHtml(g, lc, a.town, [a.id], true)}
@@ -2915,11 +3025,11 @@ function listPanel(g, lc) {
     .join('');
   const order = g.priority.map((id) => g.plants.find((p) => p.id === id)).filter(Boolean);
   const plants = order.map((p) => `<button class="gitem grow2" data-gonode="${p.site}"><span><b>${Gm.PLANTS[p.type].short} ${kw(p.kw)}${p.proto ? '（試作）' : ''}</b><small>${A.esc(Gm.nodeOf(g, p.site).name)} ・ ${plantState(g, p)}${Gm.isJapan(g) && Gm.PLANTS[p.type].coal ? ` ・ 燃料費 ${haulShort(g, p.site)}` : ''}</small></span><span class="go">›</span></button>`).join('');
-  const lines = g.lines.map((l) => `<button class="gitem grow2" data-goline="${l.id}"><span><b>${A.esc(Gm.lineName(g, l))}</b><small>${l.km.toFixed(1)} km・${l.n}回線 ・ ${stateOf(l, t) || `使用率 ${pct(g.last?.lines[l.id]?.util || 0)}`}</small></span><span class="go">›</span></button>`).join('');
+  const lines = g.lines.map((l) => `<button class="gitem grow2" data-goline="${l.id}"><span><b>${A.esc(Gm.lineName(g, l))}</b><small>${l.km.toFixed(1)} km・${l.n}回線${l.cAdd?.length ? `（+${l.cAdd.length}増設工事中）` : ''} ・ ${stateOf(l, t) || `使用率 ${pct(g.last?.lines[l.id]?.util || 0)}`}</small></span><span class="go">›</span></button>`).join('');
   const subs = g.subs.map((x) => `<button class="gitem grow2" data-gonode="${x.town}"><span><b>${A.esc(Gm.nodeOf(g, x.town).name)}の変圧器 ${x.mva} MVA</b><small>${stateOf(x, t) || `使用率 ${pct(g.last?.subs[x.town] || 0)}`}</small></span><span class="go">›</span></button>`).join('');
   const reports = g.reports
     .slice(0, 15)
-    .map((r) => `<div class="gitem grep${r.ok === true ? ' ok' : r.ok === false ? ' ng' : ''}"><p class="spread"><b>${A.esc(r.title)}</b><small>${timeLabel({ t: r.t })}</small></p><p class="small">${A.esc(r.what)}${r.why ? `<br>なぜ：${A.esc(r.why)}` : ''}</p>${unitButtons(r.units || [])}</div>`)
+    .map((r) => `<div class="gitem grep${r.ok === true ? ' ok' : r.ok === false ? ' ng' : ''}"><p class="spread"><b>${A.esc(r.title)}</b><small>${timeLabel({ t: r.t })}</small></p><p class="small">${A.esc(r.what)}${r.why ? `<br>なぜ：${A.esc(r.why)}` : ''}</p>${r.goSupply ? '<p><button class="btn small" data-gosupply>需給を見る</button></p>' : ''}${unitButtons(r.units || [])}</div>`)
     .join('');
   return {
     title: '一覧',
@@ -2952,6 +3062,7 @@ function listPanel(g, lc) {
       });
       onAll('[data-gonode]', 'click', (e) => (setPanel(null), openSel('node', e.currentTarget.dataset.gonode, true)));
       onAll('[data-goline]', 'click', (e) => (setPanel(null), openSel('line', e.currentTarget.dataset.goline, true)));
+      onAll('[data-gosupply]', 'click', () => setPanel('supply'));
     },
   };
 }
@@ -3182,6 +3293,7 @@ function managePanel(g, lc) {
   return {
     title: '経営',
     html: `<p class="spread grow"><span>収益の残高</span><b class="${g.yen < 0 ? 'gneg' : ''}">${yen(g.yen)}</b></p>
+      ${g.debt > 0.5 ? `<p class="small">借入れの残り <b>${yen(g.debt)}</b>（収入の ${Math.round(Gm.DEBT_RATE * 100)}% を返済中）</p>` : ''}
       ${g.loanUntil > g.t ? `<p class="small">借入れの返済中（あと ${Math.ceil((g.loanUntil - g.t) / 24)}日。収入の 20%）</p>` : ''}
       ${g.rebuild ? '<button class="btn primary gwide gwarn" data-rebuild2>経営再建：手放すか、借入れを選ぶ</button>' : ''}
       ${modeHtml(g)}
@@ -3407,28 +3519,44 @@ function islandDialog() {
 
 // 経営再建：手放す設備を選ぶ（建設費の 30% が収益に戻る）か、借入れ
 function rebuildDialog() {
-  const g = G();
+  const g = G(), lc = learningNow();
   seen('G21');
-  const items = [...g.plants.map((p) => ['plant', p.id, `${Gm.PLANTS[p.type].short} ${kw(p.kw)}`, p.cost]), ...g.lines.map((l) => ['line', l.id, Gm.lineName(g, l), l.cost]), ...g.subs.map((x) => ['sub', x.id, `${Gm.nodeOf(g, x.town).name}の変圧器 ${x.mva} MVA`, x.cost])];
+  const fc = Gm.loanForecast(g, lc);
+  const fmtSigned = (v) => (v < -0.5 ? `<b class="gneg">−${yen(-v)}（赤字）</b>` : `<b>${v >= 0.5 ? '+' : ''}${yen(v)}</b>`);
+  const items = [
+    ...g.plants.map((p) => {
+      const ps = fc.summary.plants?.[p.id];
+      const info = ps ? ` ・ 直近7日の1日あたり：燃料費 ${yen(ps.fuel)}・売れた量 ${kwh(ps.sold)}` : '';
+      return ['plant', p.id, `${Gm.PLANTS[p.type].short} ${kw(p.kw)}（${Gm.nodeOf(g, p.site).name}）`, Gm.removeBack(p), info];
+    }),
+    ...g.lines.map((l) => ['line', l.id, Gm.lineName(g, l), Gm.removeBack(l), '']),
+    ...g.subs.map((x) => ['sub', x.id, `${Gm.nodeOf(g, x.town).name}の変圧器 ${x.mva} MVA`, Gm.removeBack(x), '']),
+  ];
+  const forecastHtml =
+    fc.summary.rev > 0 || fc.summary.expense > 0
+      ? `<p class="small">いまの1日の収支（${fc.summary.estimated ? '1日の見込み' : '直近7日'}）：${fmtSigned(fc.curNet)} → 返済中は ${fmtSigned(fc.repayNet)}</p>
+        ${fc.cantFinish ? `<p class="warn small"><b>今のままでは返し終わらず、約 ${fc.againDays}日でまた経営再建になる</b></p>` : fc.payDays ? `<p class="small">返し終える見込み：約 <b>${fc.payDays}日</b></p>` : ''}`
+      : '';
   sheet(
     `<h2>経営再建</h2>
     ${pic('rebuild', 'wide')}
     <p>収益の残高がマイナスのまま3日たちました（いま <b class="gneg">${yen(g.yen)}</b>）。どちらかを選びます。時代・設計図・性能の上乗せは残ります。</p>
     <h3>借入れ</h3>
-    <p class="small">残高を 0 に戻し、これから30日間、収入の 20% を返済に回す。</p>
+    <p class="small">いまのマイナス（${yen(fc.borrow)}）を借りて残高を 0 に戻す。借入れの残りに <b>${yen(fc.added)}</b>（×${Gm.DEBT_INTEREST}）を足し（合計 ${yen(fc.totalDebt)}）、残りが 0 になるまで収入の ${Math.round(Gm.DEBT_RATE * 100)}% を返済する（返済中は収益の使い道を使えない）。</p>
+    ${forecastHtml}
     <button class="btn primary gwide" data-loan>借入れをする</button>
     <h3>設備を手放す</h3>
-    <p class="small">選んだ設備の建設費の 30% が収益に戻る。残高が 0 以上になれば再建は終わり。</p>
-    ${items.map(([k, id, name, cost]) => `<label class="row"><input type="checkbox" data-sell="${k}:${id}"><span>${A.esc(name)}<small>+${yen(cost * 0.3)}</small></span></label>`).join('')}
+    <p class="small">選んだ設備の値打ちの 30% が収益に戻る。残高が 0 以上になれば再建は終わり。</p>
+    ${items.map(([k, id, name, back, info]) => `<label class="row"><input type="checkbox" data-sell="${k}:${id}"><span>${A.esc(name)}<small>+${yen(back)}${A.esc(info)}</small></span></label>`).join('')}
     <button class="btn gwide" data-sellgo>選んだ設備を手放す</button>`,
     ({ dlg, onAll, close }) => {
       onAll('[data-loan]', 'click', async () => {
-        Gm.rebuildLoan(g);
-        Gm.addReport(g, { title: '借入れをした', what: '残高を 0 に戻した。30日間、収入の 20% を返済に回す。', units: [] });
+        const r = Gm.rebuildLoan(g);
+        Gm.addReport(g, { title: '借入れをした', what: `残高を 0 に戻した。借入れの残り ${yen(r.debt)}（収入の ${Math.round(Gm.DEBT_RATE * 100)}% を残りが 0 になるまで返済）。`, units: [] });
         await save();
         close();
         screen();
-        act('loan');
+        act('loan', r);
       });
       onAll('[data-sellgo]', 'click', async () => {
         const sel = [...dlg.querySelectorAll('[data-sell]:checked')].map((x) => x.dataset.sell.split(':'));
@@ -3878,7 +4006,7 @@ function devSheet() {
       $('[data-mastered]').onchange = (e) => set({ mastered: Math.max(0, Math.round(Number(e.target.value) || 0)) });
       onAll('[data-devreal]', 'click', () => set({ level: null, era: null, mastered: null, perf: null }));
       onAll('[data-incgo]', 'click', async () => {
-        const r = Dv.triggerIncident(G(), learningNow(), $('[data-inckey]').value, DEV.demo ? 'デモ' : '開発者モード');
+        const r = Dv.triggerIncident(G(), learningNow(), $('[data-inckey]').value, DEV.demo ? 'デモ' : '開発者モード', DEV.state.money);
         await save();
         if (!r.ok) return A.toast(r.why);
         close();

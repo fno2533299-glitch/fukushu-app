@@ -78,10 +78,23 @@ export const SUB_SIZES = [0.1, 0.5, 1, 2, 5, 10, 30, 100]; // MVA
 export const subCost = (mva) => Math.max(2000, Math.round(mva * 1000));
 export const TR = { iron: 0.005, copper: 0.015, era: 2, build: 24, gates: ['tr'], perf: 'tr' };
 export const CAP_COST = (kw) => Math.max(500, Math.round(kw * 3)); // 進相コンデンサ
-// 1.7.4 コインで払う建設費は、表の値（円の側の基準）の COIN_K 倍。設備の cost（修理費・保守費・撤去で戻る額・経営再建に使う）は表の値のまま。
-// 見積もり（quote*）の cost＝払うコイン、base＝円の側の基準（設備に持つ cost）
+// 1.7.4 コインで払う建設費は、表の値（円の側の基準）の COIN_K 倍。設備の cost（表の値）は変えない。
+// 1.10.2 円の側の設備の値打ち＝表の値 × YEN_K（保守費・修理費・撤去で戻る額・経営再建で手放す額・spendBase の下限）。コインは COIN_K のまま
 export const COIN_K = 3;
+export const YEN_K = 200;
+export const MAINT_RATE = 0.0008; // 1日あたりの保守費（円の側の値打ちに対する割合）
+export const REPAIR_RATE = 0.08; // 1回あたりの修理費
+export const SELL_RATE = 0.3; // 撤去・手放すで戻る割合
+export const DEBT_INTEREST = 1.1; // 借入れの利息（借りたときに1回だけ）
+export const DEBT_RATE = 0.2; // 借入れ返済（収入に対する割合）
 const coinOf = (base) => Math.round(base * COIN_K);
+export const yenValue = (baseCost) => (baseCost || 0) * YEN_K;
+export function dailyMaint(G, maint = G.maint) {
+  const assets = [...G.plants, ...G.lines, ...G.subs].reduce((a, x) => a + (x.cost || 0), 0);
+  return yenValue(assets) * MAINT_RATE * (maint === 'defer' ? 0.5 : 1);
+}
+export const repairCost = (x) => yenValue(x?.cost || 0) * REPAIR_RATE;
+export const removeBack = (x) => yenValue(x?.cost || 0) * SELL_RATE;
 
 // ---- 需要（設計 5章） ----
 const H24 = (f) => Array.from({ length: 24 }, (_, h) => f(h));
@@ -101,9 +114,8 @@ const tanOf = (pf) => Math.sqrt(1 / (pf * pf) - 1);
 export function dmaxKw(level, mastered) {
   return 30 * Math.pow(1.4, level - 1) * (1 + mastered / 100);
 }
-// 1.10.0 需要の時代の倍率（構想メモ 1章「時代で需要を伸ばす」）：D_max × ERA_K[時代]。E4 までは 1、E4b（5）は 2。
-// E5 以降の値は次の版で決める。数値の釣り合いの5点と一緒に、本人が開発者モードで遊んで直せるように定数にしておく
-export const ERA_K = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 2 };
+// 1.10.0 / 1.10.2 需要の時代の倍率：D_max × ERA_K[時代]。明治は 1、大正 10、昭和前期 12、戦後復興 24（仮。定数のまま調整可）
+export const ERA_K = { 1: 1, 2: 1, 3: 10, 4: 12, 5: 24 };
 export const eraK = (era) => ERA_K[era] ?? 1;
 export const dmaxOf = (level, mastered, era = eraOf(level)) => dmaxKw(level, mastered) * eraK(era);
 
@@ -362,7 +374,7 @@ export function newGrid(seed = 1, nowMs = 0, { terrain = 'standard', start = nul
     v: 2, mode: mode === 'free' ? 'free' : 'history', islandNo, terrain, seed, rng: seed | 0,
     ...(terrain === 'japan' ? { start: home } : {}),
     t: 6, realAt: nowMs, era: 1, hz: null,
-    yen: 10000, loanUntil: 0, negHours: 0, rebuild: false,
+    yen: 10000, loanUntil: 0, debt: 0, negHours: 0, rebuild: false,
     reserve: 0.1, fuelPlan: 'contract', maint: 'normal',
     fuel: { base: 1, contract: 1, spot: 0.85 },
     priority: ['P1'], nextId: 2,
@@ -374,7 +386,9 @@ export function newGrid(seed = 1, nowMs = 0, { terrain = 'standard', start = nul
     perfMax: { ...perfMax },
     hist: [], last: null, lossRatio: 0.03,
     acc: newAcc(), yr: newYear(0), years: [], best: null, past,
+    econCur: newEconDay(), econDays: [], deficitAlerted: false,
     haulNotice: true, // 1.10.1 新しく始める系統には移行の報告書を出さない
+    eraKNotice: true, // 1.10.2 新しく始める系統には移行の報告書を出さない
   };
   return G;
 }
@@ -389,10 +403,18 @@ export function upgrade(G) {
     G.v = 2;
   }
   if (G.mode !== 'free') G.mode = 'history'; // 1.8.0：mode のない古い保存データは史実モード
+  if (G.debt == null) G.debt = 0; // 1.10.2 借入れの残り
   // 1.10.1：石炭の運び代を入れたあと、既存の日本列島の系統を最初に開いたとき報告書を1つ（すでに建てた石炭火力にも効く）
   if (G.terrain === 'japan' && !G.haulNotice) {
     G.haulNotice = true;
     addReport(G, { title: '石炭の運び代を入れた', what: '石炭の運び代を入れた：炭田のそば ×0.70、海沿い ×0.95 まで、内陸は遠いほど高い（最大 ×1.4）。すでに建てた石炭火力にも効く。', units: ['power-system-U05', 'power-system-U06'] });
+  }
+  // 1.10.2：すでに大正・昭和前期・戦後復興にいる系統は、最初に開いたときに D_max が上がる報告書を1つ
+  if (!G.eraKNotice) {
+    G.eraKNotice = true;
+    if ((G.era || 1) >= 3) {
+      addReport(G, { title: '時代の需要の伸びを入れた', what: '時代の需要の伸びを入れた：大正 ×10、昭和前期 ×12、戦後復興 ×24（この時代の町は、電気の使い方が大きく伸びた）。', units: [] });
+    }
   }
   return G;
 }
@@ -407,6 +429,17 @@ export function maxPerf(a = {}, b = {}) {
 }
 const newAcc = () => ({ hours: 0, rev: 0, fuel: 0, maint: 0, repair: 0, loan: 0, unserved: 0, shedH: 0, blackH: 0, badH: 0, fails: 0, apps: 0, notes: [] });
 const newYear = (idx) => ({ idx, profit: 0, unserved: 0, okH: 0, hours: 0, served: 0 });
+// 1.10.2 日ごとの電力・収支の記録（30日分）。5.1 の横棒・5.2 の発電所ごと・5.3 の赤字判定・5.4 の再建見込みに使う
+const newEconDay = () => ({ h: 0, gen: 0, served: 0, lineLoss: 0, subLoss: 0, waste: 0, rev: 0, fuel: 0, maint: 0, repair: 0, loan: 0, reward: 0, plants: {} });
+// 修理費の増減を系統の残高・まとめ・年・日次収支にまとめて反映する（delta が負なら返金）
+export function recordRepair(G, delta) {
+  if (!delta) return;
+  G.yen -= delta;
+  G.acc.repair += delta;
+  G.yr.profit -= delta;
+  const ec = (G.econCur ||= newEconDay());
+  ec.repair += delta;
+}
 
 // ---- 設備の状態 ----
 const P = (p) => PLANTS[p.type];
@@ -755,16 +788,17 @@ function runNet(G, lc, t, net, dem, fc, o) {
       add(u.p.site, -g + feederLoss(u.p, g), Pg > 0 ? (-Q * g) / Pg : 0);
     }
     const flows = treeFlows(net, inj);
-    let loss = fl;
+    let lLoss = fl;
     for (const e of net.edges) {
       const f = flows.get(e.id) || { p: 0, q: 0 };
       const n = lineCircuits(e, t);
       f.loss = lineLoss(e.kind, e.km, n, f.p, net.dc ? 0 : f.q);
       f.util = Math.hypot(f.p, net.dc ? 0 : f.q) / (LINES[e.kind].cap * n);
-      loss += f.loss;
+      lLoss += f.loss;
     }
     // 変電所：鉄損はいつも、銅損は負荷率の2乗。町に出入りする送電線（11 kV 以上）の流れの合計が変圧器を通る
     const subs = new Map();
+    let subLoss = 0;
     if (!net.dc) {
       for (const n of towns) {
         const ss = subsAt(G, n, t);
@@ -781,11 +815,11 @@ function runNet(G, lc, t, net, dem, fc, o) {
         const S = Math.hypot(sp, sq);
         const lossK = ss.reduce((a, s) => a + (s.lossK || 1) * s.mva, 0) / (capK / 1000);
         const l = (TR.iron * capK + TR.copper * capK * (S / capK) ** 2) * lossK;
-        loss += l;
+        subLoss += l;
         subs.set(n, { util: S / capK, loss: l });
       }
     }
-    return { flows, loss, subs };
+    return { flows, loss: lLoss + subLoss, lineLoss: lLoss, subLoss, subs };
   };
   let plan = dispatch(units, F);
   const scale = F > 0 ? A / F : 1;
@@ -863,7 +897,16 @@ function runNet(G, lc, t, net, dem, fc, o) {
   res.flows = fin.flows;
   res.subs = fin.subs;
   res.loss = fin.loss;
+  res.lineLoss = fin.lineLoss;
+  res.subLoss = fin.subLoss;
   res.out = out;
+  // 1.10.2 最低出力で捨てた分を、最低出力で運転している発電機に按分（5.2 の発電所ごとの表示）
+  res.plantWaste = new Map();
+  if (res.waste > 1e-6) {
+    const mins = alive.filter((u) => u.min > 0 && (out.get(u.p.id) || 0) <= u.min + 1e-6);
+    const sumMin = mins.reduce((a, u) => a + u.min, 0);
+    if (sumMin > 0) for (const u of mins) res.plantWaste.set(u.p.id, res.waste * (u.min / sumMin));
+  }
   return res;
 }
 
@@ -1227,7 +1270,7 @@ function scaleOutage(G, inc, kDur, kCost = kDur) {
     if (inc.circuit) x.c1Until = until;
     else x.downUntil = until;
   }
-  if (inc.cost) G.yen += inc.cost * (1 - kCost);
+  if (inc.cost) recordRepair(G, inc.cost * (kCost - 1));
 }
 // 事故の問題に答えた結果を反映する。correct：true／false。戻り値：結果の文
 export function resolveIncident(G, id, correct) {
@@ -1248,7 +1291,7 @@ export function resolveIncident(G, id, correct) {
       if (!correct && x) {
         x.downUntil = G.t + 72;
         x.on = false;
-        G.yen -= x.cost * 0.05;
+        recordRepair(G, repairCost(x));
       }
       ok('問題なく並列できた。', '投入の衝撃で発電機が傷んだ（修理に3日）。');
       break;
@@ -1282,7 +1325,7 @@ export function resolveIncident(G, id, correct) {
     case 'trParallel':
       if (!correct && x) {
         x.downUntil = G.t + 120;
-        G.yen -= x.cost * 0.05;
+        recordRepair(G, repairCost(x));
       }
       ok('変圧比をそろえて、並行運転を始められた。', '循環電流で変圧器が1台焼けた（修理に5日）。');
       break;
@@ -1373,6 +1416,12 @@ export function startEvent(G, lc, key, o = {}) {
 function daily(G, lc) {
   const t = G.t;
   const day = Math.floor(t / 24);
+  // 1.10.2 日ごとの電力・収支の記録（30日分）と、赤字の知らせ（5.3）
+  if (G.econCur?.h > 0) {
+    G.econDays = [...(G.econDays || []), G.econCur].slice(-30);
+    G.econCur = newEconDay();
+    checkDeficit(G);
+  } else G.econCur ||= newEconDay();
   // 1.8.2 日ごとの利益（収益の使い道の値段の元。直近 30 日）。前の日の 0 時からの G.yr.profit の差（年の変わり目の日は数えない）
   if (G.dayMark && G.dayMark.idx === G.yr.idx) G.profDays = [...(G.profDays || []), Math.round(G.yr.profit - G.dayMark.profit)].slice(-30);
   const s = seasonOf(t);
@@ -1400,12 +1449,12 @@ function daily(G, lc) {
   // 燃料：スポットは毎日 ±30%（平均は長期契約の 0.85 倍）。長期契約は1年ごとに見直し
   G.fuel.spot = G.fuel.base * 0.85 * (0.7 + 0.6 * rnd(G));
   if (day % YEAR_DAYS === 0) G.fuel.contract = G.fuel.base;
-  // 保守費：建設費の 0.05%（点検を延ばすと半分）
-  const assets = [...G.plants, ...G.lines, ...G.subs].reduce((a, x) => a + x.cost, 0);
-  const m = assets * 0.0005 * (G.maint === 'defer' ? 0.5 : 1);
+  // 保守費：円の側の値打ち（建設費 × YEN_K）の 0.05%（点検を延ばすと半分）
+  const m = dailyMaint(G);
   G.yen -= m;
   G.acc.maint += m;
   G.yr.profit -= m;
+  (G.econCur ||= newEconDay()).maint += m;
   // 接続の申し込み：受けた需要＋保留中が D_max を下回ると届く。停電の少ない町ほど届きやすい
   let used = G.loads.reduce((a, l) => a + l.kw, 0) + G.apps.reduce((a, l) => a + l.kw, 0);
   const towns = nodesOf(G).filter((n) => n.town && townActive(G, n));
@@ -1512,10 +1561,8 @@ function failures(G, lc, prev) {
     if (rnd(G) >= plantFailRate(G, p, t, lc) / 24) continue;
     if (shielded()) continue;
     const dur = Math.round((24 + 48 * rnd(G)) * prot);
-    const cost = p.cost * 0.05;
-    G.yen -= cost;
-    G.acc.repair += cost;
-    G.yr.profit -= cost;
+    const cost = repairCost(p);
+    recordRepair(G, cost);
     G.acc.fails++;
     trip.add(p.id);
     p._fail = { dur, cost };
@@ -1527,14 +1574,12 @@ function failures(G, lc, prev) {
     if (shielded()) continue;
     const cause = pickWeighted(G, [['other', 1], ['thunder', hz.m.thunder - 1], ['coast', hz.m.coast - 1], ['snow', hz.m.snow - 1]]);
     const dur = Math.round((12 + 36 * rnd(G)) * prot * (optOn(l, 'petersen', t) && cause === 'other' ? LINE_OPTS.petersen.k : 1));
-    const cost = l.cost * 0.05;
+    const cost = repairCost(l);
     const circuit = l.n - (l.c1Until > t ? 1 : 0) >= 2; // 2回線以上あれば、止まるのは1回線
     if (circuit) l.c1Until = t + dur;
     else l.downUntil = t + dur;
     l.downCause = cause; // 1.8.2 詳細の見出しの絵（雷・塩害・雪・そのほか）
-    G.yen -= cost;
-    G.acc.repair += cost;
-    G.yr.profit -= cost;
+    recordRepair(G, cost);
     G.acc.fails++;
     const name = lineName(G, l);
     const why = { other: '設備の故障', thunder: '雷', coast: '塩害（がいしの汚れ）', snow: '着雪・ギャロッピング' }[cause];
@@ -1552,11 +1597,9 @@ function failures(G, lc, prev) {
     if (rnd(G) >= rate / 24) continue;
     if (shielded()) continue;
     const dur = Math.round((24 + 48 * rnd(G)) * prot);
-    const cost = s.cost * 0.05;
+    const cost = repairCost(s);
     s.downUntil = t + dur;
-    G.yen -= cost;
-    G.acc.repair += cost;
-    G.yr.profit -= cost;
+    recordRepair(G, cost);
     G.acc.fails++;
     const name = `${nodeOf(G, s.town).name}の変電所`;
     addReport(G, { title: `${name}の変圧器が故障`, what: `${name}の変圧器（${s.mva} MVA）が止まった。修理に ${dur}時間。${util > 1.2 ? '定格の 120% を超えて使っていた。' : ''}`, why: util > 1.2 ? '過負荷' : '設備の故障', units: INCIDENTS.trLoss.units });
@@ -1626,14 +1669,12 @@ function tripHz(G, lc, t, { l, ha, hb, side }) {
   const big = G.plants.filter((p) => PLANTS[p.type].ac && plantReady(p, t) && side.has(p.site)).sort((a, b) => b.kw - a.kw)[0];
   const inc = raise(G, lc, 'outOfStep', { line: l.id, what, cool: 1 });
   if (inc && big) {
-    const cost = big.cost * 0.05;
+    const cost = repairCost(big);
     Object.assign(inc, { plant: big.id, dur: 24, cost, what: `${what}${nodeOf(G, big.site).name}の${P(big).short}（${fmtKw(big.kw)}）が脱調の衝撃を受け、点検で止まっている。` });
     big.downUntil = t + 24;
     big.on = false;
     big.onAt = null;
-    G.yen -= cost;
-    G.acc.repair += cost;
-    G.yr.profit -= cost;
+    recordRepair(G, cost);
   }
   if (!inc) addReport(G, { title: `${name}が脱調で切れた`, what: `${what}線は切れたまま（線の詳細から入れ直せる）。`, why: OOS_WHY, units: INCIDENTS.outOfStep.units });
 }
@@ -1877,6 +1918,7 @@ export function missionReward(G) {
 function achieveMission(G, m, r) {
   const reward = missionReward(G);
   G.yen += reward;
+  (G.econCur ||= newEconDay()).reward += reward; // 1.10.2 ご褒美は収支の横棒・赤字判定には入れない（別行）
   G.missions.done[m.id] = { t: G.t, era: G.era, info: r.info || {}, reward };
   (G.missions.fresh ||= []).push(m.id); // 画面：したことの帯と答え合わせのカード（見せたら消す）
   const ans = Ms.answerOf(m, G);
@@ -1947,6 +1989,7 @@ export function step(G, lc) {
     if (G.subs.filter((x) => x.town === s.town && x.done).length >= 2) raise(G, lc, 'trParallel', { sub: s.id, what: `${nodeOf(G, s.town).name}の変電所で、2台目の変圧器の並行運転を始める。`, cool: 1 });
   }
   for (const l of G.lines) if (!l.done && l.readyAt <= t) (l.done = true), note(G, `${lineName(G, l)}が開通した`);
+  finishCircuits(G, t);
 
   hzCheck(G, lc, t); // 1.8.0 電気が入る交流の線が、周波数の違う網どうしを結ぶ形なら、脱調して切れる
   const trip = failures(G, lc, G.last);
@@ -1971,9 +2014,10 @@ export function step(G, lc) {
 
   // お金と記録
   const quality = new Map();
-  let fuel = 0, loss = 0, worst = 0, anyShed = false, anyBlack = false, anyBad = false, hzLoad = -1;
+  let fuel = 0, loss = 0, lineLossSum = 0, subLossSum = 0, wasteSum = 0, worst = 0, anyShed = false, anyBlack = false, anyBad = false, hzLoad = -1;
   const last = { t, plants: {}, lines: {}, subs: {}, towns: {}, x: 0, hz: 0, demand: 0, served: 0, loss: 0, cap: 0, K: 0 };
   const gen = { dc: 0, coal: 0, hydro: 0 };
+  const ec = (G.econCur ||= newEconDay());
   const price = fuelPrice(G, t) * (1 - 0.05 * perfNow(G, lc, 'econ'));
   for (const r of sol.results) {
     const net = r.net;
@@ -1991,11 +2035,22 @@ export function step(G, lc) {
     for (const p of net.plants) {
       const o = r.out.get(p.id) || 0;
       last.plants[p.id] = o;
-      if (P(p).coal) fuel += (o / plantEff(p, lc, G)) * price * fuelHaul(G, p.site).k; // 捨てた分（最低出力のための余り）も燃料は使う（1.10.1 運び代の倍率）
+      const pf = P(p).coal ? (o / plantEff(p, lc, G)) * price * fuelHaul(G, p.site).k : 0; // 捨てた分（最低出力のための余り）も燃料は使う（1.10.1 運び代の倍率）
+      fuel += pf;
+      const pw = r.plantWaste?.get(p.id) || 0;
+      if (o > 0 || pf > 0 || pw > 0) {
+        const ep = (ec.plants[p.id] ||= { gen: 0, fuel: 0, waste: 0 });
+        ep.gen += o;
+        ep.fuel += pf;
+        ep.waste += pw;
+      }
       gen[!P(p).ac ? 'dc' : P(p).coal ? 'coal' : 'hydro'] += o;
       if (p.type === 'pond') p.store = Math.max(0, Math.min(p.kw * POND_HOURS, p.store + p.kw * flowFactor(G, t) * (POND_HOURS / 24) - o));
     }
     loss += r.loss;
+    lineLossSum += r.lineLoss ?? r.loss;
+    subLossSum += r.subLoss ?? 0;
+    wasteSum += r.waste || 0;
     last.cap += r.cap;
     for (const e of net.edges) {
       const f = r.flows.get(e.id);
@@ -2058,12 +2113,27 @@ export function step(G, lc) {
     G.acc.cut = (G.acc.cut || 0) + cut;
   }
   let loan = 0;
-  if (G.loanUntil > t) loan = rev * 0.2; // 借入れの返済：収入の 20%
+  // 1.10.2 借入れの返済：残り（G.debt）が 0 になるまで収入の 20%。古い保存データの loanUntil もそのまま終える
+  if ((G.debt || 0) > 0) {
+    loan = Math.min(G.debt, rev * DEBT_RATE);
+    G.debt = Math.max(0, G.debt - loan);
+    if (G.debt < 0.5) G.debt = 0;
+  } else if (G.loanUntil > t) loan = rev * DEBT_RATE;
   G.yen += rev - loan - fuel;
+  // 1.10.2 日ごとの電力・収支に積む
+  ec.h++;
+  ec.gen += gen.dc + gen.coal + gen.hydro;
+  ec.served += served;
+  ec.lineLoss += lineLossSum;
+  ec.subLoss += subLossSum;
+  ec.waste += wasteSum;
+  ec.rev += rev;
+  ec.fuel += fuel;
+  ec.loan += loan;
   G.negHours = G.yen < 0 ? G.negHours + 1 : 0;
   if (G.negHours >= 72 && !G.rebuild) {
     G.rebuild = true; // 経営再建（設計 10章）
-    addReport(G, { title: '経営再建', what: '収益の残高がマイナスのまま3日たった。設備を手放すか、借入れを選ぶ。', why: '燃料費・修理費が収入を上回った', units: ['power-system-U05'] });
+    addReport(G, { title: '経営再建', what: '収益の残高がマイナスのまま3日たった。設備を手放すか、借入れを選ぶ。', why: rebuildWhy(G, lc), units: ['power-system-U05'], goSupply: true });
     note(G, '経営再建が必要になった');
   }
   const unserved = demand - served;
@@ -2089,6 +2159,19 @@ export function step(G, lc) {
   G.hist.push([t, Math.round(demand * 10) / 10, Math.round(served * 10) / 10, Math.round(gen.dc * 10) / 10, Math.round(gen.coal * 10) / 10, Math.round(gen.hydro * 10) / 10, Math.round(worst * 100) / 100]);
   if (G.hist.length > 168) G.hist.shift();
   G.t = t + 1;
+  finishCircuits(G, G.t);
+}
+// 1.10.2 回線の増設の完成（工事の間は l.n に数えず、終わってから増やす）
+function finishCircuits(G, t) {
+  for (const l of G.lines) {
+    if (!l.cAdd?.length) continue;
+    const doneN = l.cAdd.filter((x) => (x.readyAt ?? x) <= t).length;
+    if (!doneN) continue;
+    l.cAdd = l.cAdd.filter((x) => (x.readyAt ?? x) > t);
+    if (!l.cAdd.length) delete l.cAdd;
+    l.n += doneN;
+    note(G, `${lineName(G, l)}の回線の増設が終わった（${l.n}回線）`);
+  }
 }
 
 // 現実の時刻まで進める（閉じていた分は開いたときに計算。上限は現実の14日）。戻り値：進めた刻みの数
@@ -2351,23 +2434,27 @@ export function buildLine(G, lc, spec) {
   G.lines.push(l);
   return { ...q, line: l };
 }
-// 回線を増やす（同じルートにもう1回線）
+// 回線を増やす（同じルートにもう1回線）。1.10.2：工期（新しく引くときの半分）を追加。工事中は回線の数に数えず、終わってから効く
 export function quoteCircuit(G, lc, id) {
   const l = G.lines.find((x) => x.id === id);
   if (!l) return { ok: false, why: '線がない' };
-  if (l.n >= MAX_CIRCUITS) return { ok: false, why: `回線は ${MAX_CIRCUITS} つまで` };
+  const pending = l.cAdd?.length || 0;
+  if (l.n + pending >= MAX_CIRCUITS) return { ok: false, why: `回線は ${MAX_CIRCUITS} つまで` };
   // 1.10.1：すでに建てた線はそのまま、回線の追加から開放条件が効く
   const K = LINES[l.kind];
   const gc = gateCheck(lc, K.gates, !!K.masteredGate);
   if (gc) return gc;
-  return { ok: true, cost: coinOf(l.unit), base: l.unit, line: l };
+  const hours = Math.max(1, Math.round(buildHours(12 + Math.min(228, l.km), lc, K.perf, G) / 2));
+  return { ok: true, cost: coinOf(l.unit), base: l.unit, hours, line: l, nextN: l.n + pending + 1 };
 }
 export function addCircuit(G, lc, id) {
   const q = quoteCircuit(G, lc, id);
   if (!q.ok) return q;
-  q.line.n++;
+  const readyAt = Math.max(G.t, q.line.readyAt) + q.hours;
+  const item = { id: `C${G.nextId++}`, readyAt };
+  q.line.cAdd = [...(q.line.cAdd || []), item];
   q.line.cost += q.base;
-  return q;
+  return { ...q, readyAt, work: item };
 }
 // 対策の時代・設計図（学習の単元は gates で見る）
 function optBlocked(lc, o) {
@@ -2445,14 +2532,14 @@ export function addCap(G, lc, loadId) {
   G.buffs.capDiscount = false;
   return q;
 }
-// 手放す（撤去）：建設費の 30% が収益に戻る
+// 手放す（撤去）：円の側の値打ち（建設費 × YEN_K）の 30% が収益に戻る
 export function removeAsset(G, kind, id) {
   const list = { plant: G.plants, line: G.lines, sub: G.subs }[kind];
   const i = list.findIndex((x) => x.id === id);
   if (i < 0) return 0;
   const [x] = list.splice(i, 1);
   if (kind === 'plant') G.priority = G.priority.filter((p) => p !== id);
-  const back = x.cost * 0.3;
+  const back = removeBack(x);
   G.yen += back;
   return back;
 }
@@ -2574,13 +2661,14 @@ export function acceptApp(G, appId) {
 export function spendBase(G) {
   const d = G.profDays || [];
   const avg = d.length ? d.reduce((a, b) => a + b, 0) / d.length : 0;
-  const assets = [...G.plants, ...G.lines, ...G.subs].reduce((a, x) => a + (x.cost || 0), 0);
-  return Math.max(100, avg, assets * 0.0005);
+  return Math.max(100, avg, dailyMaint(G, 'normal'));
 }
 const roundYen = (v) => (v >= 1e5 ? Math.round(v / 1000) * 1000 : v >= 1e3 ? Math.round(v / 10) * 10 : Math.round(v));
-// 払えるか：収益がマイナス・経営再建中は使えない。払ったあと収益が 0 を下回る額も使えない
+// 払えるか：収益がマイナス・経営再建中・借入れ返済中は使えない。払ったあと収益が 0 を下回る額も使えない
 export function canSpend(G, cost) {
   if (G.rebuild) return { ok: false, why: '経営再建中は使えない' };
+  if ((G.debt || 0) > 0) return { ok: false, why: `借入れを返している間は使えない（残り ${Math.round(G.debt).toLocaleString('ja-JP')} 円）` };
+  if (G.loanUntil > G.t) return { ok: false, why: `借入れを返している間は使えない（あと ${Math.ceil((G.loanUntil - G.t) / 24)}日）` };
   if (!(G.yen > 0)) return { ok: false, why: '収益がマイナス（0 以下）のときは使えない' };
   if (G.yen - cost < 0) return { ok: false, why: `収益が足りない（あと ${roundYen(cost - G.yen).toLocaleString('ja-JP')} 円）` };
   return { ok: true };
@@ -2701,12 +2789,121 @@ export function removeDecor(G, id, decorId) {
   return true;
 }
 
+// ---- 1.10.2 収支のまとめ・赤字の知らせ・経営再建の見込み（5章） ----
+const ECON_SUM_KEYS = ['gen', 'served', 'lineLoss', 'subLoss', 'waste', 'rev', 'fuel', 'maint', 'repair', 'loan', 'reward'];
+// 直近 7 日の1日あたり（mode '7d'）または昨日（'1d'）。記録がまだない古い保存データでも安全に返す
+export function econSummary(G, mode = '7d') {
+  const days = G?.econDays || [];
+  let list = mode === '1d' ? days.slice(-1) : days.slice(-7);
+  let partial = false;
+  if (!list.length && G?.econCur?.h > 0) (list = [G.econCur]), (partial = true);
+  const n = list.length;
+  const out = { days: partial ? 0 : n, partial, hours: list.reduce((a, d) => a + (d.h || 0), 0), gen: 0, served: 0, lineLoss: 0, subLoss: 0, waste: 0, other: 0, rev: 0, fuel: 0, maint: 0, repair: 0, loan: 0, reward: 0, expense: 0, net: 0, revPerKwh: 0, fuelPerKwh: 0, plants: {} };
+  if (!n) return out;
+  for (const d of list) {
+    for (const k of ECON_SUM_KEYS) out[k] += d[k] || 0;
+    for (const [pid, pv] of Object.entries(d.plants || {})) {
+      const t = (out.plants[pid] ||= { gen: 0, fuel: 0, waste: 0, sold: 0 });
+      t.gen += pv.gen || 0;
+      t.fuel += pv.fuel || 0;
+      t.waste += pv.waste || 0;
+    }
+  }
+  const div = partial ? 1 : n;
+  for (const k of ECON_SUM_KEYS) out[k] /= div;
+  out.other = Math.max(0, out.gen - out.served - out.lineLoss - out.waste);
+  out.expense = out.fuel + out.maint + out.repair + out.loan;
+  out.net = out.rev - out.expense; // ご褒美を除く
+  out.revPerKwh = out.served > 1e-6 ? out.rev / out.served : 0;
+  out.fuelPerKwh = out.served > 1e-6 ? out.fuel / out.served : 0;
+  const soldRatio = out.gen > 1e-6 ? Math.min(1, out.served / out.gen) : 0;
+  for (const t of Object.values(out.plants)) {
+    t.gen /= div;
+    t.fuel /= div;
+    t.waste /= div;
+    t.sold = t.gen * soldRatio;
+  }
+  return out;
+}
+// 記録のない古い保存データ向け：現在の系統の写しを 24 時間回して 1 日の収支を見積もる（元の系統は変えない）
+export function econEstimate(G, lc) {
+  const s = econSummary(G, '7d');
+  if (s.days > 0 || s.hours >= 24) return s;
+  if (!lc) return s;
+  const c = structuredClone(G);
+  c.reports = [];
+  c.hist = [];
+  c.econCur = newEconDay();
+  c.econDays = [];
+  for (let i = 0; i < 24; i++) step(c, lc);
+  // 24 時間の途中で 0 時をまたぐと econDays と econCur に分かれるので合算して 1 日分にする
+  const merged = newEconDay();
+  for (const d of [...c.econDays, c.econCur]) {
+    if (!d?.h) continue;
+    merged.h += d.h;
+    for (const k of ECON_SUM_KEYS) merged[k] += d[k] || 0;
+    for (const [pid, pv] of Object.entries(d.plants || {})) {
+      const t = (merged.plants[pid] ||= { gen: 0, fuel: 0, waste: 0 });
+      t.gen += pv.gen || 0;
+      t.fuel += pv.fuel || 0;
+      t.waste += pv.waste || 0;
+    }
+  }
+  const out = econSummary({ econDays: [merged], econCur: newEconDay() }, '1d');
+  out.estimated = true;
+  return out;
+}
+// 5.3 赤字の知らせ：直近7日の差し引き（ご褒美を除く）が初めてマイナスになったとき報告書を1つ
+function checkDeficit(G) {
+  const days = G.econDays || [];
+  if (days.length < 7) return;
+  const s = econSummary(G, '7d');
+  if (s.net < -0.5) {
+    if (G.deficitAlerted) return;
+    G.deficitAlerted = true;
+    const parts = [['燃料費', s.fuel], ['保守費', s.maint], ['修理費', s.repair], ['借入れの返済', s.loan]].sort((a, b) => b[1] - a[1]);
+    const [topName, topVal] = parts[0];
+    const pct = s.rev > 1e-6 ? `（売電の ${Math.round((topVal / s.rev) * 100)}%）` : '';
+    addReport(G, { title: 'この7日は赤字', what: `この7日は赤字（1日あたり −${Math.round(-s.net).toLocaleString('ja-JP')} 円）。いちばん大きい支出：${topName}${pct}。`, units: [], goSupply: true });
+  } else G.deficitAlerted = false;
+}
+// 5.3 経営再建の報告書の「理由」を、そのときの内訳にする
+export function rebuildWhy(G, lc = null) {
+  const s = econEstimate(G, lc);
+  if (!(s.rev > 0 || s.expense > 0)) return '燃料費・修理費が収入を上回った';
+  const items = [];
+  if (s.rev > 1e-6 && s.fuel > 0) items.push(`燃料費が売電の ${Math.round((s.fuel / s.rev) * 100)}%`);
+  if (s.gen > 1e-6 && s.lineLoss + s.waste > 0) items.push(`損失と捨てた分が発電の ${Math.round(((s.lineLoss + s.waste) / s.gen) * 100)}%`);
+  if (s.rev > 1e-6 && s.maint > 0.1 * s.rev) items.push(`保守費が売電の ${Math.round((s.maint / s.rev) * 100)}%`);
+  if (s.repair > 0 && s.repair >= 0.1 * Math.max(s.rev, 1)) items.push(`修理費 ${Math.round(s.repair).toLocaleString('ja-JP')}円/日`);
+  if (s.loan > 0) items.push(`返済 ${Math.round(s.loan).toLocaleString('ja-JP')}円/日`);
+  return items.length ? items.join('・') : '燃料費・修理費が収入を上回った';
+}
+// 5.4 経営再建の画面の借入れの見込み
+export function loanForecast(G, lc = null) {
+  const s = econEstimate(G, lc);
+  const borrow = Math.max(0, -G.yen);
+  const added = Math.round(borrow * DEBT_INTEREST);
+  const totalDebt = (G.debt || 0) + added;
+  const baseNet = s.rev - s.fuel - s.maint - s.repair; // 返済を除いた1日収支
+  const repayDay = s.rev * DEBT_RATE;
+  const repayNet = baseNet - repayDay;
+  const payDays = repayDay > 1e-6 ? Math.ceil(totalDebt / repayDay) : null;
+  const cantFinish = totalDebt > 0 && (repayNet < -0.5 && (payDays == null || payDays > 3 || baseNet < -0.5));
+  const againDays = cantFinish ? 3 : null;
+  return { summary: s, borrow, added, totalDebt, curNet: s.net, baseNet, repayDay, repayNet, payDays, cantFinish, againDays };
+}
+
 // ---- 経営再建・新しい島（設計 10章） ----
+// 1.10.2 借入れ：借りる額＝そのときのマイナスの額。残り（G.debt）に 1.1 倍を足し、残りが 0 になるまで収入の 20% を返す
 export function rebuildLoan(G) {
+  const borrow = Math.max(0, -G.yen);
+  const added = Math.round(borrow * DEBT_INTEREST);
   G.yen = Math.max(G.yen, 0);
-  G.loanUntil = G.t + 24 * 30; // 以後30日、収入の 20% を返済に回す
+  G.debt = (G.debt || 0) + added;
   G.rebuild = false;
   G.negHours = 0;
+  return { borrow, added, debt: G.debt };
 }
 export function rebuildSell(G, items) {
   let back = 0;
