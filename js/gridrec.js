@@ -59,7 +59,7 @@ export const PIC_ID = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5
 export const LOAD_PIC = { lamp: 'G25', home: 'G26', shop: 'G27', factory: 'G28', tram: 'G27' };
 export const MISSION_PIC = { M01: 'G29', M02: 'G30', M03: 'G31', M04: 'G32', M05: 'G33', M06: 'G34', M07: 'G35', M08: 'G36' };
 // 線の種類 → 番号（gridmenu.js の LINE_PIC と同じ）。事故 → 番号（INC_PIC と同じ）
-const LINE_ID = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11', ac275: 'G11' };
+const LINE_ID = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11', ac275: 'G11', ac500: 'G11' };
 const INC_ID = { lightning: 'I01', backFlash: 'I01', arc: 'I01', catenary: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', outOfStep: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18' };
 
 export const emptyRec = () => ({ v: 1, album: {}, firsts: {}, imported: false });

@@ -15,7 +15,10 @@ export function typeStatus(lc, kind, key) {
   if (st === 'no') return { ok: false, era: true, why: `まだ先の時代の設備（${eraName(D.era)}${level ? `・Lv${level}` : ''}から）` };
   const gc = Gm.gateCheck(lc, D.gates || [], !!D.masteredGate);
   if (gc) return gc;
-  if (D.blueprint && !lc.blueprint[D.blueprint]) return { ok: false, why: `設計図「${Gm.BLUEPRINTS[D.blueprint].name}」がない（試験レベルに正解するか、関係する外部試験で満点の3割以上）`, blueprint: D.blueprint };
+  if (D.blueprint && !lc.blueprint[D.blueprint]) {
+    if (kind === 'line' && key === 'ac500' && lc.blueprint?.line275) return { ok: true, proto: st === 'proto', run275Only: true };
+    return { ok: false, why: `設計図「${Gm.BLUEPRINTS[D.blueprint].name}」がない（試験レベルに正解するか、関係する外部試験で満点の3割以上）`, blueprint: D.blueprint };
+  }
   return { ok: true, proto: st === 'proto' };
 }
 
@@ -209,6 +212,8 @@ export function actText(g, kind, x = {}) {
         : `${Gm.lineName(g, x.line || x)}の回線を増やした（${(x.line || x).n}回線）`;
     case 'doneCircuit':
       return `${Gm.lineName(g, x)}の回線の増設が終わった（${x.n}回線）`;
+    case 'up500':
+      return `${Gm.lineName(g, x.line || x)}を 500 kV に上げる工事を始めた（完了まであと${hoursText(x.hours)}）`;
     case 'reclose':
       return x.again ? `${Gm.lineName(g, x.line)}を入れ直した。周波数が違うままなので、また脱調して切れた` : `${Gm.lineName(g, x.line)}を入れ直した${x.live ? '（電気が入った）' : '（工事中・変電所なしなどで、まだ電気は入らない）'}`;
     case 'cap':
@@ -412,7 +417,7 @@ export function tutorialAction(g, lc, name, advance) {
 export const INC_PIC = { lightning: 'I01', backFlash: 'I01', arc: 'I01', catenary: 'I01', salt: 'I02', gallop: 'I03', genTrip: 'I04', genShort: 'I04', parallelIn: 'I04', trLoss: 'I05', trParallel: 'I05', trShare: 'I05', lineOver: 'I06', reserve: 'I06', dcDrop: 'I07', motor: 'I07', factoryPf: 'I07', drought: 'G18', outOfStep: 'I04' };
 export const PIC_FALLBACK = { I01: 'G11', I02: 'G11', I03: 'G15', I04: 'G06', I05: 'G10', I06: 'G11', I07: 'G01', L01: 'G11', L02: 'G11', L03: 'G11' };
 // 1.6.1 線の階級ごとの絵：町の電柱（L01）・木柱の送電線（L02）・中くらいの鉄塔（L03）・大きな鉄塔（G11）。L の絵がない間は G11
-export const LINE_PIC = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11', ac275: 'G11' };
+export const LINE_PIC = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11', ac275: 'G11', ac500: 'G11' };
 // 報告の形の事故（見出しが「◯◯発生」でないもの）：演出で上に小さく「事故発生」を足す
 export const isReport = (key) => !/発生$/.test(INC_HEAD[key] || '');
 export const EV_PIC = { heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18' };

@@ -1319,7 +1319,7 @@ const mapVB = () => `${(-VIEW.W * MAP_PAD).toFixed(1)} ${(-VIEW.H * MAP_PAD).toF
 const viewH = () => (VIEW.w * VIEW.H) / VIEW.W;
 const at = (n) => ({ x: (n.x - VIEW.x) * scaleK(), y: (n.y - VIEW.y) * scaleK() });
 // 線の太さ（電圧で）。1.10.0：275 kV は 154 kV の次の太さ
-const lineWidth = (K) => (K.dc ? 2 : K.kv >= 275 ? 4.6 : K.kv >= 66 ? 3.6 : K.kv >= 11 ? 2.8 : 2);
+const lineWidth = (K) => (K.dc ? 2 : K.kv >= 500 ? 5.6 : K.kv >= 275 ? 4.6 : K.kv >= 66 ? 3.6 : K.kv >= 11 ? 2.8 : 2);
 const utilColor = (u) => ['var(--gline)', 'var(--gwarn)', 'var(--idk)', 'var(--ng)'][Mn.utilTier(u)]; // 1.6.4：90% 超で注意（オレンジ）
 // 地図の範囲と拡大の限度（幅 4 km〜列島全体。古い島は 90〜島全体）
 function mapBounds(g) {
@@ -1507,7 +1507,7 @@ let keyOpen = false;
 function terrainKeyHtml() {
   const sw = (cls, name) => `<span><i class="${cls}"></i>${name}</span>`;
   const coalKey = '<span><svg class="gtercoal" viewBox="-10 -7 20 14" aria-hidden="true"><path d="M-8.5,6 L-4,-2 L0,-5.5 L4,-1.5 L8.5,6Z" class="gcoalbody"/></svg>炭田</span>';
-  return `<div class="gterkey${keyOpen ? ' open' : ''}" data-terkey><button class="btn small" data-terkeybtn aria-expanded="${keyOpen}">凡例</button>${keyOpen ? `<div class="gterbox">${sw('k0', '平野')}${sw('k1', '丘陵 100 m〜')}${sw('k2', '山地 500 m〜')}${sw('k3', '高い山 1,500 m〜')}${sw('kl', '湖')}${sw('kr', '川')}${sw('kp', '県境')}${coalKey}<small>拡大すると</small>${sw('kf', '田畑')}${sw('kt', '林')}${sw('ku', '市街地')}<small>線の使用率</small>${sw('ku0', '〜90%')}${sw('ku1', '90% 超で注意')}${sw('ku2', '100% 超')}${sw('ku3', '120% 超')}${sw('kht', '切れている（周波数違い）')}<small>線の太さ（電圧）</small>${sw('kw1', '配電 3.3 kV・直流')}${sw('kw2', '11〜22 kV')}${sw('kw3', '66〜154 kV')}${sw('kw4', '275 kV')}<small>網の周波数</small>${sw('kh50', '50 Hz')}${sw('kh60', '60 Hz')}<small>線の対策の印</small>${Object.keys(OPT_HAZ).map((o) => `<span>${optKey(o)}</span>`).join('')}</div>` : ''}</div>`;
+  return `<div class="gterkey${keyOpen ? ' open' : ''}" data-terkey><button class="btn small" data-terkeybtn aria-expanded="${keyOpen}">凡例</button>${keyOpen ? `<div class="gterbox">${sw('k0', '平野')}${sw('k1', '丘陵 100 m〜')}${sw('k2', '山地 500 m〜')}${sw('k3', '高い山 1,500 m〜')}${sw('kl', '湖')}${sw('kr', '川')}${sw('kp', '県境')}${coalKey}<small>拡大すると</small>${sw('kf', '田畑')}${sw('kt', '林')}${sw('ku', '市街地')}<small>線の使用率</small>${sw('ku0', '〜90%')}${sw('ku1', '90% 超で注意')}${sw('ku2', '100% 超')}${sw('ku3', '120% 超')}${sw('kht', '切れている（周波数違い）')}<small>線の太さ（電圧）</small>${sw('kw1', '配電 3.3 kV・直流')}${sw('kw2', '11〜22 kV')}${sw('kw3', '66〜154 kV')}${sw('kw4', '275 kV')}${sw('kw5', '500 kV')}<small>網の周波数</small>${sw('kh50', '50 Hz')}${sw('kh60', '60 Hz')}<small>線の対策の印</small>${Object.keys(OPT_HAZ).map((o) => `<span>${optKey(o)}</span>`).join('')}</div>` : ''}</div>`;
 }
 // 表示の細かさ（1.6.0）：縮めたときは「大」の町の名前だけ。中・小の町・水力の地点は拡大すると出す。東京の区は町の中まで拡大したときだけ
 // （それより縮めたときは、いちばん目立つ区に「東京」とだけ出す）。建設モードで光る地点・選んだ地点はいつも出す
@@ -1555,7 +1555,8 @@ function topInner(g) {
     const cAdd = !building && l.cAdd?.length ? l.cAdd : null; // 1.10.2 回線の増設工事中（今の回線は動く）
     const cAddLeft = cAdd ? Math.max(1, Math.min(...cAdd.map((c) => c.readyAt)) - t) : 0;
     // 1.7.4：拡大して線の名前が出るときは、いま送っている量も
-    const label = building ? `${K.short} 工事 あと${hoursText(l.readyAt - t)}` : hzT ? `${K.short} 切れている（周波数違い）` : `${K.short}${l.n > 1 ? `×${l.n}` : ''}${flowing ? ` ${kw(fl.p)}` : ''}${cAdd ? ` +${cAdd.length}回線工事 あと${hoursText(cAddLeft)}` : ''}`;
+    const shortL = Gm.lineShort(l);
+    const label = building ? `${shortL} 工事 あと${hoursText(l.readyAt - t)}` : hzT ? `${shortL} 切れている（周波数違い）` : `${shortL}${l.n > 1 ? `×${l.n}` : ''}${flowing ? ` ${kw(fl.p)}` : ''}${cAdd ? ` +${cAdd.length}回線工事 あと${hoursText(cAddLeft)}` : ''}${l.up500At > t ? ` 500kV昇圧 あと${hoursText(l.up500At - t)}` : ''}`;
     const mk = markOf(l.id);
     // 1.8.1：名前を出すか・どこに置くかは、地点の名前を決めたあと（placeLineLabels）。ここでは候補に入れるだけ
     if (L2.len > 70 || selLine === l.id || cAdd) lineLabs.push({ l, K, L2, a, b, label, building, cAdd: !!cAdd, hzT, flowing, mk, sel: selLine === l.id });
@@ -2331,6 +2332,22 @@ function circuitDialog(id) {
     },
   );
 }
+// 1.11.0 500 kV 設計（275 kV で使用中）の線を 500 kV に上げる工事
+function up500Dialog(id) {
+  const g = G(), lc = learningNow();
+  const l = g.lines.find((x) => x.id === id);
+  if (!l) return;
+  const qu = Gm.quoteUpgradeLine(g, lc, id);
+  sheet(
+    `<h2>500 kV に上げる</h2>
+    <p class="small">${A.esc(Gm.lineName(g, l))}を 500 kV に上げる。工事の間も 275 kV のまま動き、終わると送れる量が 1回線 ${kw(Gm.LINES.ac500.cap)} になり、損失もさらに小さくなる。</p>
+    ${qu.ok ? `<p class="gquote"><b>${A.num(qu.cost)} コイン</b>（残高 ${coinText(balance())}）・ 工期 ゲームの ${qu.hours}時間（新設の 4 分の 1）</p><button class="btn primary gwide" data-ok>工事を始める</button>` : whyHtml(qu)}`,
+    ({ onAll }) => {
+      onAll('[data-unitgo]', 'click', (e) => goUnit(e.currentTarget.dataset.unitgo));
+      onAll('[data-ok]', 'click', () => pay(qu, `${Gm.lineName(g, l)}の 500 kV 昇圧`, () => Gm.startUpgradeLine(G(), learningNow(), id), null, 'up500'));
+    },
+  );
+}
 // 1.6.1 既設の線に後から対策を足す：まだ付けていない対策（解放済みは押せる、まだのものは灰色で理由）。費用は建設のときの 1.3 倍
 // どの対策が正解かは目立たせない（並びは LINE_OPTS の順のまま。この線の危険は事実として書く）
 function optDialog(id) {
@@ -2417,7 +2434,8 @@ function buildPanel(g, lc) {
   };
   const plants = Object.entries(Gm.PLANTS).map(([k, D]) => item('plant', k, D.name, range(D), pic(k, 'mini'))).join('');
   const lines = Object.entries(Gm.LINES).map(([k, K]) => item('line', k, K.name, `1回線で ${kw(K.cap)} まで ・ ${A.num(K.cost * Gm.COIN_K)} コイン/km`, linePic(k))).join('');
-  const subs = item('sub', 'tr', '変圧器（変電所）', `0.1〜100 MVA ・ ${A.num(Gm.subCost(Gm.SUB_SIZES[0]) * Gm.COIN_K)} コイン〜 ・ 1つの町に2台まで`, pic('sub', 'mini'));
+  const maxSub = Gm.SUB_SIZES.filter((m) => Gm.eraStatus(lc, Gm.subSizeEra(m)) !== 'no').slice(-1)[0] || 100;
+  const subs = item('sub', 'tr', '変圧器（変電所）', `0.1〜${maxSub} MVA ・ ${A.num(Gm.subCost(Gm.SUB_SIZES[0]) * Gm.COIN_K)} コイン〜 ・ 1つの町に2台まで`, pic('sub', 'mini'));
   const convs = Object.entries(Gm.CONVS)
     .map(([k, D]) => item('conv', k, D.name, `300 kW〜3 MW ・ 効率 ${Math.round(D.eff[0] * 100)}〜${Math.round(D.eff[1] * 100)}% ・ ${A.num(Gm.convCost(k, Gm.CONV_SIZES[0]) * Gm.COIN_K)} コイン〜 ・ 変圧器のある町に2台まで`, pic(k, 'mini')))
     .join('');
@@ -2500,14 +2518,15 @@ function candidates(g, lc) {
     }
     if (B.site) m.set(B.site, 'sel');
   } else if (B.kind === 'line') {
-    const ok = (a, b) => Gm.quoteLine(g, lc, { a, b, kind: B.lk }).ok;
+    const r275 = B.lk === 'ac500' && (B.run275 ?? (!lc.blueprint?.line500 && !!lc.blueprint?.line275));
+    const ok = (a, b) => Gm.quoteLine(g, lc, { a, b, kind: B.lk, run275: r275 }).ok;
     if (!B.from) {
       for (const n of nodes) if (nodes.some((o) => o.id !== n.id && ok(n.id, o.id))) m.set(n.id, 'can');
     } else {
       m.hz = new Set(); // 1.6.4：周波数が違う地点（札「周波数違い」）。1.8.0：引けるが、つなぐと脱調して切れる（警告）
       for (const n of nodes) {
         if (n.id === B.from) continue;
-        const q = Gm.quoteLine(g, lc, { a: B.from, b: n.id, kind: B.lk });
+        const q = Gm.quoteLine(g, lc, { a: B.from, b: n.id, kind: B.lk, run275: r275 });
         if (q.ok) m.set(n.id, 'can');
         if (q.hzDiff) m.hz.add(n.id);
       }
@@ -2629,8 +2648,8 @@ function drawBuildCard() {
     const D = Gm.PLANTS[B.type];
     const sizes = D.sizes.filter((z) => Gm.eraStatus(lc, Math.max(D.era, z[2]?.era || 0)) !== 'no');
     q = Gm.quotePlant(g, lc, { type: B.type, kw: B.size, site: B.site, hz: B.hz });
-    const eff = D.coal ? `熱効率 ${(D.eff[0] * 100).toFixed(0)}〜${(D.eff[1] * 100).toFixed(0)}%（いま ${(Gm.plantEff({ type: B.type, proto: q.proto }, lc, g) * 100).toFixed(1)}%）・起動 ${D.start}時間・最低出力 ${pct(D.min)}` : B.type === 'ror' ? '燃料なし。出力は川の流量しだい（春 1.3・夏 1.0・秋 0.9・冬 0.6）' : '燃料なし。1日分の水をためて、時間をずらして使う（池＝出力の6時間分）';
-    const haul = D.coal ? haulText(g, B.site) : '';
+    const eff = D.coal ? `熱効率 ${(D.eff[0] * 100).toFixed(0)}〜${(D.eff[1] * 100).toFixed(0)}%（いま ${(Gm.plantEff({ type: B.type, proto: q.proto }, lc, g) * 100).toFixed(1)}%）・起動 ${D.start}時間・最低出力 ${pct(D.min)}` : B.type === 'ror' ? '燃料なし。出力は川の流量しだい（春 1.3・夏 1.0・秋 0.9・冬 0.6）' : B.type === 'dam' ? '燃料なし。大きなダムに 20 日分の水をためて使う（池＝出力の 480 時間分）' : '燃料なし。1日分の水をためて、時間をずらして使う（池＝出力の6時間分）';
+    const haul = D.coal ? (Gm.FUELS[D.fuel || 'coal']?.haul ? haulText(g, B.site) : '重油：タンカーで直接（海沿い・運び代 ×1.0）') : '';
     h = `<p class="gbch"><b>${A.esc(Gm.nodeOf(g, B.site).name)}</b>：${D.name}</p>
       <div class="gseg gsizes">${sizes.map((z) => `<button class="btn small ${z[0] === B.size ? 'on' : ''}" data-bsize="${z[0]}">${kw(z[0])}</button>`).join('')}</div>
       <p class="small">${eff} ・ ${D.bs ? 'ブラックスタートできる' : 'ブラックスタートできない'}</p>
@@ -2640,21 +2659,26 @@ function drawBuildCard() {
     doBuild = () => Gm.buildPlant(g, lc, { type: B.type, kw: B.size, site: B.site, hz: B.hz });
   } else if (B.kind === 'line') {
     const K = Gm.LINES[B.lk];
-    q = Gm.quoteLine(g, lc, { a: B.from, b: B.to, kind: B.lk, route: B.route, opts: B.opts });
+    if (B.lk === 'ac500' && B.run275 == null) B.run275 = !lc.blueprint?.line500 && !!lc.blueprint?.line275;
+    const run275 = B.lk === 'ac500' && !!B.run275;
+    q = Gm.quoteLine(g, lc, { a: B.from, b: B.to, kind: B.lk, route: B.route, opts: B.opts, run275 });
     const r = { direct: Gm.routeInfo(g, B.from, B.to, 'direct'), detour: Gm.routeInfo(g, B.from, B.to, 'detour') };
     if (q.seaKm != null) for (const k of ['direct', 'detour']) if (!r[k].hazards.includes('coast')) r[k].hazards = [...r[k].hazards, 'coast']; // 1.10.0 海峡を渡る線は、回り道でも塩害
-    const lossFull = Gm.lineLoss(B.lk, r[B.route].km, 1, K.cap) / K.cap; // 送れる量いっぱいを流したときの損失の目安
+    const capNow = run275 ? Gm.LINES.ac275.cap : K.cap;
+    const lossFull = Gm.lineLoss(B.lk, r[B.route].km, 1, capNow, 0, run275 ? 275 : null) / capNow; // 送れる量いっぱいを流したときの損失の目安
     const opts = K.dc ? '' : Object.entries(Gm.LINE_OPTS).filter(([, O]) => !O.era || Gm.eraStatus(lc, O.era) === 'ok').map(([k, O]) => `<label class="row"><input type="checkbox" data-bopt="${k}" ${B.opts[k] ? 'checked' : ''}><span>${optIcon(k)}${O.name}<small>${O.hazard ? `${Gm.HAZARD[O.hazard].name}の事故を減らす` : '地絡の事故で止まる時間が短くなる'}（費用 +20%）</small></span></label>`).join('');
-    h = `<p class="gbch"><b>${A.esc(Gm.nodeOf(g, B.from).name)} 〜 ${A.esc(Gm.nodeOf(g, B.to).name)}</b>：${K.name}</p>
+    const mode500 = B.lk === 'ac500' ? `<div class="gseg">${[[false, '500 kV で使う'], [true, '500 kV 設計・275 kV で使う']].map(([v, lb]) => `<button class="btn small ${run275 === v ? 'on' : ''}" data-brun275="${v ? '1' : '0'}">${lb}</button>`).join('')}</div>` : '';
+    h = `<p class="gbch"><b>${A.esc(Gm.nodeOf(g, B.from).name)} 〜 ${A.esc(Gm.nodeOf(g, B.to).name)}</b>：${run275 ? '交流 500 kV（275 kV で使用中）' : K.name}</p>
+      ${mode500}
       <div class="gseg groute">${['direct', 'detour'].map((k) => `<button class="btn small ${B.route === k ? 'on' : ''}" data-broute="${k}">${k === 'direct' ? 'まっすぐ' : '回り道'}<small>${r[k].km.toFixed(1)} km ・ 危険：${hazardText(r[k].hazards)}</small></button>`).join('')}</div>
-      <p class="small">1回線で送れる量 ${kw(K.cap)} ・ いっぱいに流すと損失 ${(lossFull * 100).toFixed(1)}%${lossFull > 0.1 ? '（<b class="gneg">大きい</b>）' : ''}</p>
+      <p class="small">1回線で送れる量 ${kw(capNow)} ・ いっぱいに流すと損失 ${(lossFull * 100).toFixed(1)}%${lossFull > 0.1 ? '（<b class="gneg">大きい</b>）' : ''}${run275 ? '（太い電線なのでふつうの 275 kV より損失が小さい。あとから 500 kV に上げられる）' : ''}</p>
       ${opts ? `<details class="gopts"><summary>対策（${Object.values(B.opts).filter(Boolean).length}）${r[B.route].hazards.length ? `<span class="ghaz">この区間：${hazardText(r[B.route].hazards, true)}</span>` : ''}</summary>${opts}</details>` : ''}
       ${q.ok && q.hzDiff ? `<p class="gwarnhz">${A.esc(q.warn)}</p>` : ''}
       ${q.ok && q.seaKm != null ? `<p class="small gstrait">海峡を渡る線：海の上 <b>${q.seaKm.toFixed(1)} km</b>（高い鉄塔で渡る。海の上は 1 km あたり陸の ${Gm.STRAIT_K} 倍の費用）・海沿いの危険（塩害）が付く。周波数が違えば、つないだ瞬間に脱調して切れる</p>` : ''}
       ${q.ok && q.needSub.length ? `<p class="warn small">建設はできますが、${q.needSub.map((x) => Gm.nodeOf(g, x).name).join('・')}に変電所（建設 → 変圧器）を建てるまで電気は流れません。</p>` : ''}
       ${quoteHtml(q)}`;
-    what = `${K.short}（${(q.km || 0).toFixed(1)} km）`;
-    doBuild = () => Gm.buildLine(g, lc, { a: B.from, b: B.to, kind: B.lk, route: B.route, opts: { ...B.opts } });
+    what = `${run275 ? '交流 500 kV（275 kV で使用）' : K.short}（${(q.km || 0).toFixed(1)} km）`;
+    doBuild = () => Gm.buildLine(g, lc, { a: B.from, b: B.to, kind: B.lk, route: B.route, opts: { ...B.opts }, run275 });
   } else if (B.kind === 'conv') {
     const D = Gm.CONVS[B.type];
     q = Gm.quoteConv(g, lc, { type: B.type, kw: B.kw, town: B.town });
@@ -2666,9 +2690,11 @@ function drawBuildCard() {
     what = `${D.short} ${kw(B.kw)}`;
     doBuild = () => Gm.buildConv(g, lc, { type: B.type, kw: B.kw, town: B.town });
   } else {
+    const subSizes = Gm.SUB_SIZES.filter((m) => Gm.eraStatus(lc, Gm.subSizeEra(m)) !== 'no');
+    if (!subSizes.includes(B.mva)) B.mva = subSizes[0];
     q = Gm.quoteSub(g, lc, { town: B.town, mva: B.mva });
     h = `<p class="gbch"><b>${A.esc(Gm.nodeOf(g, B.town).name)}</b>：変圧器</p>
-      <div class="gseg gsizes">${Gm.SUB_SIZES.map((m) => `<button class="btn small ${m === B.mva ? 'on' : ''}" data-bmva="${m}">${m} MVA</button>`).join('')}</div>
+      <div class="gseg gsizes">${subSizes.map((m) => `<button class="btn small ${m === B.mva ? 'on' : ''}" data-bmva="${m}">${m} MVA</button>`).join('')}</div>
       <p class="small">鉄損は容量の 0.5%（いつも）、銅損は全負荷で 1.5%（負荷率の2乗）。効率がいちばん高いのは負荷率 58% のあたり。120% を超えると故障しやすい。</p>
       ${quoteHtml(q)}`;
     what = `変圧器 ${B.mva} MVA`;
@@ -2680,6 +2706,7 @@ function drawBuildCard() {
   on('[data-bmva]', 'click', (e) => ((B.mva = Number(e.currentTarget.dataset.bmva)), drawBuildCard()));
   on('[data-bckw]', 'click', (e) => ((B.kw = Number(e.currentTarget.dataset.bckw)), drawBuildCard()));
   on('[data-broute]', 'click', (e) => ((B.route = e.currentTarget.dataset.broute), refreshBuild()));
+  on('[data-brun275]', 'click', (e) => ((B.run275 = e.currentTarget.dataset.brun275 === '1'), drawBuildCard()));
   on('[data-bopt]', 'change', (e) => {
     B.opts[e.target.dataset.bopt] = e.target.checked;
     drawBuildCard();
@@ -2735,6 +2762,7 @@ async function pay(q, what, doBuild, after, kind = null) {
   else if (kind === 'circuit') act('circuit', r), mark(r.line.id, 'work');
   else if (kind === 'cap') act('cap', r.load);
   else if (kind === 'opt') act('lineOpt', r), mark(r.line.id, 'work');
+  else if (kind === 'up500') act('up500', r), mark(r.line.id, 'work');
   else if (kind === 'hzConv') act('hzConv', r), mark(r.node, 'work'); // 1.10.0
   else band(`${what}（${A.num(r.cost)} コイン）`);
   if (A.fx()) A.playNotes([[440, 0], [554.4, 0.08], [659.3, 0.16]]);
@@ -3056,24 +3084,29 @@ function linePanel(g, lc, id) {
   const fact = Gm.isJapan(g) ? J.lineFact(l.a, l.b) : null;
   const dir = f?.p > 0 && f.to ? ` ・ 向き：${A.esc(Gm.nodeOf(g, f.to === l.a ? l.b : l.a).name)} → ${A.esc(Gm.nodeOf(g, f.to).name)}` : '';
   const cAdd = l.cAdd?.length ? `（+${l.cAdd.length}回線 増設工事中 あと${Mn.hoursText(Math.max(1, Math.min(...l.cAdd.map((c) => c.readyAt)) - t))}）` : '';
+  const up500Work = l.up500At > t ? `（500 kV に上げる工事中 あと${Mn.hoursText(l.up500At - t)}・工事中は 275 kV のまま動く）` : '';
+  const canUp500 = l.kind === 'ac500' && l.runKv === 275 && !(l.up500At > t);
+  const qu = canUp500 ? Gm.quoteUpgradeLine(g, lc, id) : null;
   return {
     title: A.esc(Gm.lineName(g, l)),
-    html: `<p class="small glinehead">${linePic(l.kind)}<span>${K.name} ・ ${l.km.toFixed(1)} km（${l.route === 'detour' ? '回り道' : 'まっすぐ'}）・ ${l.n}回線${cAdd}${l.proto ? ' ・ 試作' : ''}</span></p>
+    html: `<p class="small glinehead">${linePic(l.kind)}<span>${Gm.lineShort(l)} ・ ${l.km.toFixed(1)} km（${l.route === 'detour' ? '回り道' : 'まっすぐ'}）・ ${l.n}回線${cAdd}${up500Work}${l.proto ? ' ・ 試作' : ''}</span></p>
     ${l.seaKm != null ? `<p class="small gstrait">海峡を渡る線（海の上 ${l.seaKm.toFixed(1)} km。高い鉄塔）</p>` : ''}
     ${fact ? `<p class="small gfact">史実：${A.esc(fact.text)}（出典 ${A.esc(fact.src)}・${J.confText(fact.conf)}） <button class="link" data-sources>出典の一覧</button></p>` : ''}
     ${l.hzTrip ? `<div class="gwarnhz"><b>切れている（周波数違い）</b><br>${l.hzPair ? `${A.esc(l.hzPair[0])}側は ${l.hzPair[1]} Hz、${A.esc(l.hzPair[2])}側は ${l.hzPair[3]} Hz の網。` : ''}周波数が違うと、両側の電圧の位相のずれが回り続け（50 Hz と 60 Hz なら毎秒 10 回転）、ずれが 180° に近づくたびに大きな電流が流れる。同期を保てないので、保護装置が線を切った（電気は送れない）。<br><small>入れ直しても、周波数が違うままなら、すぐにまた切れる。どちらかの網から交流の発電機がなくなるなど、周波数がそろえば入る。</small></div>` : ''}
-    <p class="small">状態：${l.hzTrip && !stateOf(l, t) ? '切れている（周波数違い）' : stateOf(l, t) || (l.c1Until > t ? `1回線が修理中（あと ${l.c1Until - t}時間）` : '送電中')}${f && !l.hzTrip ? ` ・ 流れ ${kw(f.p)}（送れる量 ${kw(K.cap * Math.max(1, Gm.lineCircuits(l, t)))}）・ 使用率 <b class="${f.util > 1 ? 'gneg' : f.util > 0.9 ? 'gcaut' : ''}">${pct(f.util)}</b>${f.util > 0.9 && f.util <= 1 ? '（90% 超で注意）' : ''} ・ 損失 ${kw(f.loss)}${dir}` : ''}</p>
+    <p class="small">状態：${l.hzTrip && !stateOf(l, t) ? '切れている（周波数違い）' : stateOf(l, t) || (l.c1Until > t ? `1回線が修理中（あと ${l.c1Until - t}時間）` : '送電中')}${f && !l.hzTrip ? ` ・ 流れ ${kw(f.p)}（送れる量 ${kw(Gm.lineCap(l) * Math.max(1, Gm.lineCircuits(l, t)))}）・ 使用率 <b class="${f.util > 1 ? 'gneg' : f.util > 0.9 ? 'gcaut' : ''}">${pct(f.util)}</b>${f.util > 0.9 && f.util <= 1 ? '（90% 超で注意）' : ''} ・ 損失 ${kw(f.loss)}${dir}` : ''}</p>
     <p class="small">危険：${hazardText(l.hazards)} ・ 対策：${optNames.length ? optNames.join('・') : 'なし'} ・ 故障の目安 1日あたり ${(hz.perDay * 100).toFixed(2)}%</p>
     ${optOnKeys.length ? `<p class="small">地図の印：${optOnKeys.map(optKey).join(' ／ ')}</p>` : ''}
     <p class="small">送れる量を超えて 120% までは温度が上がるだけ（故障しやすくなる）。120% を2時間超えると保護装置で切れる。</p>
     <div class="gbtns2">
       ${l.hzTrip ? '<button class="btn" data-reclose>入れ直す<small>周波数が違うままなら、また切れる</small></button>' : ''}
+      ${canUp500 ? `<button class="btn" data-up500>500 kV に上げる<small>${qu.ok ? `${A.num(qu.cost)} コイン・${qu.hours}時間` : A.esc(qu.why)}</small></button>` : ''}
       <button class="btn" data-circ>回線を増やす<small>${qc.ok ? `${A.num(qc.cost)} コイン・${qc.hours}時間` : A.esc(qc.why)}</small></button>
       ${canOpt ? '<button class="btn" data-addopts>対策を足す<small>後から（費用は割増）</small></button>' : ''}
       <button class="btn" data-rm>撤去</button>
     </div>`,
     bind: ({ onAll }) => {
       onAll('[data-circ]', 'click', () => circuitDialog(id));
+      onAll('[data-up500]', 'click', () => up500Dialog(id));
       onAll('[data-reclose]', 'click', async () => {
         const g2 = G();
         const r = Gm.recloseLine(g2, learningNow(), id);

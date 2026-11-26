@@ -73,7 +73,12 @@ export const LINES = {
   ac154: { name: '交流送電 154 kV', short: '交流 154 kV', kv: 154, cap: 150000, r: 0.05, cost: 1200, era: 4, hv: true, gates: ['line'], masteredGate: true, perf: 'line', blueprint: 'line154' },
   // 1.10.0 戦後復興の 275 kV（1952年 新北陸幹線）。送れる量は 154 kV の 150 MW を電圧の2乗で伸ばした約 478 MW → 450 MW。抵抗は太い電線・多導体で 0.03 Ω/km
   ac275: { name: '交流送電 275 kV', short: '交流 275 kV', kv: 275, cap: 450000, r: 0.03, cost: 2000, era: 5, hv: true, gates: ['line'], masteredGate: true, perf: 'line', blueprint: 'line275' },
+  // 1.11.0 高度成長の 500 kV（房総線など）。275 kV で使い始めて後から 500 kV に上げることもできる（l.runKv = 275）
+  ac500: { name: '交流送電 500 kV', short: '交流 500 kV', kv: 500, cap: 1500000, r: 0.015, cost: 3500, era: 6, hv: true, gates: ['line'], masteredGate: true, perf: 'line', blueprint: 'line500' },
 };
+export const lineKv = (l) => l?.runKv || LINES[l.kind].kv;
+export const lineCap = (l) => (l?.runKv === 275 ? LINES.ac275.cap : LINES[l.kind].cap);
+export const lineShort = (l) => (l?.kind === 'ac500' && l?.runKv === 275 ? '交流 500 kV（275 kV で使用中）' : LINES[l.kind].short);
 export const MAX_CIRCUITS = 4;
 // 建設のときに足せる対策（費用 +20% ずつ）
 export const LINE_OPTS = {
@@ -88,7 +93,8 @@ export const OPT_K = 0.2;
 export const RETRO_K = 1.3;
 export const optOn = (l, o, t) => !!l.opts?.[o] && !(l.optAt?.[o] > t);
 export const HAZARD = { thunder: { name: '雷の多い地域', k: 2 }, coast: { name: '海沿い（塩害）', k: 1.5 }, snow: { name: '雪の山（冬）', k: 2 } };
-export const SUB_SIZES = [0.1, 0.5, 1, 2, 5, 10, 30, 100]; // MVA
+export const SUB_SIZES = [0.1, 0.5, 1, 2, 5, 10, 30, 100, 300, 1000]; // MVA（1.11.0 で 300・1000 MVA は E5 から）
+export const subSizeEra = (mva) => (mva >= 300 ? 6 : TR.era);
 export const subCost = (mva) => Math.max(2000, Math.round(mva * 1000));
 export const TR = { iron: 0.005, copper: 0.015, era: 2, build: 24, gates: ['tr'], perf: 'tr' };
 // 1.10.4 電鉄用の変換所（交流を直流 600 V に変える。町に 2 台まで。変圧器が必要。値はゲームの値）
@@ -196,6 +202,7 @@ export const BLUEPRINTS = {
   line154: { name: '送電線 154 kV', units: ['denken2-denryoku-U06'] },
   petersen: { name: '消弧リアクトル', units: ['denken2-denryoku-U09'] },
   line275: { name: '送電線 275 kV（超高圧）', units: ['denken2-denryoku-U06'] }, // 1.10.0
+  line500: { name: '送電線 500 kV（超高圧）', units: ['denken2-denryoku-U06'] }, // 1.11.0
 };
 
 // 1.7.4 単元と施設の対応表：上の表（GATES・PERF・BLUEPRINTS。古い問題データでも今までどおり動くように残す）に、
@@ -718,10 +725,11 @@ function treeFlows(net, inj) {
   for (const n of net.nodes) if (!seen.has(n)) walk(n, null);
   return flows;
 }
-// 線の損失（kW）：交流は (P²+Q²)R/V²、直流は I²R（R は往復）。P・Q は kW・kvar、V は kV
-export function lineLoss(kind, km, n, p, q = 0) {
+// 線の損失（kW）：交流は (P²+Q²)R/V²、直流は I²R（R は往復）。P・Q は kW・kvar、V は kV（1.11.0 runKv：500 kV 設計を 275 kV で使うとき）
+export function lineLoss(kind, km, n, p, q = 0, runKv = null) {
   const K = LINES[kind];
-  return ((p * p + q * q) * ((K.r * km) / n)) / (K.kv * K.kv) / 1000;
+  const kv = runKv || K.kv;
+  return ((p * p + q * q) * ((K.r * km) / n)) / (kv * kv) / 1000;
 }
 // 発電所の構内の線（町はずれ 0.3 km）。直流だけ損失を数える（回線は 50 kW ごとに1つ）
 const feederLoss = (p, out) => (P(p).ac ? 0 : lineLoss('dc200', 0.3, Math.ceil(p.kw / LINES.dc200.cap), out));
@@ -873,8 +881,8 @@ function runNet(G, lc, t, net, dem, fc, o) {
     for (const e of net.edges) {
       const f = flows.get(e.id) || { p: 0, q: 0 };
       const n = lineCircuits(e, t);
-      f.loss = lineLoss(e.kind, e.km, n, f.p, net.dc ? 0 : f.q);
-      f.util = Math.hypot(f.p, net.dc ? 0 : f.q) / (LINES[e.kind].cap * n);
+      f.loss = lineLoss(e.kind, e.km, n, f.p, net.dc ? 0 : f.q, e.runKv);
+      f.util = Math.hypot(f.p, net.dc ? 0 : f.q) / (lineCap(e) * n);
       lLoss += f.loss;
     }
     // 変電所：鉄損はいつも、銅損は負荷率の2乗。町に出入りする送電線（11 kV 以上）の流れの合計が変圧器を通る
@@ -1925,7 +1933,7 @@ function failures(G, lc, prev) {
   return trip;
 }
 export function lineName(G, l) {
-  return `${nodeOf(G, l.a).name}〜${nodeOf(G, l.b).name}の${LINES[l.kind].short}`;
+  return `${nodeOf(G, l.a).name}〜${nodeOf(G, l.b).name}の${lineShort(l)}`;
 }
 
 // ---- 1.8.0 周波数の違う網と脱調（禁止はしない。結果は物理で返す） ----
@@ -2159,7 +2167,7 @@ export function deliverBest(G, cond, { live = false, day = null } = {}) {
       for (const [w, l] of adj.get(v) || []) {
         if (seen.has(w)) continue;
         seen.add(w);
-        const q = km + (dc || LINES[l.kind].kv >= cond.kv ? l.km : 0);
+        const q = km + (dc || lineKv(l) >= cond.kv ? l.km : 0);
         stack.push([w, q]);
         if (!nodeOf(G, w)?.town) continue;
         if (live && !servedDay(day, w)) continue;
@@ -2308,6 +2316,7 @@ export function step(G, lc) {
   for (const c of G.convs || []) if (!c.done && c.readyAt <= t) (c.done = true), note(G, `${nodeOf(G, c.town).name}の${CONVS[c.type].short}（${fmtKw(c.kw)}）が使えるようになった`);
   for (const l of G.lines) if (!l.done && l.readyAt <= t) (l.done = true), note(G, `${lineName(G, l)}が開通した`);
   finishCircuits(G, t);
+  finishUpgradeLines(G, t);
 
   hzCheck(G, lc, t); // 1.8.0 電気が入る交流の線が、周波数の違う網どうしを結ぶ形なら、脱調して切れる
   const trip = failures(G, lc, G.last);
@@ -2499,6 +2508,7 @@ export function step(G, lc) {
   if (G.hist.length > 168) G.hist.shift();
   G.t = t + 1;
   finishCircuits(G, G.t);
+  finishUpgradeLines(G, G.t);
 }
 // 1.10.2 回線の増設の完成（工事の間は l.n に数えず、終わってから増やす）
 function finishCircuits(G, t) {
@@ -2727,9 +2737,10 @@ function connected(G, a, b, dc) {
   while (stack.length) for (const m of adj.get(stack.pop()) || []) if (!seen.has(m)) seen.add(m), stack.push(m);
   return seen.has(b);
 }
-export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {} }) {
+export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {}, run275 = false }) {
   const K = LINES[kind];
   if (!K || a === b) return { ok: false, why: '2つの地点を選ぶ' };
+  const as275 = kind === 'ac500' && !!run275;
   const st = eraStatus(lc, K.era, K.level);
   if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
   if (K.dc && !(nodeOf(G, a).town && nodeOf(G, b).town)) return { ok: false, why: '直流の配電線は、町と町の間だけ' };
@@ -2754,7 +2765,8 @@ export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {} }) {
     const no = optBlocked(lc, o);
     if (no) return no;
   }
-  if (K.blueprint && !lc.blueprint[K.blueprint]) return { ok: false, why: `設計図「${BLUEPRINTS[K.blueprint].name}」がない（試験レベルに正解するか、関係する外部試験で3割以上）`, blueprint: K.blueprint };
+  const bp = as275 ? 'line275' : K.blueprint;
+  if (bp && !lc.blueprint[bp]) return { ok: false, why: `設計図「${BLUEPRINTS[bp].name}」がない（試験レベルに正解するか、関係する外部試験で3割以上）`, blueprint: bp };
   if (connected(G, a, b, !!K.dc)) return { ok: false, why: 'この2地点は、すでに線でつながっている（回線を増やすなら、今ある線を増設する）' };
   const r = routeInfo(G, a, b, route);
   if (strait && !r.hazards.includes('coast')) r.hazards = [...r.hazards, 'coast']; // 1.10.0 海峡を渡る線は、回り道でも海沿いの危険（塩害）が付く
@@ -2765,17 +2777,47 @@ export function quoteLine(G, lc, { a, b, kind, route = 'direct', opts = {} }) {
   if (K.dc && G.buffs.dcDiscount) cost *= 0.8;
   const needSub = K.hv ? [a, b].filter((id) => nodeOf(G, id).town && !G.subs.some((s) => s.town === id)) : [];
   const base = Math.max(50, Math.round(cost));
-  return { ok: true, cost: coinOf(base), base, km: r.km, hazards: r.hazards, hours: buildHours(12 + Math.min(228, r.km), lc, K.perf, G), proto, needSub, ...(strait ? { seaKm: strait.seaKm } : {}), ...(hzw || {}) };
+  return { ok: true, cost: coinOf(base), base, km: r.km, hazards: r.hazards, hours: buildHours(12 + Math.min(228, r.km), lc, K.perf, G), proto, needSub, ...(as275 ? { runKv: 275 } : {}), ...(strait ? { seaKm: strait.seaKm } : {}), ...(hzw || {}) };
 }
 export function buildLine(G, lc, spec) {
   const q = quoteLine(G, lc, spec);
   if (!q.ok) return q;
   if (LINES[spec.kind].dc) G.buffs.dcDiscount = false;
   const l = { id: `W${G.nextId++}`, a: spec.a, b: spec.b, kind: spec.kind, route: spec.route || 'direct', km: q.km, hazards: q.hazards, opts: { ...(spec.opts || {}) }, n: 1, cost: q.base, unit: q.base, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, downUntil: 0, c1Until: 0, graceUntil: 0, overH: 0, saltUntil: 0, done: false };
+  if (q.runKv) (l.runKv = q.runKv), (l.builtAs275 = true); // 1.11.0 500 kV 設計・275 kV で使う
   if (q.seaKm != null) l.seaKm = Math.round(q.seaKm * 100) / 100; // 1.10.0 海峡を渡る線（海の上の長さ）
   G.lines.push(l);
   G.yr.built = (G.yr.built || 0) + 1;
   return { ...q, line: l };
+}
+// 1.11.0 500 kV 設計（275 kV で使用中）の線を 500 kV に上げる工事：設計図 line500 が要る。費用は線の費用の 20%、工期は新設の 4 分の 1。工事の間は 275 kV のまま動く
+export function quoteUpgradeLine(G, lc, id) {
+  const l = G.lines.find((x) => x.id === id);
+  if (!l || l.kind !== 'ac500' || l.runKv !== 275) return { ok: false, why: '500 kV に上げられる線ではない' };
+  if (l.up500At > G.t) return { ok: false, why: '500 kV に上げる工事の最中' };
+  if (!lc.blueprint?.line500) return { ok: false, why: `設計図「${BLUEPRINTS.line500.name}」がない（試験レベルに正解するか、関係する外部試験で3割以上）`, blueprint: 'line500' };
+  const base = Math.max(50, Math.round(l.cost * 0.2));
+  const K = LINES.ac500;
+  const hours = Math.max(1, Math.round(buildHours(12 + Math.min(228, l.km), lc, K.perf, G) / 4));
+  return { ok: true, cost: coinOf(base), base, hours, line: l };
+}
+export function startUpgradeLine(G, lc, id) {
+  const q = quoteUpgradeLine(G, lc, id);
+  if (!q.ok) return q;
+  const readyAt = Math.max(G.t, q.line.readyAt) + q.hours;
+  q.line.up500At = readyAt;
+  q.line.cost += q.base;
+  note(G, `${lineName(G, q.line)}を 500 kV に上げる工事を始めた`);
+  return { ...q, readyAt };
+}
+function finishUpgradeLines(G, t) {
+  for (const l of G.lines) {
+    if (!l.up500At || l.up500At > t) continue;
+    delete l.up500At;
+    delete l.runKv;
+    l.upgraded500 = true;
+    note(G, `${lineName(G, l)}を 500 kV に上げた`);
+  }
 }
 // 回線を増やす（同じルートにもう1回線）。1.10.2：工期（新しく引くときの半分）を追加。工事中は回線の数に数えず、終わってから効く
 export function quoteCircuit(G, lc, id) {
@@ -2844,7 +2886,7 @@ export function addLineOpt(G, lc, id, o) {
 export function quoteSub(G, lc, { town, mva }) {
   if (!nodeOf(G, town)?.town || !SUB_SIZES.includes(mva)) return { ok: false, why: '町と容量を選ぶ' };
   if (!nodeOpen(G, town)) return { ok: false, why: closedWhy(G, nodeOf(G, town)), closed: true };
-  const st = eraStatus(lc, TR.era);
+  const st = eraStatus(lc, subSizeEra(mva));
   if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
   const gc = gateCheck(lc, TR.gates, !!TR.masteredGate);
   if (gc) return gc;
