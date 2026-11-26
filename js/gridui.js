@@ -1100,6 +1100,7 @@ function showYearSummary(g) {
     { label: '建てた設備', val: ys.built || 0, fmt: (v) => `${Math.round(v)} 件`, arrow: '' },
     { label: '事故の対処', val: ys.incOk || 0, fmt: (v) => (ys.incTotal ? `${Math.round(v)}／${ys.incTotal} 件正解` : '事故なし'), arrow: '' },
     { label: '初めて電気が届いた町', val: ys.litTowns || 0, fmt: (v) => `${Math.round(v)} か所`, arrow: '' },
+    ...(ys.genMix ? [{ label: '電源の組み合わせ', val: ys.genMix.thermalPct, fmt: (v) => `火力 ${Math.round(v)}%・水力 ${100 - Math.round(v)}%`, arrow: '' }] : []),
   ];
   const ov = document.createElement('div');
   ov.className = `goverlay gyrsum${src ? ' hasimg' : ''}${A.fx() ? ' fx' : ''}`;
@@ -2797,7 +2798,8 @@ function plantState(g, p) {
   const t = g.t;
   const out = g.last?.plants[p.id] || 0;
   const conv = p.convUntil > t ? `・周波数の工事中（出力 8 割まで・あと${Mn.hoursText(p.convUntil - t)}）` : ''; // 1.10.0
-  return (stateOf(p, t) || (p.idle ? '休止' : p.hold > t ? '停電からの復旧待ち' : p.on ? `運転中 ${kw(out)}／${kw(p.kw)}` : p.onAt != null ? `起動中（あと ${Math.max(1, p.onAt - t)}時間）` : '待機')) + conv;
+  const st = p.downUntil > t && p.downWhy ? `${p.downWhy}で停止（あと ${Math.max(1, p.downUntil - t)}時間）` : stateOf(p, t);
+  return (st || (p.idle ? '休止' : p.hold > t ? '停電からの復旧待ち' : p.on ? `運転中 ${kw(out)}／${kw(p.kw)}` : p.onAt != null ? `起動中（あと ${Math.max(1, p.onAt - t)}時間）` : '待機')) + conv;
 }
 // 1.7.4 発電所が全開でない理由・待機や起動の理由（直近の1時間の判断。grid.js plantWhyText）
 function plantWhy(g, p) {

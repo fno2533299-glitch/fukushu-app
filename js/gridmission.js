@@ -96,6 +96,35 @@ export const MISSIONS = [
     year: 1951, short: '1951年の渇水と使用制限', text: '1946年、電気需給調整規則。1951年夏の異常渇水のあと、1951〜1953年度は法的な使用制限（電灯電力の使用時間の指定・大口の使用量の制限・最大電力の指定）。中部電力では、制限で減ったとみられる量が 1951年度に 2.89億 kWh（販売電力量の 8%）',
     src: 'S15・S17', conf: true,
   },
+  // ---- 1.11.0 高度成長・前半「火主水従」（E5）。出典 S15〜S17・S28〜S31 ----
+  {
+    id: 'M13', era: 6, name: '大きなダム', goal: '貯水池式の水力を1つ動かし、その電気を 100 km 以上離れた町に届ける',
+    cond: { kind: 'deliver', src: 'dam', kv: 0, km: 100 }, units: ['denken3-denryoku-U01', 'generation-U02'],
+    hint: 'ダムは 5 つの地点だけ。遠いので、送る線も考えよう',
+    year: 1956, short: '佐久間など大型ダムの建設', text: '1956年4月、佐久間発電所（35万 kW）。続いて田子倉（1959）・奥只見（1960）・御母衣（1961）・黒部川第四（1963）。物理：池が大きいほど、渇水や季節の差をならせる',
+    physics: true, src: 'S28・S29', conf: true,
+  },
+  {
+    id: 'M14', era: 6, name: '重油専焼の大型火力', goal: '32.5万 kW 以上の重油火力を動かし、1日の発電の半分以上を出す',
+    cond: { kind: 'oilHalf', minKw: 325000 }, units: ['denken2-denryoku-U02', 'generation-U06'],
+    hint: '重油はタンカーで運ぶので、海沿いの町に建つ',
+    year: 1961, short: '重油専焼の大型火力', text: '1961年、三重4号が初の重油専焼（12.5万 kW）。1965年、姫路第二2号（32.5万 kW、重油専焼）。1967年、姉崎1号が 1台 60万 kW で当時最大',
+    src: 'S15・S16', conf: true,
+  },
+  {
+    id: 'M15', era: 6, name: '火主水従', goal: '1年の記録（年の変わり目の決算）で、火力の発電電力量が水力を上回る',
+    cond: { kind: 'thermalLead' }, units: ['power-system-U06', 'generation-U01'],
+    hint: '燃料の安い大きな火力を増やすと、発電量の割合が変わる',
+    year: 1962, short: '火主水従（火力が水力を上回る）', text: '1962年、全国の火力の発電量が水力を上回った。設備でも 1963年4月に火力 975万 kW が水力 944万 kW を超えた。理由：火力は大容量化・高効率化と燃料の値段の安定で経済性が上がり、水力は地点が奥地になって建設費と補償が重くなった',
+    src: 'S30・S15・S17', conf: true,
+  },
+  {
+    id: 'M16', era: 6, name: '500 kV へ上げる', goal: '「500 kV 設計・275 kV で使う」で建てた線を 500 kV に上げ、その線で 100 km 以上送って届ける',
+    cond: { kind: 'deliver', src: 'ac', kv: 500, km: 100, upgraded: true }, units: ['denken2-denryoku-U06', 'transmission-1-U02'],
+    hint: '設計図がなくても 500 kV 設計で建てておける。設計図が開いたら上げられる',
+    year: 1966, short: '房総線 500 kV 設計・昇圧運用', text: '東京電力の房総線（新古河〜房総、85 km）は、1966年に 500 kV 設計のまま 275 kV で使い始め、1973年から 500 kV で送った。理由：急増する需要に応じて送電線の大容量化が必要になった',
+    src: 'S31', conf: true,
+  },
 ];
 export const missionOf = (id) => MISSIONS.find((m) => m.id === id) || null;
 // 出典 S14（この版で足す。Code依頼_1.8.0 の出典）。S15〜S19 は 1.10.0（gridjapan.js の SOURCES）
