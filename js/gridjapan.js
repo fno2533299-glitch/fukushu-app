@@ -52,9 +52,10 @@ export function yearEra(year) {
   if (!year) return 2;
   return year <= 1890 ? 1 : year <= 1911 ? 2 : year <= 1925 ? 3 : year <= 1940 ? 4 : year <= 1954 ? 5 : year <= 1972 ? 6 : 7;
 }
-// 地点が開く時代（1.10.1：炭田はエリアの決まりのまま）
+// 地点が開く時代（1.10.1：炭田はエリアの決まりのまま。1.11.0：大学のキャンパスは史実の年の時代から）
 export function nodeOpenEra(start, n) {
   const e = areaEra(start, n.area, n.id);
+  if (n.campus) return Math.max(e, yearEra(n.year));
   return n.town || n.coal ? e : Math.max(e, yearEra(n.year));
 }
 

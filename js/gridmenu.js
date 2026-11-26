@@ -21,7 +21,7 @@ export function typeStatus(lc, kind, key) {
 
 // ---- 地点のメニューの項目 ----
 // メニューに出す短い名前（丸いボタンの横の文字）
-export const SHORT = { dcCoal: '直流の火力', acCoal: '石炭火力', bigCoal: '大型火力', ror: '水力 流れ込み', pond: '水力 調整池', tr: '変圧器', rotary: '回転変流機', mercury: '水銀整流器' };
+export const SHORT = { dcCoal: '直流の火力', acCoal: '石炭火力', bigCoal: '大型火力', oilFire: '重油火力', ror: '水力 流れ込み', pond: '水力 調整池', dam: '水力 ダム', tr: '変圧器', rotary: '回転変流機', mercury: '水銀整流器' };
 // その地点で建てられる種類（時代が先すぎるものは出さない。学習の条件を満たさないものは灰色 ok: false）
 export function buildChoices(g, lc, id) {
   const n = Gm.nodeOf(g, id);

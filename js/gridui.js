@@ -176,7 +176,7 @@ const timeShort = (g) => `${Gm.yearOf(g.t) + 1}年目 ${Gm.SEASONS[Gm.seasonOf(g
 const eraName = (n) => Gm.ERAS[n - 1].name;
 
 // ---- 絵（本人が Gemini で作った画像があれば使い、なければ仮の絵）。番号は 試作/系統ゲーム_画像プロンプト.md ----
-const PIC = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5: 'G23', era6: 'G24', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', ror: 'G08', pond: 'G09', sub: 'G10', rotary: 'G10', mercury: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22', load_lamp: 'G25', load_home: 'G26', load_shop: 'G27', load_factory: 'G28', load_tram: 'G27', M01: 'G29', M02: 'G30', M03: 'G31', M04: 'G32', M05: 'G33', M06: 'G34', M07: 'G35', M08: 'G36' };
+const PIC = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5: 'G23', era6: 'G24', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', oilFire: 'G07', ror: 'G08', pond: 'G09', dam: 'G09', sub: 'G10', rotary: 'G10', mercury: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22', load_lamp: 'G25', load_home: 'G26', load_shop: 'G27', load_factory: 'G28', load_tram: 'G27', M01: 'G29', M02: 'G30', M03: 'G31', M04: 'G32', M05: 'G33', M06: 'G34', M07: 'G35', M08: 'G36' };
 const PH = {
   coal: '<path d="M8 30V16h6v-5h5v5h6v14z M30 30V20l8 4v-4l8 4v6z" fill="currentColor"/><path d="M16 9c0-3 3-3 3-6" fill="none" stroke="currentColor" stroke-width="1.5"/>',
   hydro: '<path d="M4 30L18 8l8 12 5-7 13 17z" fill="currentColor" opacity=".5"/><path d="M20 30c2-6 2-9 0-14M26 30c2-6 2-9 0-12" fill="none" stroke="currentColor" stroke-width="1.6"/>',
@@ -187,7 +187,7 @@ const PH = {
   dark: '<circle cx="24" cy="20" r="11" fill="currentColor" opacity=".25"/><path d="M19 15l10 10M29 15L19 25" stroke="currentColor" stroke-width="2.5"/>',
   light: '<circle cx="24" cy="18" r="8" fill="currentColor" opacity=".7"/><path d="M24 4v4M24 28v4M10 18h4M34 18h4M14 8l3 3M34 8l-3 3" stroke="currentColor" stroke-width="2"/>',
 };
-const PH_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'coal', ror: 'hydro', pond: 'hydro', sub: 'sub', rotary: 'sub', mercury: 'sub', line: 'line', era1: 'town', era2: 'town', era3: 'town', era4: 'town', era5: 'town', era6: 'town', heat: 'light', cold: 'storm', typhoon: 'storm', snowstorm: 'storm', coalSpike: 'coal', priceWar: 'town', drought: 'hydro', blackout: 'dark', recover: 'light', rebuild: 'town', island: 'hydro', load_lamp: 'light', load_home: 'town', load_shop: 'town', load_factory: 'coal', load_tram: 'town' };
+const PH_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'coal', oilFire: 'coal', ror: 'hydro', pond: 'hydro', dam: 'hydro', sub: 'sub', rotary: 'sub', mercury: 'sub', line: 'line', era1: 'town', era2: 'town', era3: 'town', era4: 'town', era5: 'town', era6: 'town', heat: 'light', cold: 'storm', typhoon: 'storm', snowstorm: 'storm', coalSpike: 'coal', priceWar: 'town', drought: 'hydro', blackout: 'dark', recover: 'light', rebuild: 'town', island: 'hydro', load_lamp: 'light', load_home: 'town', load_shop: 'town', load_factory: 'coal', load_tram: 'town' };
 // 上の帯の背景に、時代の絵を薄く（絵がないときは出さない）
 const eraImg = (g) => {
   const src = picSrc(PIC[`era${g.era}`]);
@@ -1012,7 +1012,7 @@ function drainFreshLit(g) {
     const path = typeof it === 'object' && it?.path?.length ? it.path : Gm.litPathLines(g, townId, g.t);
     for (const lid of path) mark(lid, 'firstline');
     mark(townId, 'firsttown');
-    const yr = Gm.isJapan(g) && n.year && confOf(n.conf) === '確かめた' ? `（史実 ${n.year}年）` : '';
+    const yr = Gm.isJapan(g) && n.year && !n.campus && confOf(n.conf) === '確かめた' ? `（史実 ${n.year}年）` : '';
     band(`${n.name}に初めて電気が届いた${yr}`);
   }
   if (changed) {
@@ -1489,7 +1489,7 @@ function sceneData(g) {
   const px = VIEW.w * MAP_PAD, py = viewH() * MAP_PAD; // 1.6.4：画面のまわり（MAP_PAD）まで
   const view = { x0: VIEW.x - px, y0: VIEW.y - py, x1: VIEW.x + VIEW.w + px, y1: VIEW.y + viewH() + py };
   const cx = VIEW.x + VIEW.w / 2, cy = VIEW.y + viewH() / 2;
-  const nodes = Gm.nodesOf(g);
+  const nodes = Gm.nodesOf(g).filter((n) => Gm.openEra(g, n) <= Gm.MAX_ERA);
   const towns = nodes
     .filter((n) => n.town)
     .map((n) => ({ id: n.id, x: n.x, y: n.y, r: Mg.sprawlKm(Art.townLook(g, n).kw, g.era, n.size) }))
@@ -1514,7 +1514,7 @@ function terrainKeyHtml() {
 const NAME_W = { 3: Infinity, 2: 1000, 1: 320, hydro: 220, coal: 500, ward: 40 };
 const DOT_GAP = 28; // 画面の上でこれより近い地点は、目立つ方だけを絵で描き、ほかは小さな点にする
 function topInner(g) {
-  const nodes = Gm.nodesOf(g);
+  const nodes = Gm.nodesOf(g).filter((n) => Gm.openEra(g, n) <= Gm.MAX_ERA);
   const japan = Gm.isJapan(g);
   const t = g.t;
   const cand = B ? candidates(g, learningNow()) : null;
@@ -2487,7 +2487,7 @@ function exitBuild() {
 // 地点 → 'can'（選べる）／'sel'（選んでいる）。どれにもならない地点は薄くする
 function candidates(g, lc) {
   const m = new Map();
-  const nodes = Gm.nodesOf(g);
+  const nodes = Gm.nodesOf(g).filter((n) => Gm.openEra(g, n) <= Gm.MAX_ERA);
   if (B.kind === 'plant') {
     const D = Gm.PLANTS[B.type];
     for (const n of nodes) {
@@ -2553,7 +2553,7 @@ function buildTap(id) {
 function whyNot(g, lc, id) {
   const n = Gm.nodeOf(g, id);
   if (B.kind === 'plant') {
-    if (!Gm.siteAllows(g, B.type, id)) return `${n.name}には${Gm.PLANTS[B.type].short}を建てられません`;
+    if (!Gm.siteAllows(g, B.type, id)) return Gm.PLANTS[B.type].at === 'coast' ? '重油はタンカーで運ぶので、海沿いだけ' : `${n.name}には${Gm.PLANTS[B.type].short}を建てられません`;
     return Gm.quotePlant(g, lc, { type: B.type, kw: Gm.PLANTS[B.type].sizes[0][0], site: id }).why || 'ここには建てられません';
   }
   if (B.kind === 'line') {
@@ -2883,7 +2883,7 @@ function nodePanel(g, lc, id) {
   const start = Gm.startId(g);
   const dist = start === id ? (Gm.isJapan(g) ? '始めた町' : '中央の町') : `${A.esc(Gm.nodeOf(g, start).name)}から ${Gm.distKm(g, start, id) < 0.5 ? '0' : Gm.distKm(g, start, id).toFixed(1)} km`;
   const where = Gm.isJapan(g) ? `${A.esc(n.pref)}${n.place ? ` ${A.esc(n.place)}` : ''}${n.river ? `・${A.esc(n.river)}` : ''} ・ ` : '';
-  let h = `<p class="small">${where}${n.town ? '町' : n.hydro ? `水力の地点（使える水 ${kw(n.hydro)}${n.pond ? '・調整池を作れる' : ''}）` : n.coal && Gm.isJapan(g) ? '炭田' : '石炭火力の用地'} ・ ${dist} ・ この場所の危険：${hazardText(n.tags)}</p>`;
+  let h = `<p class="small">${where}${n.town ? '町' : n.hydro ? `水力の地点（使える水 ${kw(n.hydro)}${n.dam ? '・ダムを作れる' : n.pond ? '・調整池を作れる' : ''}）` : n.coal && Gm.isJapan(g) ? '炭田' : '石炭火力の用地'} ・ ${dist} ・ この場所の危険：${hazardText(n.tags)}</p>`;
   if (n.coal && Gm.isJapan(g)) h += `<p class="small">炭田：石炭火力の燃料が安い（運び代がほとんどかからない・燃料費 ×${Gm.FUEL_HAUL.coal.toFixed(2)}）</p>`;
   if (!Gm.nodeOpen(g, n)) h += `<p class="warn small">まだ開いていない地点です（${eraName(Gm.openEra(g, n))}から）。</p>`;
   if (Gm.isJapan(g)) h += historyHtml(n);
@@ -2976,7 +2976,7 @@ function historyHtml(n) {
   if (n.hydro) rows.push(`<p class="small">使える水の上限 ${kw(n.hydro)}：${n.limitBy === 'ゲーム' ? 'ゲームの値' : '今の最大出力（運転開始のころの値ではない。その川の力の目安）'}</p>`);
   const conf = confOf(n.conf);
   rows.push(`<p class="small gsrc">${n.src ? `出典 ${A.esc(n.src)}${conf ? `（${conf}）` : ''} ・ ` : ''}位置はおおよそ <button class="link" data-sources>出典の一覧</button></p>`);
-  return `<h3>史実</h3>${rows.join('')}`;
+  return `<h3>${n.campus || n.id === 'tk-kanda' ? '史実（大学）' : '史実'}</h3>${rows.join('')}`;
 }
 function sourcesSheet() {
   sheet(
