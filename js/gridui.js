@@ -121,7 +121,7 @@ async function recordNow() {
     const fresh = Rc.recordGrid(r, S.grid, todayStr());
     // 建てた設備の種類の絵（詳細の見出し・建設で出る）と、いまの時代までの時代の絵（時代の演出・上の帯）
     const t = S.grid.t;
-    const ids = [...S.grid.plants.filter((p) => p.readyAt <= t).map((p) => PIC[p.type]), ...S.grid.lines.filter((l) => l.readyAt <= t).map((l) => Mn.LINE_PIC[l.kind]), ...(S.grid.subs.some((x) => x.readyAt <= t) || (S.grid.convs || []).some((x) => x.readyAt <= t) ? ['G10'] : []), ...Array.from({ length: Math.min(S.grid.era, 5) }, (_, i) => PIC[`era${i + 1}`])];
+    const ids = [...S.grid.plants.filter((p) => p.readyAt <= t).map((p) => PIC[p.type]), ...S.grid.lines.filter((l) => l.readyAt <= t).map((l) => Mn.LINE_PIC[l.kind]), ...(S.grid.subs.some((x) => x.readyAt <= t) || (S.grid.convs || []).some((x) => x.readyAt <= t) ? ['G10'] : []), ...Array.from({ length: Math.min(S.grid.era, Gm.MAX_ERA) }, (_, i) => PIC[`era${i + 1}`])];
     const pics = ids.filter((id) => Rc.seePic(r, id, todayStr())).length;
     if (imp || fresh.length || pics) await recSaved();
   } finally {
@@ -205,7 +205,7 @@ function headPic(g, kind, id) {
     if (!n) return null;
     const plants = g.plants.filter((p) => p.site === id);
     if (plants.length) k = PIC[plants.reduce((a, b) => (b.kw > a.kw ? b : a)).type];
-    else if (n.town) k = PIC[`era${Math.min(g.era, 5)}`];
+    else if (n.town) k = PIC[`era${Math.min(g.era, Gm.MAX_ERA)}`];
     else k = n.hydro ? 'G08' : 'G06';
   } else {
     const l = g.lines.find((x) => x.id === id);
@@ -1082,7 +1082,7 @@ function showYearSummary(g) {
   if (!g?.yearSummary || tutOn() || demoOn() || DEV.running) return;
   if (!onGrid() || document.querySelector('.modal, .goverlay, .galert, .gtut, .gmcard')) return;
   const ys = g.yearSummary;
-  const src = picSrc(PIC[`era${Math.min(g.era, 5)}`]);
+  const src = picSrc(PIC[`era${Math.min(g.era, Gm.MAX_ERA)}`]);
   const arr = (d, invert = false) => {
     if (d == null) return '';
     if (Math.abs(d) < 1e-6) return '<span class="gyarr same">→</span>';
@@ -3097,7 +3097,10 @@ function runPanel(g, lc) {
   const plants = order
     .map((p, i) => {
       const D = Gm.PLANTS[p.type];
-      const cost = D.coal ? `${(Gm.fuelPrice(g, g.t, p.site) / Gm.plantEff(p, lc, g)).toFixed(1)} 円/kWh${Gm.isJapan(g) ? `（運び代 ${haulShort(g, p.site)}）` : ''}` : '燃料なし';
+      const fk = D.fuel || 'coal';
+      const fName = Gm.FUELS[fk]?.name || '石炭';
+      const haul = Gm.isJapan(g) && Gm.FUELS[fk]?.haul ? `（運び代 ${haulShort(g, p.site)}）` : '';
+      const cost = D.coal ? `${fName} ${(Gm.fuelPrice(g, g.t, p.site, fk) / Gm.plantEff(p, lc, g)).toFixed(1)} 円/kWh${haul}` : '燃料なし';
       return `<div class="gitem gplant"><span class="gord"><button class="btn small" data-up="${p.id}" ${i === 0 || !lc.gate.econ ? 'disabled' : ''} aria-label="上へ">▲</button><b>${i + 1}</b><button class="btn small" data-down="${p.id}" ${i === order.length - 1 || !lc.gate.econ ? 'disabled' : ''} aria-label="下へ">▼</button></span>
         <span class="gpl"><b>${D.short} ${kw(p.kw)}${p.proto ? '（試作）' : ''}</b><small>${A.esc(Gm.nodeOf(g, p.site).name)} ・ ${plantState(g, p)} ・ ${cost}${plantWhy(g, p) ? `<br>${A.esc(plantWhy(g, p))}` : ''}</small>
         <span><button class="btn small" data-idle="${p.id}">${p.idle ? '休止をやめる' : '休止する'}</button><button class="btn small" data-rm="plant:${p.id}">撤去</button></span></span></div>`;
@@ -3128,11 +3131,11 @@ function runPanel(g, lc) {
       <h3>点検の方針</h3>
       <label class="row"><input type="radio" name="maint" value="normal" ${g.maint !== 'defer' ? 'checked' : ''}><span>ふつうに点検する<small>ふつう：保守費 ${yen(mNorm)}/日（設備の値打ちの ${(Gm.MAINT_RATE * 100).toFixed(2)}%/日）</small></span></label>
       <label class="row"><input type="radio" name="maint" value="defer" ${g.maint === 'defer' ? 'checked' : ''}><span>点検を延ばす<small>延ばす：保守費 ${yen(mDef)}/日・故障 2.5 倍</small></span></label>
-      <h3>燃料（石炭）の買い方</h3>
-      <label class="row"><input type="radio" name="fuel" value="contract" ${g.fuelPlan === 'contract' ? 'checked' : ''}><span>長期契約<small>値段は固定（いま ${g.fuel.contract.toFixed(2)} 円/kWh・熱）。1年ごとに見直し</small></span></label>
-      <label class="row"><input type="radio" name="fuel" value="spot" ${g.fuelPlan === 'spot' ? 'checked' : ''}><span>スポット<small>毎日 ±30% で変わる（今日 ${g.fuel.spot.toFixed(2)}）。平均は長期契約の 0.85 倍</small></span></label>
+      <h3>燃料の買い方</h3>
+      <label class="row"><input type="radio" name="fuel" value="contract" ${g.fuelPlan === 'contract' ? 'checked' : ''}><span>長期契約<small>値段は固定（いま ${Object.entries(Gm.FUELS).map(([k, F]) => `${F.name} ${Gm.fuelObj(g, k).contract.toFixed(2)}`).join('・')} 円/kWh・熱）。1年ごとに見直し</small></span></label>
+      <label class="row"><input type="radio" name="fuel" value="spot" ${g.fuelPlan === 'spot' ? 'checked' : ''}><span>スポット<small>毎日 ±30% で変わる（今日 ${Object.entries(Gm.FUELS).map(([k, F]) => `${F.name} ${Gm.fuelObj(g, k).spot.toFixed(2)}`).join('・')}）。平均は長期契約の 0.85 倍</small></span></label>
       <p class="small">燃料費（円/kWh）＝値段 ÷ 熱効率。熱効率は、火力発電の単元の定着で上がる</p>
-      <p class="small">燃料費は場所で変わる（日本列島：炭田のそば ×0.70、海沿い ×0.95 まで、内陸は遠いほど高い・最大 ×1.4）</p>
+      <p class="small">石炭の運び代（日本列島）：炭田のそば ×0.70、海沿い ×0.95 まで、内陸は遠いほど高い（最大 ×1.4）。重油はタンカーで直接（×1.0）</p>
       ${unitButtons(['power-system-U05', 'power-system-U06'])}`,
     bind: ({ $, onAll, g: gg }) => {
       const move = async (id, d) => {
@@ -3270,10 +3273,12 @@ function perfUnitLabel(lc, key) {
 function plantFuelText(g, lc, p) {
   const D = Gm.PLANTS[p.type];
   if (!D.coal) return '燃料なし';
+  const fk = D.fuel || 'coal';
+  const fName = Gm.FUELS[fk]?.name || '石炭';
   const eff = Gm.plantEff(p, lc, g);
-  const cost = Gm.fuelPrice(g, g.t, p.site) / eff;
-  const haul = Gm.isJapan(g) ? `・運び代 ${haulShort(g, p.site)}` : '';
-  return `燃料費 ${cost.toFixed(1)} 円/kWh（効率 ${(eff * 100).toFixed(1)}%${haul}。${A.esc(perfUnitLabel(lc, D.perf))}の定着で最大 ${(D.eff[1] * 100).toFixed(0)}%）`;
+  const cost = Gm.fuelPrice(g, g.t, p.site, fk) / eff;
+  const haul = Gm.isJapan(g) && Gm.FUELS[fk]?.haul ? `・運び代 ${haulShort(g, p.site)}` : '';
+  return `燃料費（${fName}） ${cost.toFixed(1)} 円/kWh（効率 ${(eff * 100).toFixed(1)}%${haul}。${A.esc(perfUnitLabel(lc, D.perf))}の定着で最大 ${(D.eff[1] * 100).toFixed(0)}%）`;
 }
 // 1.10.2 5.1・5.2：収支のまとめ（電力の横棒・お金の横棒・売れた 1 kWh あたり・発電所ごとの燃料費と捨てた分）
 function econSummaryHtml(g, lc) {

@@ -29,18 +29,29 @@ export const ERAS = [
   { n: 6, id: 'E5', name: '高度成長', year: '1955〜', level: 20 },
   { n: 7, id: 'E6', name: '現代', year: '', level: 30 },
 ];
-export const MAX_ERA = 5;
+export const MAX_ERA = 6;
 export function eraOf(level) {
   let n = 1;
   for (const e of ERAS) if (level >= e.level && e.n <= MAX_ERA) n = e.n;
   return n;
 }
 
+// ---- 燃料（1.11.0 種類ごとに値段を分ける。後半の版で lng・nuclear を足せる形） ----
+export const FUELS = {
+  coal: { name: '石炭', base: 1, haul: true },
+  oil: { name: '重油', base: 0.85, haul: false },
+};
+function initFuel() {
+  const f = {};
+  for (const [k, F] of Object.entries(FUELS)) f[k] = { base: F.base, contract: F.base, spot: F.base * 0.85 };
+  return f;
+}
+
 // ---- 電源（設計 3章）。sizes：[出力 kW, 建設費（学習通貨）, 追加の条件] ----
 export const PLANTS = {
-  dcCoal: { name: '直流の石炭火力', short: '直流火力', era: 1, ac: false, coal: true, eff: [0.05, 0.1], start: 4, min: 0.3, bs: true, build: 24, gates: ['dc'], perf: 'dc', at: 'town', sizes: [[25, 3000], [50, 4000], [100, 5500], [200, 8000]] },
-  acCoal: { name: '石炭火力（汽力・交流）', short: '石炭火力', era: 2, ac: true, coal: true, eff: [0.08, 0.18], start: 6, min: 0.3, bs: true, build: 72, gates: ['gen', 'coal'], perf: 'coal', at: 'coal', sizes: [[500, 15000], [1000, 18000], [2000, 24000], [5000, 40000]] },
-  bigCoal: { name: '大型の石炭火力（高圧ボイラ）', short: '大型火力', era: 4, ac: true, coal: true, eff: [0.15, 0.28], start: 12, min: 0.4, bs: false, build: 240, gates: ['gen', 'coal'], masteredGate: true, perf: 'coal', at: 'bigcoal', blueprint: 'bigCoal', sizes: [[20000, 80000], [40000, 125000], [75000, 200000]] },
+  dcCoal: { name: '直流の石炭火力', short: '直流火力', era: 1, ac: false, coal: true, fuel: 'coal', eff: [0.05, 0.1], start: 4, min: 0.3, bs: true, build: 24, gates: ['dc'], perf: 'dc', at: 'town', sizes: [[25, 3000], [50, 4000], [100, 5500], [200, 8000]] },
+  acCoal: { name: '石炭火力（汽力・交流）', short: '石炭火力', era: 2, ac: true, coal: true, fuel: 'coal', eff: [0.08, 0.18], start: 6, min: 0.3, bs: true, build: 72, gates: ['gen', 'coal'], perf: 'coal', at: 'coal', sizes: [[500, 15000], [1000, 18000], [2000, 24000], [5000, 40000]] },
+  bigCoal: { name: '大型の石炭火力（高圧ボイラ）', short: '大型火力', era: 4, ac: true, coal: true, fuel: 'coal', eff: [0.15, 0.28], start: 12, min: 0.4, bs: false, build: 240, gates: ['gen', 'coal'], masteredGate: true, perf: 'coal', at: 'bigcoal', blueprint: 'bigCoal', sizes: [[20000, 80000], [40000, 125000], [75000, 200000]] },
   ror: { name: '流れ込み式の水力', short: '水力（流れ込み）', era: 2, ac: true, coal: false, start: 0, min: 0, bs: true, build: 120, gates: ['gen', 'hydro'], perf: 'hydro', at: 'hydro', sizes: [[200, 20000], [500, 27000], [1000, 38000], [2000, 60000], [5000, 80000, { era: 3 }], [10000, 105000, { era: 3 }], [20000, 150000, { era: 3 }]] },
   pond: { name: '調整池式の水力', short: '水力（調整池）', era: 3, ac: true, coal: false, start: 0, min: 0, bs: true, build: 240, gates: ['gen', 'hydro'], masteredGate: true, perf: 'hydro', at: 'pond', sizes: [[5000, 60000], [10000, 76000], [20000, 107000], [50000, 200000, { blueprint: 'pond50' }]] },
 };
@@ -121,8 +132,9 @@ export const LOADS = {
   tram: { name: '電鉄', rate: 20, era: 2, pf: 1, winter: 1, shape: H24((h) => ((h >= 6 && h <= 8) || (h >= 16 && h <= 19) ? 1 : (h >= 9 && h <= 15) || (h >= 20 && h <= 22) ? 0.6 : h === 5 ? 0.3 : h === 23 ? 0.2 : 0)) }, // 1.10.4 朝夕の山は名古屋市電の急行運転（6:30〜8:30・16〜20時、S27）に合わせたゲームの値
 };
 const LOAD_MIX = { 1: { lamp: 1 }, 2: { lamp: 4, home: 3, shop: 3 }, 3: { lamp: 2, home: 3, shop: 2, factory: 3 }, 4: { lamp: 2, home: 3, shop: 2, factory: 3 } };
-LOAD_MIX[5] = LOAD_MIX[4]; // 1.10.0 戦後復興は昭和前期と同じ（需要の種類は E5 の版で）
-const loadMix = (era) => LOAD_MIX[Math.min(Math.max(era || 1, 1), 5)];
+LOAD_MIX[5] = LOAD_MIX[4]; // 1.10.0 戦後復興は昭和前期と同じ
+LOAD_MIX[6] = LOAD_MIX[5]; // 1.11.0 高度成長・前半も同じ（冷房・家電は後半の版で）
+const loadMix = (era) => LOAD_MIX[Math.min(Math.max(era || 1, 1), 6)];
 export const peakHour = (type) => LOADS[type].shape.indexOf(Math.max(...LOADS[type].shape));
 const tanOf = (pf) => Math.sqrt(1 / (pf * pf) - 1);
 
@@ -130,8 +142,8 @@ const tanOf = (pf) => Math.sqrt(1 / (pf * pf) - 1);
 export function dmaxKw(level, mastered) {
   return 30 * Math.pow(1.4, level - 1) * (1 + mastered / 100);
 }
-// 1.10.0 / 1.10.2 需要の時代の倍率：D_max × ERA_K[時代]。明治は 1、大正 10、昭和前期 12、戦後復興 24（仮。定数のまま調整可）
-export const ERA_K = { 1: 1, 2: 1, 3: 10, 4: 12, 5: 24 };
+// 1.10.0 / 1.10.2 / 1.11.0 需要の時代の倍率：D_max × ERA_K[時代]。明治 1、大正 10、昭和前期 12、戦後復興 24、高度成長 24
+export const ERA_K = { 1: 1, 2: 1, 3: 10, 4: 12, 5: 24, 6: 24 };
 export const eraK = (era) => ERA_K[era] ?? 1;
 export const dmaxOf = (level, mastered, era = eraOf(level)) => dmaxKw(level, mastered) * eraK(era);
 
@@ -394,7 +406,7 @@ export function newGrid(seed = 1, nowMs = 0, { terrain = 'standard', start = nul
     t: 6, realAt: nowMs, era: 1, hz: null,
     yen: 10000, loanUntil: 0, debt: 0, negHours: 0, rebuild: false,
     reserve: 0.1, fuelPlan: 'contract', maint: 'normal',
-    fuel: { base: 1, contract: 1, spot: 0.85 },
+    fuel: initFuel(),
     priority: ['P1'], nextId: 2,
     plants: [{ id: 'P1', type: 'dcCoal', kw: 25, site: home, cost: 3000, proto: false, builtAt: 0, readyAt: 0, on: false, onAt: null, downUntil: 0, idle: false, store: 0, hold: 0, done: true }],
     lines: [], subs: [], convs: [], // 1.10.4 電鉄用の変換所
@@ -446,6 +458,18 @@ export function upgrade(G) {
   if (!G.tramDown) G.tramDown = {};
   if (!Array.isArray(G.tramDone)) G.tramDone = Array.from({ length: G.tramStep || 0 }, (_, i) => i);
   if (G.tramStep == null) G.tramStep = G.tramDone.length;
+  // 1.11.0 燃料を種類ごとに（古い保存データの G.fuel を coal に移す。報告書は要らない）
+  if (!G.fuel || typeof G.fuel.coal !== 'object') {
+    const old = G.fuel;
+    G.fuel = initFuel();
+    if (old && typeof old.contract === 'number') {
+      G.fuel.coal = { base: old.base ?? FUELS.coal.base, contract: old.contract, spot: old.spot ?? old.contract * 0.85 };
+    }
+  } else {
+    for (const [k, F] of Object.entries(FUELS)) {
+      if (!G.fuel[k]) G.fuel[k] = { base: F.base, contract: F.base, spot: F.base * 0.85 };
+    }
+  }
   return G;
 }
 // ---- 1.8.0 史実モードと自由モード ----
@@ -524,12 +548,22 @@ const JAPAN_HAUL = (() => {
   }
   return m;
 })();
-export function fuelHaul(G, siteId) {
+export function fuelHaul(G, siteId, fuel = 'coal') {
+  if (!FUELS[fuel]?.haul) return { k: 1, kind: 'flat', km: 0, field: '', reason: 'タンカーで直接（海沿い）' };
   if (!isJapan(G) || !siteId) return { k: 1, kind: 'flat', km: 0, field: '', reason: '' };
   return JAPAN_HAUL.get(siteId) || { k: 1, kind: 'flat', km: 0, field: '', reason: '' };
 }
-export function fuelPrice(G, t = G.t, siteId = null) {
-  return (G.fuelPlan === 'spot' ? G.fuel.spot : G.fuel.contract) * (siteId ? fuelHaul(G, siteId).k : 1); // 円/kWh（熱）
+export function fuelObj(G, fuel = 'coal') {
+  const fk = fuel || 'coal';
+  const F = FUELS[fk] || FUELS.coal;
+  if (G?.fuel?.[fk] && typeof G.fuel[fk] === 'object') return G.fuel[fk];
+  if (fk === 'coal' && typeof G?.fuel?.contract === 'number') return G.fuel;
+  return { base: F.base, contract: F.base, spot: F.base * 0.85 };
+}
+export function fuelPrice(G, t = G.t, siteId = null, fuel = 'coal') {
+  const fk = fuel || 'coal';
+  const f = fuelObj(G, fk);
+  return (G.fuelPlan === 'spot' ? f.spot : f.contract) * (siteId ? fuelHaul(G, siteId, fk).k : 1); // 円/kWh（熱）
 }
 export const lineCircuits = (l, t) => (l.downUntil > t ? 0 : l.n - (l.c1Until > t ? 1 : 0));
 const subsAt = (G, town, t) => G.subs.filter((s) => s.town === town && s.readyAt <= t && s.downUntil <= t);
@@ -1529,7 +1563,7 @@ export function startEvent(G, lc, key, o = {}) {
     what: `${E.text}。${E.days}日間。${o.y1939 ? '史実モード：昭和前期に入ったあとの夏に、1939年の渇水に準じて決まって起きる。' : ''}${tramNote1939}${o.y1951 ? `史実モード：戦後復興に入ったあとの夏に、1951年の渇水に準じて決まって起きる。史実：${Y1951_FACT}（S17）。` : ''}${rHint ? `${RESTRICT_HINT}。` : ''}`,
     units: key === 'drought' ? [...INCIDENTS.drought.units, ...(rHint ? RESTRICT_UNITS : [])] : [],
   });
-  if (key === 'coalSpike') G.fuel.base = 1.8;
+  if (key === 'coalSpike') fuelObj(G, 'coal').base = 1.8;
   if (key === 'drought' && G.plants.some((p) => !P(p).coal && p.readyAt <= G.t)) raise(G, lc, 'drought', { what: '渇水で水力の出力が 4 割まで落ちた。', cool: 24 * 30 });
 }
 
@@ -1547,7 +1581,7 @@ function daily(G, lc) {
   if (G.dayMark && G.dayMark.idx === G.yr.idx) G.profDays = [...(G.profDays || []), Math.round(G.yr.profit - G.dayMark.profit)].slice(-30);
   const s = seasonOf(t);
   missionDaily(G); // 1.8.0 ミッションの判定（前の日の結果で）。終わった渇水の判定があるので、出来事を片づける前に
-  G.events = G.events.filter((e) => e.until > t || (e.key === 'coalSpike' && ((G.fuel.base = 1), false)));
+  G.events = G.events.filter((e) => e.until > t || (e.key === 'coalSpike' && ((fuelObj(G, 'coal').base = FUELS.coal.base), false)));
   // 季節の出来事・時代の出来事
   const roll = (p) => rnd(G) < p;
   if (s === 1 && roll(0.006)) startEvent(G, lc, 'heat');
@@ -1567,9 +1601,12 @@ function daily(G, lc) {
     G.drought1951 = t;
     startEvent(G, lc, 'drought', { y1951: true });
   }
-  // 燃料：スポットは毎日 ±30%（平均は長期契約の 0.85 倍）。長期契約は1年ごとに見直し
-  G.fuel.spot = G.fuel.base * 0.85 * (0.7 + 0.6 * rnd(G));
-  if (day % YEAR_DAYS === 0) G.fuel.contract = G.fuel.base;
+  // 燃料：スポットは毎日 ±30%（平均は長期契約の 0.85 倍）。長期契約は1年ごとに見直し（1.11.0 燃料ごとに別々に動く）
+  for (const [k, F] of Object.entries(FUELS)) {
+    const f = G.fuel?.[k] && typeof G.fuel[k] === 'object' ? G.fuel[k] : (G.fuel = initFuel())[k];
+    f.spot = f.base * 0.85 * (0.7 + 0.6 * rnd(G));
+    if (day % YEAR_DAYS === 0) f.contract = f.base;
+  }
   // 保守費：円の側の値打ち（建設費 × YEN_K）の 0.05%（点検を延ばすと半分）
   const m = dailyMaint(G);
   G.yen -= m;
@@ -2290,7 +2327,7 @@ export function step(G, lc) {
   const last = { t, plants: {}, lines: {}, subs: {}, convs: {}, towns: {}, x: 0, hz: 0, demand: 0, served: 0, loss: 0, cap: 0, K: 0 };
   const gen = { dc: 0, coal: 0, hydro: 0 };
   const ec = (G.econCur ||= newEconDay());
-  const price = fuelPrice(G, t) * (1 - 0.05 * perfNow(G, lc, 'econ'));
+  const econK = 1 - 0.05 * perfNow(G, lc, 'econ');
   for (const r of sol.results) {
     const net = r.net;
     const bad = !net.dc && Math.abs(r.x) > FREQ.ok;
@@ -2307,7 +2344,7 @@ export function step(G, lc) {
     for (const p of net.plants) {
       const o = r.out.get(p.id) || 0;
       last.plants[p.id] = o;
-      const pf = P(p).coal ? (o / plantEff(p, lc, G)) * price * fuelHaul(G, p.site).k : 0; // 捨てた分（最低出力のための余り）も燃料は使う（1.10.1 運び代の倍率）
+      const pf = P(p).coal ? (o / plantEff(p, lc, G)) * fuelPrice(G, t, p.site, P(p).fuel || 'coal') * econK : 0; // 捨てた分（最低出力のための余り）も燃料は使う（1.10.1 運び代の倍率・1.11.0 燃料ごと）
       fuel += pf;
       const pw = r.plantWaste?.get(p.id) || 0;
       if (o > 0 || pf > 0 || pw > 0) {

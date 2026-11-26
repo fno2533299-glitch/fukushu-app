@@ -29,7 +29,7 @@ export function defaultOpts() {
     ignoreGates: true, // 学習の条件（gate・設計図）をすべて開く
     perf: null, // 性能の単元の定着の割合（0〜1）。null＝本番の記録のまま
     level: null, // レベル（null＝本番の記録のまま）
-    era: null, // 時代 1〜5（null＝レベルから。1.10.0 で戦後復興 5 まで）
+    era: null, // 時代 1〜6（null＝レベルから。1.11.0 で高度成長 6 まで）
     mastered: null, // 定着の問題数（null＝本番の記録のまま）
     speed: 1,
   };
