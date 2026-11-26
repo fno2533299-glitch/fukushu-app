@@ -1275,3 +1275,42 @@ export function mergeCardData(current, incoming, ownedIds = new Set()) {
     },
   };
 }
+
+// ---- 解説の中の選択肢の記号（1.10.5。設計図 1.2）----
+// 問題データの解説・豆知識は、選択肢を 〔選択肢b〕（b は choiceId）と書く。選択肢は毎回シャッフルするので、
+// 表示するときに「そのときの並びの記号（A〜D）」に置き換える。並びがない画面では、選択肢の文の先頭を出す
+export const CHOICE_REF = /〔選択肢([a-z])〕/g;
+const MARKS = 'ABCDEFGH';
+
+// 選択肢の文の先頭（n 文字ほど）。**太字** は外し、$数式$ は途中で切らない（数式は短めに数える）。切ったら「…」
+export function choiceHead(text, n = 12) {
+  const t = String(text ?? '').replace(/\*\*/g, '').trim();
+  let out = '';
+  let len = 0;
+  for (const p of t.split(/(\$[^$]+\$)/)) {
+    if (!p) continue;
+    if (len >= n) break;
+    if (/^\$[^$]+\$$/.test(p)) {
+      if (len > 0 && p.length > 40) break; // 長い数式は、前で切る
+      out += p;
+      len += Math.min(p.length - 2, 4);
+      continue;
+    }
+    for (const ch of p) {
+      if (len >= n) break;
+      out += ch;
+      len++;
+    }
+  }
+  out = out.trimEnd();
+  return out.length < t.length ? out + '…' : out;
+}
+
+// 〔選択肢x〕 を何で見せるか。refs.order（表示中の並び）があれば { mark: 'B' }、
+// なければ refs.choices（並びのない選択肢）から { head: '先頭の文…' }。見つからなければ null
+export function choiceRefLabel(id, refs) {
+  const i = (refs?.order || []).findIndex((c) => c.choiceId === id);
+  if (i >= 0) return { mark: MARKS[i] };
+  const c = (refs?.order || refs?.choices || []).find((x) => x.choiceId === id);
+  return c ? { head: choiceHead(c.text) } : null;
+}

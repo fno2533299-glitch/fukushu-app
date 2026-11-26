@@ -3742,7 +3742,7 @@ function incidentScreen(id) {
     ${devBand()}
     <section class="card gincident"><p class="spread"><b>${A.esc(Gm.INCIDENTS[inc.key].title)}</b><span class="lv lv-${q.level}">${q.level}</span></p><p class="small">${A.esc(inc.what || '')}</p></section>
     ${A.figureHtml(q)}
-    <div class="stem">${A.rich(q.stem)}</div>
+    <div class="stem">${A.rich(q.stem, { order })}</div>
     <div class="choices">
       ${order.map((c, i) => `<button class="choice" data-choice="${A.esc(c.choiceId)}"><span class="mark">${'ABCD'[i]}</span><span>${A.rich(c.text)}</span></button>`).join('')}
     </div>
@@ -3788,8 +3788,8 @@ async function answerIncident(inc, q, order, choiceId) {
     <div class="choices done">
       ${order.map((c, i) => `<div class="choice ${c.choiceId === q.correctChoiceId ? `correct${correct ? ' flash' : ''}` : c.choiceId === choiceId ? 'wrong' : ''}"><span class="mark">${'ABCD'[i]}</span><span>${A.rich(c.text)}</span></div>`).join('')}
     </div>
-    <section class="card expl"><h2>解説</h2><p>${A.rich(q.explanation)}</p></section>
-    ${q.trivia ? `<section class="card trivia"><h2>豆知識</h2><p>${A.rich(q.trivia)}</p></section>` : ''}
+    <section class="card expl"><h2>解説</h2><p>${A.rich(q.explanation, { order })}</p></section>
+    ${q.trivia ? `<section class="card trivia"><h2>豆知識</h2><p>${A.rich(q.trivia, { order })}</p></section>` : ''}
     <section class="info"><p><b>${A.esc(q.title)}</b></p><p class="src">${A.esc(q.questionId)} 第${q.revision}版 ・ 系統の事故（おまかせ・さっと出題には出ません）</p></section>
     ${unitButtons(Gm.INCIDENTS[inc.key].units)}
     <div class="actions sticky"><button class="btn" data-report>疑問がある</button><button class="btn primary big" data-next>${g.incidents.length ? '次の事故へ' : '系統に戻る'}</button></div>`,

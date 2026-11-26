@@ -168,6 +168,14 @@ button.choice:active { border-color: var(--primary); }
 .choice.correct .mark { background: var(--ok); color: #fff; }
 .choice.wrong { border-color: var(--ng); background: var(--ng-bg); }
 .choice.wrong .mark { background: var(--ng); color: #fff; }
+/* 1.10.5：解説の中の選択肢の記号（〔選択肢b〕を、表示中の並びの A〜D で）。選択肢の左の印と同じ見た目を小さく */
+.cref {
+  display: inline-grid; place-items: center; vertical-align: 0.08em;
+  width: 1.45em; height: 1.45em; margin: 0 0.15em; border-radius: 50%;
+  font-size: 0.8em; font-weight: 700; line-height: 1;
+  background: var(--bg); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line);
+}
+.crefq { font-weight: 600; }
 .idk { width: 100%; margin-top: 16px; color: var(--muted); }
 
 .verdict { font-size: 1.4rem; font-weight: 800; text-align: center; padding: 10px; border-radius: 12px; margin: 4px 0 8px; }
@@ -1467,3 +1475,25 @@ input[type=range][data-reserve] { flex: 1; min-height: 44px; accent-color: var(-
     transition: none !important;
   }
 }
+
+/* 1.10.5：更新履歴。新しい版を初めて開いたときのホームの帯と、一覧のシート */
+.updband {
+  display: flex; align-items: stretch; gap: 4px; margin: 0 0 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden;
+}
+.updband .ubody {
+  flex: 1; min-width: 0; text-align: left; padding: 9px 12px; border: 0; background: none; color: var(--text);
+  font-size: 0.85rem; line-height: 1.45;
+}
+.updband .ubody b { color: var(--primary); }
+.updband .ubody .go { color: var(--muted); }
+.updband .ux { flex: none; width: 40px; border: 0; background: none; color: var(--muted); font-size: 1.1rem; }
+.changelog .sheet { max-height: 85vh; overflow-y: auto; }
+.changelog h2 { margin: 0 0 8px; }
+.clog { list-style: none; margin: 0; padding: 0; }
+.clog > li { padding: 10px 0; border-top: 1px solid var(--line); }
+.clog > li:first-child { border-top: 0; }
+.clog .cv { margin: 0 0 4px; display: flex; align-items: baseline; gap: 8px; }
+.clog .cv .small { color: var(--muted); }
+.clog ul { margin: 0; padding-left: 1.2em; font-size: 0.9rem; }
+.clog ul li { margin: 2px 0; }

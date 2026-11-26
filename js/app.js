@@ -3,6 +3,7 @@ import * as db from './db.js';
 import * as L from './logic.js';
 import * as GU from './gridui.js';
 import { pickModes } from './griddev.js';
+import { CHANGELOG, entryOf } from './changelog.js';
 
 const app = document.getElementById('app');
 const banner = document.getElementById('banner');
@@ -23,6 +24,7 @@ const S = {
   gridMode: 'history', // 1.8.0：いま遊んでいるモード（'history' 史実／'free' 自由）
   view: null, // いま出している画面（'grid'＝系統。時間が進んだら描き直すため）
   sumRead: {}, // 1.9.0：単元のまとめを開いた記録（kv summaryRead。{ unitId: { at, revision, via, count } }）
+  updateBand: null, // 1.10.5：新しい版を初めて開いたとき、ホームに出す帯の版（× か押すと null）
 };
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -35,10 +37,19 @@ function esc(s) {
 }
 
 // 問題文などの書式：**太字**、改行、$数式$
-function rich(text) {
+// refs（1.10.5）：〔選択肢b〕 の置き換えに使う。{ order }＝表示中の並び（A〜D の印で出す）、{ choices }＝並びを出していない画面（選択肢の文の先頭を「」で出す）
+function rich(text, refs = null) {
   return esc(text)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(L.CHOICE_REF, (m, id) => crefHtml(id, refs))
     .replace(/\n/g, '<br>');
+}
+
+function crefHtml(id, refs) {
+  const r = L.choiceRefLabel(id, refs);
+  if (!r) return '<span class="crefq">（選択肢）</span>';
+  if (r.mark) return `<span class="cref" role="img" aria-label="選択肢${r.mark}">${r.mark}</span>`;
+  return `<span class="crefq">「${esc(r.head)}」</span>`;
 }
 
 function renderMath(el) {
@@ -250,7 +261,7 @@ function quickCardHtml() {
   return `<section class="card quick">
       <p class="spread small"><span>さっと${S.settings.quickSize}問 ・ 1問目</span><span class="lv lv-${q.level}">${q.level}</span></p>
       ${figureHtml(q)}
-      <div class="stem">${rich(q.stem)}</div>
+      <div class="stem">${rich(q.stem, { order })}</div>
       <div class="choices">
         ${order.map((c, i) => `<button class="choice" data-qchoice="${esc(c.choiceId)}"><span class="mark">${'ABCD'[i]}</span><span>${rich(c.text)}</span></button>`).join('')}
       </div>
@@ -301,7 +312,8 @@ function home() {
   const ach = L.achievements(S.logs, S.data);
   const ready = [...L.masteryReadyByUnit(ctx()).values()].reduce((a, b) => a + b, 0);
   show(
-    `<header class="top"><h1>復習アプリ</h1>${streakHtml()}</header>
+    `${updateBandHtml()}
+    <header class="top"><h1>復習アプリ</h1>${streakHtml()}</header>
     ${levelLineHtml()}
     ${quickCardHtml()}
     ${examCardHtml()}
@@ -329,6 +341,7 @@ function home() {
     </nav>`,
     () => {
       bindFigureZoom();
+      bindUpdateBand();
       const quick = async (choiceId) => {
         const first = S.preview;
         S.preview = null;
@@ -819,7 +832,7 @@ function triviaTab() {
       if (!qs.length) return '';
       return `<details class="card tvgroup" ${seen.length ? '' : 'data-empty'}>
         <summary class="spread"><b>${esc(s.name)}</b><span class="small">${seen.length} / ${qs.length}</span></summary>
-        ${seen.map((q) => `<div class="tv"><p class="h">${esc(shortName(unitName(q.unitId)))} ・ ${esc(q.title)}</p><p class="b">${rich(q.trivia)}</p></div>`).join('') || '<p class="note">この科目の問題を解くと、ここに集まります</p>'}
+        ${seen.map((q) => `<div class="tv"><p class="h">${esc(shortName(unitName(q.unitId)))} ・ ${esc(q.title)}</p><p class="b">${rich(q.trivia, { choices: q.choices })}</p></div>`).join('') || '<p class="note">この科目の問題を解くと、ここに集まります</p>'}
       </details>`;
     })
     .join('');
@@ -1115,7 +1128,7 @@ function stackHtml(cur, n = cur.stepAnswers.length) {
       const s = cur.steps[i];
       const right = s.choices.find((c) => c.choiceId === s.correctChoiceId);
       const miss = a.result !== '正解';
-      return `<li class="${miss ? 'miss' : ''}"><details><summary><span class="no">${CIRCLED[i]}</span><span class="tx"><b>${esc(s.title)}</b>：${rich(right.text)}</span>${miss ? `<span class="x" aria-label="${esc(a.result)}">${a.result === 'わからない' ? '？' : '✗'}</span>` : ''}</summary><p class="small">${rich(s.explanation)}</p></details></li>`;
+      return `<li class="${miss ? 'miss' : ''}"><details><summary><span class="no">${CIRCLED[i]}</span><span class="tx"><b>${esc(s.title)}</b>：${rich(right.text)}</span>${miss ? `<span class="x" aria-label="${esc(a.result)}">${a.result === 'わからない' ? '？' : '✗'}</span>` : ''}</summary><p class="small">${rich(s.explanation, { choices: s.choices })}</p></details></li>`;
     })
     .join('')}</ol>`;
 }
@@ -1151,7 +1164,7 @@ function assistScreen(to = 'top') {
   if (inStep && !cur.stepDone) {
     body = `<section class="card step cur">
         <p class="steph"><span class="no">${CIRCLED[i]}</span><b>${esc(s.title)}</b><span class="kind">${esc(s.kind)}</span></p>
-        <div class="stem">${rich(s.stem)}</div>
+        <div class="stem">${rich(s.stem, { order: cur.stepOrder })}</div>
         <div class="choices">
           ${cur.stepOrder.map((c, k) => `<button class="choice" data-schoice="${esc(c.choiceId)}"><span class="mark">${'ABCD'[k]}</span><span class="ct">${rich(c.text)}</span></button>`).join('')}
         </div>
@@ -1161,7 +1174,7 @@ function assistScreen(to = 'top') {
     const a = stepAnswers[i];
     body = `<section class="card step cur">
         <p class="steph"><span class="no">${CIRCLED[i]}</span><b>${esc(s.title)}</b><span class="kind">${esc(s.kind)}</span></p>
-        <div class="stem">${rich(s.stem)}</div>
+        <div class="stem">${rich(s.stem, { order: cur.stepOrder })}</div>
         <div class="choices done">
           ${cur.stepOrder
             .map((c, k) => {
@@ -1171,7 +1184,7 @@ function assistScreen(to = 'top') {
             .join('')}
         </div>
         <p class="stepres ${RESULT_CLS[a.result]}">${{ 正解: '○ 正解', 不正解: '× 不正解（正解は緑）', わからない: 'わからない（正解は緑）' }[a.result]}</p>
-        <p class="stepexp">${rich(s.explanation)}</p>
+        <p class="stepexp">${rich(s.explanation, { order: cur.stepOrder })}</p>
         <div class="actions"><button class="btn small" data-sreport>疑問がある</button><button class="btn primary big" data-snext>${i + 1 < steps.length ? '次の小問へ' : '元の問題へ'}</button></div>
       </section>`;
   } else {
@@ -1187,7 +1200,7 @@ function assistScreen(to = 'top') {
   showStep(
     `<header class="quizbar"><span>${ss.asked.length} / ${ss.size}</span><span class="lv lv-${q.level}">${q.level}</span><span class="clock">${elapsed()}</span><button class="btn small" data-end>終了</button></header>
     <p class="assistbar"><span class="as ${cur.assist}">${L.ASSIST_LABEL[cur.assist]}</span><span>${where}</span></p>
-    <details class="orig"${cur.stemOpen ? ' open' : ''}><summary>元の問題${q.figure ? 'と図' : ''}</summary>${metaHtml(q, hideTags)}${figureHtml(q)}<div class="stem">${rich(q.stem)}</div></details>
+    <details class="orig"${cur.stemOpen ? ' open' : ''}><summary>元の問題${q.figure ? 'と図' : ''}</summary>${metaHtml(q, hideTags)}${figureHtml(q)}<div class="stem">${rich(q.stem, { order: cur.order })}</div></details>
     ${stackHtml(cur, i)}
     ${body}
     ${peekHtml(cur)}`,
@@ -1264,7 +1277,7 @@ function questionScreen() {
     `<header class="quizbar"><span>${ss.asked.length} / ${ss.size}</span><span class="lv lv-${q.level}">${q.level}</span><span class="clock">${elapsed()}</span><button class="btn small" data-end>終了</button></header>
     ${metaHtml(q, hideTags)}
     ${figureHtml(q)}
-    <div class="stem">${rich(q.stem)}</div>
+    <div class="stem">${rich(q.stem, { order })}</div>
     <div class="choices">
       ${order.map((c, i) => `<button class="choice" data-choice="${esc(c.choiceId)}"><span class="mark">${'ABCD'[i]}</span><span>${rich(c.text)}</span></button>`).join('')}
     </div>
@@ -1379,10 +1392,10 @@ function answerScreen() {
         .join('')}
     </div>
     ${cur.assist ? `<section class="card"><h2>今回の小問</h2>${stackHtml(cur)}</section>` : ''}
-    <section class="card expl"><h2>解説</h2><p>${rich(q.explanation)}</p></section>
+    <section class="card expl"><h2>解説</h2><p>${rich(q.explanation, { order })}</p></section>
     ${sum ? `<button class="btn sumbtn wide" data-sum>まとめを見る<small>${esc(shortName(unitName(sum.unitId)))}</small></button>` : ''}
-    ${q.trivia ? `<section class="card trivia"><h2>豆知識</h2><p>${rich(q.trivia)}</p></section>` : ''}
-    <details class="stem-again"><summary>問題文${q.figure ? 'と図' : ''}を見る</summary>${figureHtml(q)}<div class="stem">${rich(q.stem)}</div></details>
+    ${q.trivia ? `<section class="card trivia"><h2>豆知識</h2><p>${rich(q.trivia, { order })}</p></section>` : ''}
+    <details class="stem-again"><summary>問題文${q.figure ? 'と図' : ''}を見る</summary>${figureHtml(q)}<div class="stem">${rich(q.stem, { order })}</div></details>
     ${tile ? `<div class="unitnow">${unitTile(q.unitId, tile.before, { sub: subjectOf(q.subjectId)?.name, label: unitNowLabel(tile.before), cls: 'mini' })}</div>` : ''}
     <section class="info">
       <p><b>${esc(q.title)}</b></p>
@@ -1664,9 +1677,9 @@ function modelHtml(q) {
     .map((s, i) => {
       const right = s.choices.find((c) => c.choiceId === s.correctChoiceId);
       return `<div class="mstep"><p class="steph"><span class="no">${CIRCLED[i]}</span><b>${esc(s.title)}</b><span class="kind">${esc(s.kind)}</span></p>
-        <div class="stem">${rich(s.stem)}</div>
+        <div class="stem">${rich(s.stem, { choices: s.choices })}</div>
         <p class="mans">→ ${rich(right.text)}</p>
-        <p class="small">${rich(s.explanation)}</p></div>`;
+        <p class="small">${rich(s.explanation, { choices: s.choices })}</p></div>`;
     })
     .join('')}</section>`;
 }
@@ -1702,13 +1715,13 @@ function readScreen() {
     `<header class="quizbar"><span>読み流し ・ ${asked.length}問目</span><span class="lv lv-${q.level}">${q.level}</span><button class="btn small endbtn" data-end>終了</button></header>
     ${metaHtml(q, false)}
     ${figureHtml(q)}
-    <div class="stem">${rich(q.stem)}</div>
+    <div class="stem">${rich(q.stem, { order })}</div>
     <div class="choices done">
       ${order.map((c, i) => `<div class="choice ${c.choiceId === q.correctChoiceId ? 'correct' : ''}"><span class="mark">${'ABCD'[i]}</span><span>${rich(c.text)}</span></div>`).join('')}
     </div>
     ${modelHtml(q)}
-    <section class="card expl"><h2>解説</h2><p>${rich(q.explanation)}</p></section>
-    ${q.trivia ? `<section class="card trivia"><h2>豆知識</h2><p>${rich(q.trivia)}</p></section>` : ''}
+    <section class="card expl"><h2>解説</h2><p>${rich(q.explanation, { order })}</p></section>
+    ${q.trivia ? `<section class="card trivia"><h2>豆知識</h2><p>${rich(q.trivia, { order })}</p></section>` : ''}
     <section class="info">
       <p><b>${esc(q.title)}</b></p>
       <p>${esc(q.kind)}${(q.tags || []).length ? ' ／ 関連：' + q.tags.map(esc).join('・') : ''}${q.examRelevant ? ' ／ <span class="tag ok">試験で出題</span>' : ''}</p>
@@ -1727,6 +1740,55 @@ function readScreen() {
       on('[data-report]', 'click', () => reportDialog(q));
     },
   );
+}
+
+// ---- 更新履歴（1.10.5）----
+
+// 新しい版を初めて開いたか。見た版は kv seenVersion に覚える（開いた時点で覚え、帯はこの起動の間だけ出す）
+// 初めてアプリを入れたとき（覚えた版がなく、問題データも記録もない）は出さない
+async function checkUpdated() {
+  const v = window.APP_VERSION;
+  if (!v) return;
+  const seen = await db.getKV('seenVersion');
+  if (seen === v) return;
+  const used = seen != null || !!S.data || S.logs.length > 0;
+  S.updateBand = used && entryOf(v) ? v : null;
+  await db.putKV('seenVersion', v);
+}
+
+function updateBandHtml() {
+  const e = S.updateBand && entryOf(S.updateBand);
+  if (!e) return '';
+  return `<div class="updband"><button class="ubody" data-updopen><b>${esc(e.v)} に更新しました</b>：${esc(e.items[0] || '')} <span class="go">›</span></button><button class="ux" data-updclose aria-label="閉じる">×</button></div>`;
+}
+
+function bindUpdateBand() {
+  const close = () => {
+    S.updateBand = null;
+    app.querySelector('.updband')?.remove();
+  };
+  on('[data-updopen]', 'click', () => {
+    close();
+    changelogSheet();
+  });
+  on('[data-updclose]', 'click', close);
+}
+
+// 一覧のシート（版・日付・項目。新しい版が上）
+function changelogSheet() {
+  const now = window.APP_VERSION;
+  const dlg = document.createElement('div');
+  dlg.className = 'modal changelog';
+  dlg.innerHTML = `<div class="sheet">
+      <h2>更新履歴</h2>
+      <ol class="clog">${CHANGELOG.map(
+        (e) => `<li${e.v === now ? ' class="now"' : ''}><p class="cv"><b>${esc(e.v)}</b>${e.date ? ` <span class="small">${esc(fmtDate(e.date))}</span>` : ''}${e.v === now ? ' <span class="tag ok">いまの版</span>' : ''}</p><ul>${e.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></li>`,
+      ).join('')}</ol>
+      <div class="actions"><button class="btn primary" data-close>閉じる</button></div>
+    </div>`;
+  document.body.append(dlg);
+  dlg.querySelector('[data-close]').onclick = () => dlg.remove();
+  dlg.addEventListener('click', (e) => e.target === dlg && dlg.remove());
 }
 
 // ---- データ管理 ----
@@ -1820,7 +1882,8 @@ function dataScreen() {
       }
     </section>
     ${has ? demoCard : ''}
-    <p class="note center">記録 ${S.logs.length}件 ／ 復習状態 ${Object.keys(S.states).length}問 ／ 版 ${esc(window.APP_VERSION || '')}</p>`,
+    <p class="note center">記録 ${S.logs.length}件 ／ 復習状態 ${Object.keys(S.states).length}問 ／ 版 ${esc(window.APP_VERSION || '')}</p>
+    <p class="center"><button class="btn small" data-changelog>更新履歴</button></p>`,
     () => {
       on('[data-back]', 'click', home);
       on('[data-import]', 'click', importFlow);
@@ -1834,6 +1897,7 @@ function dataScreen() {
         dataScreen();
       });
       on('[data-export-reports]', 'click', exportReports);
+      on('[data-changelog]', 'click', changelogSheet);
     },
   );
 }
@@ -1972,7 +2036,8 @@ async function restoreFlow() {
     () => {
       on('[data-cancel]', 'click', dataScreen);
       on('[data-ok]', 'click', async () => {
-        await db.replaceAll(b, S.cards, await db.getKV('gridDev'), await db.getKV('gridDemo')); // 古いバックアップ（カードのデータなし）なら、今のカードのデータを残す。開発者モード・デモの系統も残す
+        await db.replaceAll(b, S.cards, await db.getKV('gridDev'), await db.getKV('gridDemo'));
+        await db.putKV('seenVersion', window.APP_VERSION); // 1.10.5：復元で kv が消えるので、見た版を書き直す（復元のあとに帯を出さない） // 古いバックアップ（カードのデータなし）なら、今のカードのデータを残す。開発者モード・デモの系統も残す
         await load();
         await syncCollection();
         await GU.sync();
@@ -2023,6 +2088,7 @@ async function load() {
   S.gridRec = all.gridRecord || null; // 1.8.2 系統の記録（gridui.js が整える）
   S.sumRead = all.summaryRead || {}; // 1.9.0 単元のまとめを開いた記録
   S.preview = null;
+  await checkUpdated();
   applyTheme();
 }
 
