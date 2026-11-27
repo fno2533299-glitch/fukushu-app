@@ -65,8 +65,8 @@ export const MAP_DEFS = `<defs><radialGradient id="gtownglow"><stop offset="0" s
 
 // ---- 発電所・変電所のアイコン ----
 // 種類 → 絵の形。石炭火力（直流・交流・大型）は建物と煙突、流れ込み式は水車小屋、調整池式はダム、変電所は鉄の骨組みと変圧器
-export const ICON_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'bigcoal', oilFire: 'bigcoal', ror: 'wheel', pond: 'dam', dam: 'dam', sub: 'sub', rotary: 'conv', mercury: 'conv' };
-const ORDER = ['dcCoal', 'acCoal', 'bigCoal', 'oilFire', 'ror', 'pond', 'dam', 'sub', 'rotary', 'mercury'];
+export const ICON_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'bigcoal', oilFire: 'bigcoal', lngFire: 'bigcoal', ror: 'wheel', pond: 'dam', dam: 'dam', sub: 'sub', rotary: 'conv', mercury: 'conv' };
+const ORDER = ['dcCoal', 'acCoal', 'bigCoal', 'oilFire', 'lngFire', 'ror', 'pond', 'dam', 'sub', 'rotary', 'mercury'];
 // 大きさの段（1〜3）：その種類の大きさの一覧のどのあたりか（同じ種類が複数あれば合計の出力で）
 export function sizeTier(type, kw) {
   const list = type === 'sub' ? Gm.SUB_SIZES.map((m) => m * 1000) : type === 'rotary' || type === 'mercury' ? Gm.CONV_SIZES : Gm.PLANTS[type].sizes.map((z) => z[0]);

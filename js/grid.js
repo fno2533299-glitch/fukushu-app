@@ -36,10 +36,12 @@ export function eraOf(level) {
   return n;
 }
 
-// ---- 燃料（1.11.0 種類ごとに値段を分ける。後半の版で lng・nuclear を足せる形） ----
+// ---- 燃料（1.11.0 種類ごとに値段を分ける。1.12.0 で lng・nuclear を追加） ----
 export const FUELS = {
   coal: { name: '石炭', base: 1, haul: true },
   oil: { name: '重油', base: 0.85, haul: false },
+  lng: { name: 'LNG', base: 1.2, haul: false },
+  nuclear: { name: '核燃料', base: 0.1, haul: false },
 };
 function initFuel() {
   const f = {};
@@ -53,6 +55,7 @@ export const PLANTS = {
   acCoal: { name: '石炭火力（汽力・交流）', short: '石炭火力', era: 2, ac: true, coal: true, fuel: 'coal', eff: [0.08, 0.18], start: 6, min: 0.3, bs: true, build: 72, gates: ['gen', 'coal'], perf: 'coal', at: 'coal', sizes: [[500, 15000], [1000, 18000], [2000, 24000], [5000, 40000]] },
   bigCoal: { name: '大型の石炭火力（高圧ボイラ）', short: '大型火力', era: 4, ac: true, coal: true, fuel: 'coal', eff: [0.15, 0.28], start: 12, min: 0.4, bs: false, build: 240, gates: ['gen', 'coal'], masteredGate: true, perf: 'coal', at: 'bigcoal', blueprint: 'bigCoal', sizes: [[20000, 80000], [40000, 125000], [75000, 200000], [125000, 300000, { era: 6 }]] },
   oilFire: { name: '重油専焼の火力', short: '重油火力', era: 6, ac: true, coal: true, fuel: 'oil', eff: [0.28, 0.36], start: 8, min: 0.3, bs: false, build: 360, gates: ['gen', 'coal'], masteredGate: true, perf: 'coal', at: 'coast', sizes: [[125000, 250000], [325000, 520000, { blueprint: 'bigOil' }], [600000, 840000, { blueprint: 'bigOil' }]] },
+  lngFire: { name: 'LNG 火力', short: 'LNG 火力', era: 6, ac: true, coal: true, fuel: 'lng', eff: [0.33, 0.38], start: 6, min: 0.3, bs: false, build: 420, gates: ['gen', 'coal'], masteredGate: true, perf: 'coal', at: 'coast', sizes: [[350000, 650000], [600000, 1000000], [1000000, 1500000, { blueprint: 'bigLng' }]] },
   ror: { name: '流れ込み式の水力', short: '水力（流れ込み）', era: 2, ac: true, coal: false, start: 0, min: 0, bs: true, build: 120, gates: ['gen', 'hydro'], perf: 'hydro', at: 'hydro', sizes: [[200, 20000], [500, 27000], [1000, 38000], [2000, 60000], [5000, 80000, { era: 3 }], [10000, 105000, { era: 3 }], [20000, 150000, { era: 3 }]] },
   pond: { name: '調整池式の水力', short: '水力（調整池）', era: 3, ac: true, coal: false, start: 0, min: 0, bs: true, build: 240, gates: ['gen', 'hydro'], masteredGate: true, perf: 'hydro', at: 'pond', sizes: [[5000, 60000], [10000, 76000], [20000, 107000], [50000, 200000, { blueprint: 'pond50' }]] },
   dam: { name: '貯水池式の水力（ダム）', short: '水力（ダム）', era: 6, ac: true, coal: false, start: 0, min: 0, bs: true, build: 720, gates: ['gen', 'hydro'], masteredGate: true, perf: 'hydro', at: 'dam', sizes: [[100000, 400000], [200000, 700000], [350000, 1050000, { blueprint: 'dam350' }]] },
@@ -198,11 +201,12 @@ export const PERF = {
   rel: ['power-system-U12', 'power-system-U13', 'power-system-U14'],
   conv: ['denken3-kikai-U05', 'denken2-kikai-U05', 'electronic-c-U14'], // 1.10.4 電鉄用の変換所
 };
-export const GATE_NAMES = { dc: '直流の配電・発電所', gen: '交流発電機（三相）', tr: '変圧器・変電所', coal: '火力（石炭・重油）', hydro: '水力', line: '送電線', dist: '配電（3.3 kV）', freq: '周波数・ガバナ・予備力', econ: '給電の優先順位', prot: '保護', insul: 'がいし・架空地線・相間スペーサ', pf: '進相コンデンサ', rel: '信頼度', hzConv: '周波数をそろえる工事', conv: '電鉄用の変換所' };
+export const GATE_NAMES = { dc: '直流の配電・発電所', gen: '交流発電機（三相）', tr: '変圧器・変電所', coal: '火力（石炭・重油・LNG）', hydro: '水力', line: '送電線', dist: '配電（3.3 kV）', freq: '周波数・ガバナ・予備力', econ: '給電の優先順位', prot: '保護', insul: 'がいし・架空地線・相間スペーサ', pf: '進相コンデンサ', rel: '信頼度', hzConv: '周波数をそろえる工事', conv: '電鉄用の変換所' };
 // 設計図（大型・特殊）：その単元の試験レベルに正解、または関係する外部試験の科目で取れる点が満点の3割以上
 export const BLUEPRINTS = {
   bigCoal: { name: '大型の石炭火力', units: ['denken2-denryoku-U02'] },
   bigOil: { name: '大型の重油火力（32.5万 kW 以上）', units: ['denken2-denryoku-U02'] }, // 1.11.0
+  bigLng: { name: '大型の LNG 火力（100万 kW）', units: ['denken2-denryoku-U02'] }, // 1.12.0
   pond50: { name: '調整池式 50 MW', units: ['denken2-denryoku-U01'] },
   dam350: { name: '大きなダム（35万 kW）', units: ['denken2-denryoku-U01'] }, // 1.11.0
   line154: { name: '送電線 154 kV', units: ['denken2-denryoku-U06'] },
@@ -1655,8 +1659,9 @@ function daily(G, lc) {
     startEvent(G, lc, 'typhoon', { y1959: true });
   }
   // 燃料：スポットは毎日 ±30%（平均は長期契約の 0.85 倍）。長期契約は1年ごとに見直し（1.11.0 燃料ごとに別々に動く）
+  if (!G.fuel || typeof G.fuel.coal !== 'object') G.fuel = initFuel();
   for (const [k, F] of Object.entries(FUELS)) {
-    const f = G.fuel?.[k] && typeof G.fuel[k] === 'object' ? G.fuel[k] : (G.fuel = initFuel())[k];
+    const f = (G.fuel[k] ||= { base: F.base, contract: F.base, spot: F.base * 0.85 });
     f.spot = f.base * 0.85 * (0.7 + 0.6 * rnd(G));
     if (day % YEAR_DAYS === 0) f.contract = f.base;
   }
@@ -2792,7 +2797,7 @@ export function quotePlant(G, lc, { type, kw, site, hz = null }) {
   if (!size) return { ok: false, why: '大きさが選べない' };
   const st = eraStatus(lc, Math.max(D.era, size[2]?.era || 0));
   if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
-  if (!siteAllows(G, type, site)) return { ok: false, why: D.at === 'coast' ? '重油はタンカーで運ぶので、海沿いだけ' : D.at === 'dam' ? '貯水池式の水力（ダム）はダムの地点だけ' : 'この場所には建てられない' };
+  if (!siteAllows(G, type, site)) return { ok: false, why: D.at === 'coast' ? 'タンカーで運ぶので、海沿いの町だけ' : D.at === 'dam' ? '貯水池式の水力（ダム）はダムの地点だけ' : 'この場所には建てられない' };
   if (!nodeOpen(G, site)) return { ok: false, why: closedWhy(G, nodeOf(G, site)), closed: true };
   const gc = gateCheck(lc, D.gates, !!D.masteredGate);
   if (gc) return gc;
