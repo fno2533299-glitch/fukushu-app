@@ -139,11 +139,17 @@ export const LOADS = {
   shop: { name: '町の動力', rate: 22, era: 2, pf: 1, winter: 1, shape: H24((h) => (h >= 10 && h <= 15 ? 1 : h === 9 || h === 16 ? 0.7 : h === 8 || h === 17 ? 0.4 : 0.1)) },
   factory: { name: '工場（動力）', rate: 18, era: 3, pf: 0.75, pfFixed: 0.95, winter: 1, shape: H24((h) => (h >= 8 && h <= 16 ? 1 : h === 7 || h === 17 ? 0.5 : 0.15)) },
   tram: { name: '電鉄', rate: 20, era: 2, pf: 1, winter: 1, shape: H24((h) => ((h >= 6 && h <= 8) || (h >= 16 && h <= 19) ? 1 : (h >= 9 && h <= 15) || (h >= 20 && h <= 22) ? 0.6 : h === 5 ? 0.3 : h === 23 ? 0.2 : 0)) }, // 1.10.4 朝夕の山は名古屋市電の急行運転（6:30〜8:30・16〜20時、S27）に合わせたゲームの値
+  cool: { name: '冷房・家電', rate: 25, era: 6, pf: 1, winter: 1, season: [0.35, 1, 0.45, 0.25], shape: H24((h) => (h >= 13 && h <= 16 ? 1 : h === 11 || h === 12 || h === 17 ? 0.8 : h === 9 || h === 10 || (h >= 18 && h <= 21) ? 0.55 : h === 7 || h === 8 || h === 22 || h === 23 ? 0.35 : 0.2)) }, // 1.12.0 昼の冷房と夜のテレビなど
 };
 const LOAD_MIX = { 1: { lamp: 1 }, 2: { lamp: 4, home: 3, shop: 3 }, 3: { lamp: 2, home: 3, shop: 2, factory: 3 }, 4: { lamp: 2, home: 3, shop: 2, factory: 3 } };
 LOAD_MIX[5] = LOAD_MIX[4]; // 1.10.0 戦後復興は昭和前期と同じ
-LOAD_MIX[6] = LOAD_MIX[5]; // 1.11.0 高度成長・前半も同じ（冷房・家電は後半の版で）
-const loadMix = (era) => LOAD_MIX[Math.min(Math.max(era || 1, 1), 6)];
+LOAD_MIX[6] = LOAD_MIX[5]; // 1.12.0 高度成長：cool の重みはレベルで増やす（Lv20=1、+0.5/Lv、Lv26以降=4）
+export const coolMixWeight = (level = 20) => Math.min(4, Math.max(1, 1 + (Math.max(20, level) - 20) * 0.5));
+export function loadMix(era, level = 20) {
+  const e = Math.min(Math.max(era || 1, 1), 6);
+  const base = LOAD_MIX[e];
+  return e >= 6 ? { ...base, cool: coolMixWeight(level) } : base;
+}
 export const peakHour = (type) => LOADS[type].shape.indexOf(Math.max(...LOADS[type].shape));
 const tanOf = (pf) => Math.sqrt(1 / (pf * pf) - 1);
 
@@ -612,8 +618,10 @@ export function loadKw(G, ld, t, raw = false) {
   const D = LOADS[ld.type];
   const r = raw ? null : restrictOn(G);
   const shape = r && RESTRICT_TYPES.includes(ld.type) ? restrictShape(r, ld.type) : D.shape;
-  let k = shape[t % 24] * (seasonOf(t) === 3 ? D.winter : 1);
-  if (evOn(G, 'heat', t) || evOn(G, 'cold', t)) k *= 1.15;
+  const s = seasonOf(t);
+  let k = shape[t % 24] * (s === 3 ? D.winter : 1) * (D.season ? D.season[s] : 1);
+  if (evOn(G, 'heat', t)) k *= ld.type === 'cool' ? 1.4 : 1.15;
+  if (evOn(G, 'cold', t)) k *= 1.15;
   const dr = evOn(G, 'drought', t);
   if (dr?.eased) k *= 0.9;
   return ld.kw * k;
@@ -1551,7 +1559,7 @@ export function resolveIncident(G, id, correct) {
 
 // ---- 出来事（設計 2章） ----
 export const EVENTS = {
-  heat: { name: '猛暑', days: 10, text: '需要が 15% 増える' },
+  heat: { name: '猛暑', days: 10, text: '需要が 15% 増える（冷房・家電は 40%）' },
   cold: { name: '厳冬', days: 10, text: '需要が 15% 増える' },
   typhoon: { name: '台風', days: 5, text: '送電線の事故が増える。海沿いは塩害' },
   snowstorm: { name: '大雪', days: 3, text: '雪の地域の送電線の事故が増える' },
@@ -1695,7 +1703,7 @@ function daily(G, lc) {
       tramHist = histIdx;
     } else {
       town = pickWeighted(G, towns.map((n) => [n.id, (G.rep[n.id] ?? 1) * appWeight(G, n)]));
-      const mix = { ...loadMix(G.era) };
+      const mix = { ...loadMix(G.era, lc.level) };
       const tn = nodeOf(G, town);
       const sz = tn?.size || 2;
       const canRandomTram =
@@ -1713,6 +1721,14 @@ function daily(G, lc) {
     G.apps.push(app);
     G.acc.apps++;
     if (type === 'factory') raise(G, lc, 'factoryPf', { what: `${nodeOf(G, town).name}の工場（${fmtKw(app.kw)}、力率 0.75）から申し込みが来た。`, cool: 24 * 30 });
+    if (type === 'cool' && !G.coolFact) {
+      G.coolFact = t;
+      addReport(G, {
+        title: '冷房・家電の申し込みが届いた',
+        what: '夏の昼の冷房とテレビなどの家電の需要が届いた。史実：ルームエアコンを持つ世帯は、1966年の 2% から 1975年に 17%、1980年に 39% へ増えた。カラーテレビは 1970年の 26% から 1975年に 90% へ（S35）。',
+        units: ['generation-U01', 'power-system-U06'],
+      });
+    }
   }
   // ときどき起きる相談ごと（故障ではない）
   const month = 24 * MONTH_DAYS;

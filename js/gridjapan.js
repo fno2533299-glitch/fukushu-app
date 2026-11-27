@@ -137,6 +137,11 @@ export const SOURCES = [
   ['S31', '電気学会「でんきの礎」500kV系送電の実運用（1.11.0。房総線 新古河〜房総 85 km、1966年 275 kV・1973年 500 kV）', 'https://www.iee.jp/file/foundation/data02/ishi-01/ishi-2324.pdf'],
   ['S32', '学校法人東京理科大学「学校法人東京理科大学の沿革」（1.11.0。1906 神楽坂・1966 野田1号館・1987 長万部・2013 葛飾、小川町校舎）', 'https://www.tus.ac.jp/about/data/data/file/wp24_3.pdf'],
   ['S33', '東京理科大学「沿革」・大学案内 2024（1.11.0。1967年4月 理工学部設置・2023年 創域理工学部に名称変更）', 'https://www.tus.ac.jp/about/university/history/'],
+  ['S34', '電気事業連合会「電気の歴史年表 昭和後期-2（1970年〜）」（1.12.0。島根1号・玄海1号・浜岡1号・原子力 1,000万 kW 超え・1973年石油危機・1974年使用制限と料金改定・電源三法）', 'https://www.fepc.or.jp/enterprise/rekishi/shouwa1970/'],
+  ['S35', '内閣府「消費動向調査」参考7表 主要耐久消費財の普及率の推移（1.12.0。ルームエアコン 1966 2.0%・1975 17.2%・1980 39.2%、カラーテレビ 1970 26.3%・1975 90.3%）', 'https://www.e-stat.go.jp/stat-search/file-download?statInfId=000029325152&fileKind=0'],
+  ['S36', '電気事業連合会 INFOBASE 2023「b-10 電源別発電電力量構成比の推移」（1.12.0。1975年度 石油 62.1%、1979年度 石油 50.3%・LNG 13.6%・原子力 14.1%）', 'https://www.fepc.or.jp/pr/data/infobase/pdf/2023_b.pdf'],
+  ['S37', '経済企画庁『昭和49年 年次経済報告』（1.12.0。1973年10月以降の石油・電力の消費節減が生産を抑えた）', 'https://www5.cao.go.jp/keizai3/keizaiwp/wp-je74/wp-je74-01103.html'],
+  ['S38', 'ENEOS『石油便覧』第1部第2章第6節（1.12.0。1973年11月 石油緊急対策要綱 10% 使用節約、1974年1月 15%、8月末解除）', 'https://www.eneos.co.jp/binran/document/part01/chapter02/section06.html'],
   ['G1', 'Gemini の調査（1回目、2026-11-15）。出典を Claude が確かめていない行は「未確認」', ''],
   ['G2', 'Gemini の調査（2回目、2026-11-16）。出典を Claude が確かめていない行は「未確認」', ''],
 ];

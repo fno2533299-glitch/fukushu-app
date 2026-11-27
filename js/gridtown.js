@@ -37,6 +37,11 @@ export const TOWN_OBJECTS = {
     pic: 'load_home',
     units: ['generation-U01', 'power-system-U01', 'denken3-hoki-U05'],
   },
+  cool: {
+    name: '冷房・家電（エアコン・テレビ）',
+    pic: 'load_home',
+    units: ['generation-U01', 'power-system-U06', 'denken3-kikai-U07', 'denken2-kikai-U07'],
+  },
   shop: {
     name: '商店（町の動力）',
     pic: 'load_shop',
@@ -79,11 +84,12 @@ function countForKind(kind, kw) {
 
 // 受けている需要の種類ごとの量から建物一覧を決める（テスト対象）
 export function townBuildings(g, townId) {
-  const by = { lamp: 0, home: 0, shop: 0, factory: 0 };
+  const by = { lamp: 0, home: 0, shop: 0, factory: 0, cool: 0 };
   for (const l of g.loads || []) if (l.town === townId && l.type in by) by[l.type] += l.kw;
   const out = [];
   for (const kind of ['home', 'shop', 'factory', 'lamp']) {
-    const n = countForKind(kind, by[kind]);
+    const kw = kind === 'home' ? (by.home || by.cool) : by[kind];
+    const n = countForKind(kind, kw);
     for (let i = 0; i < n; i++) {
       out.push({ id: `${kind}${i + 1}`, kind, idx: i, cut: i === 0 && kind !== 'lamp' });
     }
@@ -132,7 +138,7 @@ export function townSceneState(g, townId) {
   const demandBy = {};
   let totalNow = 0;
   let totalMax = 0;
-  for (const k of ['lamp', 'home', 'shop', 'factory', 'tram']) {
+  for (const k of ['lamp', 'home', 'cool', 'shop', 'factory', 'tram']) {
     const ls = loads.filter((l) => l.type === k);
     if (!ls.length) continue;
     const maxKw = ls.reduce((a, l) => a + l.kw, 0);
@@ -174,6 +180,8 @@ export function townSceneState(g, townId) {
   const tramDown = (g.tramDown?.[townId] || 0) > t;
   const tramRate = !hasTram ? 0 : black || tramDown ? 0 : st?.tramR != null ? st.tramR : convActiveKw > 0 ? Math.min(1, convActiveKw / Math.max(1e-6, demandBy.tram.nowKw || 1)) : 0;
   const tramRunning = hasTram && !tramDown && tramRate >= 0.5 && (demandBy.tram.shape || 0) > 0;
+  const hasCool = !!demandBy.cool;
+  const coolRunning = hasCool && !black && rate >= 0.5 && Gm.seasonOf(t) === 1 && h >= 11 && h <= 17;
 
   // 流れの速さ（その町へ入る量に応じて 0.5〜1.8s）
   const flowKw = servedNow;
@@ -186,6 +194,7 @@ export function townSceneState(g, townId) {
     subs.length ? subMva : 0,
     convs.length ? `${convs.map((c) => c.type).join(',')}:${convKw}` : 0,
     hasTram ? 1 : 0,
+    hasCool ? 1 : 0,
     buildings.map((b) => b.id).join(','),
     decors.map((d) => d.kind).join(','),
   ].join('|');
@@ -224,6 +233,8 @@ export function townSceneState(g, townId) {
     tramDown,
     tramRate,
     tramRunning,
+    hasCool,
+    coolRunning,
     structKey,
   };
 }
@@ -266,6 +277,9 @@ export function townObjectInfo(g, townId, key) {
       break;
     case 'home':
       text = `住宅の需要（いま ${kw(st.demandBy.home?.nowKw || 0)}／契約 ${kw(st.demandBy.home?.maxKw || 0)}）。朝と夕方〜夜に山がある。一軒ごとの電球や家電が町全体で大きな負荷になる。`;
+      break;
+    case 'cool':
+      text = `夏の昼の冷房と、テレビなどの家電（いま ${kw(st.demandBy.cool?.nowKw || 0)}／契約 ${kw(st.demandBy.cool?.maxKw || 0)}）。夏の山を押し上げる。`;
       break;
     case 'shop':
       text = `町の動力（いま ${kw(st.demandBy.shop?.nowKw || 0)}／契約 ${kw(st.demandBy.shop?.maxKw || 0)}）。昼の 10〜15 時に小さなモータで精米機や工作機械を回し、看板の灯りは夜も使う。`;
@@ -501,6 +515,13 @@ export function townSvgHtml(st) {
           : flat
             ? `${winRect(x + 12, 236, 14, 14)}${winRect(x + 31, 236, 14, 14)}${winRect(x + 50, 236, 14, 14)}${winRect(x + 12, 260, 14, 14)}${winRect(x + 31, 260, 14, 14)}${winRect(x + 50, 260, 14, 14)}`
             : `${winRect(x + 10, 262, 18, 16)}${winRect(x + 48, 262, 18, 16)}`}
+        ${st.hasCool
+          ? `<g data-k="cool" data-cool class="tobj${st.coolRunning ? ' trun' : ''}" style="--gs:0.9s">
+              <path d="M${x + 56} ${flat ? 224 : 236} V${flat ? 204 : 212} M${x + 48} ${flat ? 208 : 216} H${x + 64} M${x + 51} ${flat ? 204 : 212} V${flat ? 212 : 220} M${x + 61} ${flat ? 204 : 212} V${flat ? 212 : 220}" stroke="#cfd6e8" stroke-width="1.4" fill="none"/>
+              <rect x="${x + 54}" y="283" width="20" height="17" rx="2" fill="#d7dde8" stroke="#6f7b92" stroke-width="1.2"/>
+              <g transform="translate(${x + 64} 291.5)"><circle r="5.5" fill="#4f5b72"/><g class="tgear"><path d="M0 -4.5 V4.5 M-4.5 0 H4.5" stroke="#e8eef8" stroke-width="1.4"/></g></g>
+            </g>`
+          : ''}
       </g>`;
     } else if (b.kind === 'shop') {
       const x = b.x;
@@ -602,6 +623,7 @@ export function patchTownSvg(svg, st) {
   if (ca) ca.style.display = st.convAlert ? '' : 'none';
   const cv = svg.querySelector('[data-conv]');
   if (cv) cv.classList.toggle('trun', !st.convAlert && st.convActiveKw > 0 && st.tramRunning);
+  svg.querySelectorAll('[data-cool]').forEach((el) => el.classList.toggle('trun', st.coolRunning));
   const tc = svg.querySelector('[data-tramcar]');
   if (tc) {
     tc.classList.toggle('ttram-run', st.tramRunning);
