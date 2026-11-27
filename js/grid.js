@@ -56,12 +56,17 @@ export const PLANTS = {
   bigCoal: { name: '大型の石炭火力（高圧ボイラ）', short: '大型火力', era: 4, ac: true, coal: true, fuel: 'coal', eff: [0.15, 0.28], start: 12, min: 0.4, bs: false, build: 240, gates: ['gen', 'coal'], masteredGate: true, perf: 'coal', at: 'bigcoal', blueprint: 'bigCoal', sizes: [[20000, 80000], [40000, 125000], [75000, 200000], [125000, 300000, { era: 6 }]] },
   oilFire: { name: '重油専焼の火力', short: '重油火力', era: 6, ac: true, coal: true, fuel: 'oil', eff: [0.28, 0.36], start: 8, min: 0.3, bs: false, build: 360, gates: ['gen', 'coal'], masteredGate: true, perf: 'coal', at: 'coast', sizes: [[125000, 250000], [325000, 520000, { blueprint: 'bigOil' }], [600000, 840000, { blueprint: 'bigOil' }]] },
   lngFire: { name: 'LNG 火力', short: 'LNG 火力', era: 6, ac: true, coal: true, fuel: 'lng', eff: [0.33, 0.38], start: 6, min: 0.3, bs: false, build: 420, gates: ['gen', 'coal'], masteredGate: true, perf: 'coal', at: 'coast', sizes: [[350000, 650000], [600000, 1000000], [1000000, 1500000, { blueprint: 'bigLng' }]] },
+  nuclear: { name: '原子力発電所', short: '原子力', era: 6, ac: true, coal: true, fuel: 'nuclear', eff: [0.31, 0.34], start: 72, min: 0.95, bs: false, build: 1440, gates: ['gen', 'nuclear'], masteredGate: true, perf: 'nuclear', at: 'nuclear', sizes: [[166000, 600000], [340000, 1100000], [460000, 1400000], [560000, 1650000, { blueprint: 'bigNuc' }]] },
   ror: { name: '流れ込み式の水力', short: '水力（流れ込み）', era: 2, ac: true, coal: false, start: 0, min: 0, bs: true, build: 120, gates: ['gen', 'hydro'], perf: 'hydro', at: 'hydro', sizes: [[200, 20000], [500, 27000], [1000, 38000], [2000, 60000], [5000, 80000, { era: 3 }], [10000, 105000, { era: 3 }], [20000, 150000, { era: 3 }]] },
   pond: { name: '調整池式の水力', short: '水力（調整池）', era: 3, ac: true, coal: false, start: 0, min: 0, bs: true, build: 240, gates: ['gen', 'hydro'], masteredGate: true, perf: 'hydro', at: 'pond', sizes: [[5000, 60000], [10000, 76000], [20000, 107000], [50000, 200000, { blueprint: 'pond50' }]] },
   dam: { name: '貯水池式の水力（ダム）', short: '水力（ダム）', era: 6, ac: true, coal: false, start: 0, min: 0, bs: true, build: 720, gates: ['gen', 'hydro'], masteredGate: true, perf: 'hydro', at: 'dam', sizes: [[100000, 400000], [200000, 700000], [350000, 1050000, { blueprint: 'dam350' }]] },
+  pumped: { name: '揚水発電所', short: '揚水', era: 6, ac: true, coal: false, start: 0, min: 0, bs: true, build: 900, gates: ['gen', 'hydro', 'pumped'], masteredGate: true, perf: 'pumped', at: 'pumped', sizes: [[100000, 300000], [250000, 650000], [500000, 1150000], [1200000, 2400000, { blueprint: 'bigPump' }]] },
 };
 export const POND_HOURS = 6; // 池の大きさ＝出力の6時間分。1日に入る水も同じ量（流量 1.0 のとき）
 export const DAM_HOURS = 480; // 1.11.0 貯水池式：池＝出力の20日分（480時間分）。1時間に入る水＝出力×流量×0.4（1日に9.6時間分）
+export const PUMPED_HOURS = 8; // 1.12.0 揚水：池＝出力の8時間分（くみ上げ量 kWh）。往復効率 0.66〜0.72
+export const PUMPED_EFF = [0.66, 0.72];
+export const NUC_INSPECT_DAYS = 84; // 1.12.0 原子力の定期検査：1年（672日）に1回、84日停止（設備利用率の上限 87.5%）
 
 // ---- 送電・配電（設計 4章）。cap：1回線で送れる量 kW、r：Ω/km、cost：学習通貨/km ----
 export const LINES = {
@@ -184,6 +189,8 @@ export const GATES = {
   rel: ['power-system-U12'],
   hzConv: ['circuit-b-U13', 'power-system-U03'], // 1.10.0 周波数をそろえる工事（三相の回転磁界＝モータの回転は周波数で決まる／周波数と系統定数）
   conv: ['denken3-kikai-U05', 'denken2-kikai-U05', 'denken3-kikai-U03', 'electronic-c-U14'], // 1.10.4 電鉄用の変換所（パワエレ・同期機・整流）
+  nuclear: ['generation-U08', 'generation-U09', 'denken3-denryoku-U03', 'denken2-denryoku-U03'], // 1.12.0 原子力
+  pumped: ['generation-U04', 'denken3-denryoku-U04', 'denken2-denryoku-U04'], // 1.12.0 揚水発電
 };
 export const PERF = {
   dc: ['denken3-riron-U03'],
@@ -200,15 +207,19 @@ export const PERF = {
   pf: ['circuit-b-U11', 'denken3-riron-U04'],
   rel: ['power-system-U12', 'power-system-U13', 'power-system-U14'],
   conv: ['denken3-kikai-U05', 'denken2-kikai-U05', 'electronic-c-U14'], // 1.10.4 電鉄用の変換所
+  nuclear: ['generation-U08', 'generation-U09', 'denken3-denryoku-U03', 'denken2-denryoku-U03'], // 1.12.0 原子力
+  pumped: ['generation-U04', 'denken3-denryoku-U04', 'denken2-denryoku-U04'], // 1.12.0 揚水発電
 };
-export const GATE_NAMES = { dc: '直流の配電・発電所', gen: '交流発電機（三相）', tr: '変圧器・変電所', coal: '火力（石炭・重油・LNG）', hydro: '水力', line: '送電線', dist: '配電（3.3 kV）', freq: '周波数・ガバナ・予備力', econ: '給電の優先順位', prot: '保護', insul: 'がいし・架空地線・相間スペーサ', pf: '進相コンデンサ', rel: '信頼度', hzConv: '周波数をそろえる工事', conv: '電鉄用の変換所' };
+export const GATE_NAMES = { dc: '直流の配電・発電所', gen: '交流発電機（三相）', tr: '変圧器・変電所', coal: '火力（石炭・重油・LNG）', hydro: '水力', nuclear: '原子力', pumped: '揚水発電', line: '送電線', dist: '配電（3.3 kV）', freq: '周波数・ガバナ・予備力', econ: '給電の優先順位', prot: '保護', insul: 'がいし・架空地線・相間スペーサ', pf: '進相コンデンサ', rel: '信頼度', hzConv: '周波数をそろえる工事', conv: '電鉄用の変換所' };
 // 設計図（大型・特殊）：その単元の試験レベルに正解、または関係する外部試験の科目で取れる点が満点の3割以上
 export const BLUEPRINTS = {
   bigCoal: { name: '大型の石炭火力', units: ['denken2-denryoku-U02'] },
   bigOil: { name: '大型の重油火力（32.5万 kW 以上）', units: ['denken2-denryoku-U02'] }, // 1.11.0
   bigLng: { name: '大型の LNG 火力（100万 kW）', units: ['denken2-denryoku-U02'] }, // 1.12.0
+  bigNuc: { name: '大型の原子力（56万 kW）', units: ['denken2-denryoku-U03'] }, // 1.12.0
   pond50: { name: '調整池式 50 MW', units: ['denken2-denryoku-U01'] },
   dam350: { name: '大きなダム（35万 kW）', units: ['denken2-denryoku-U01'] }, // 1.11.0
+  bigPump: { name: '大型の揚水（120万 kW）', units: ['denken2-denryoku-U04'] }, // 1.12.0
   line154: { name: '送電線 154 kV', units: ['denken2-denryoku-U06'] },
   petersen: { name: '消弧リアクトル', units: ['denken2-denryoku-U09'] },
   line275: { name: '送電線 275 kV（超高圧）', units: ['denken2-denryoku-U06'] }, // 1.10.0
@@ -519,22 +530,53 @@ export function recordRepair(G, delta) {
 
 // ---- 設備の状態 ----
 const P = (p) => PLANTS[p.type];
-export const plantReady = (p, t) => p.readyAt <= t && p.downUntil <= t && !p.idle;
+// 1.12.0 原子力の定期検査：選んだ季節（初期値 0＝春）の最初の 84 日間停止（修理費なし）
+export function nucInspecting(p, t) {
+  if (p?.type !== 'nuclear' || p.readyAt > t) return false;
+  const s = p.inspectSeason ?? 0;
+  if (seasonOf(t) !== s) return false;
+  const dayInSeason = Math.floor((t % (24 * SEASON_DAYS)) / 24);
+  return dayInSeason < NUC_INSPECT_DAYS;
+}
+export function nucInspectUntil(p, t) {
+  if (!nucInspecting(p, t)) return 0;
+  const seasonStart = Math.floor(t / (24 * SEASON_DAYS)) * 24 * SEASON_DAYS;
+  return seasonStart + 24 * NUC_INSPECT_DAYS;
+}
+export function setInspectSeason(G, plantId, season) {
+  const p = G.plants.find((x) => x.id === plantId);
+  if (!p || p.type !== 'nuclear') return { ok: false, why: '原子力発電所ではない' };
+  const s = Number(season);
+  if (!(s >= 0 && s <= 3 && Number.isInteger(s))) return { ok: false, why: '季節を選ぶ' };
+  if (nucInspecting(p, G.t)) return { ok: false, why: '定期検査の途中は時期を変えられない' };
+  p.inspectSeason = s;
+  return { ok: true, plant: p, season: s };
+}
+export const plantReady = (p, t) => p.readyAt <= t && p.downUntil <= t && !p.idle && !nucInspecting(p, t);
 // 1.8.2：性能は perfNow（学習で決まる性能 ×（1 ＋ 研究開発の段 × 0.04）。1 を超えない）。G がなければ学習の分だけ
 export function plantEff(p, lc, G = null) {
   const [lo, hi] = P(p).eff;
   return p.proto ? lo : lo + (hi - lo) * perfNow(G, lc, P(p).perf);
 }
+export function pumpedEff(p, lc = null, G = null) {
+  if (!lc) return 0.7;
+  const [lo, hi] = PUMPED_EFF;
+  return p?.proto ? lo : lo + (hi - lo) * perfNow(G, lc, 'pumped');
+}
 export function flowFactor(G, t) {
   const drought = evOn(G, 'drought', t);
   return [1.3, 1.0, 0.9, 0.6][seasonOf(t)] * (drought ? (drought.eased ? 0.55 : 0.4) : 1);
 }
-// この1時間に出せる最大（水力は流量しだい。調整池式は池の水まで）。1.10.0 周波数をそろえる工事の間は 8 割まで
-function capNow(G, p, t, forCommit = false) {
-  return capRaw(G, p, t, forCommit) * (p.convUntil > t ? HZCONV.capK : 1);
+// この1時間に出せる最大（水力は流量しだい。調整池式は池の水まで。揚水は池の水×往復効率）。1.10.0 周波数をそろえる工事の間は 8 割まで
+function capNow(G, p, t, forCommit = false, lc = null) {
+  return capRaw(G, p, t, forCommit, lc) * (p.convUntil > t ? HZCONV.capK : 1);
 }
-function capRaw(G, p, t, forCommit) {
+function capRaw(G, p, t, forCommit, lc = null) {
   if (!P(p).ac || P(p).coal) return p.kw;
+  if (p.type === 'pumped') {
+    const eff = pumpedEff(p, lc, G);
+    return Math.min(p.kw, (p.store || 0) * eff);
+  }
   const f = flowFactor(G, t);
   if (p.type === 'ror') return p.kw * Math.min(1, f);
   if (p.type === 'dam') {
@@ -816,6 +858,8 @@ function runNet(G, lc, t, net, dem, fc, o) {
   res.f = F;
   const blackout = !net.dc && (towns.some((n) => (G.black[n] || 0) > t) || net.plants.some((p) => p.hold > t));
   const ready = net.plants.filter((p) => plantReady(p, t) && p.hold <= t);
+  // 1.12.0 原子力は給電の順でいちばん先に入れる（同じ種別の中ではユーザーの優先順位どおり）
+  const orderedReady = [...ready.filter((p) => p.type === 'nuclear'), ...ready.filter((p) => p.type !== 'nuclear')];
 
   // 起動・停止：優先順位の順に、先の需要（予備力の目標つき）をまかなえるまで起動する
   const reserve = net.dc ? Math.min(G.reserve, 0.1) : G.reserve;
@@ -825,9 +869,9 @@ function runNet(G, lc, t, net, dem, fc, o) {
   const committed = [];
   const accAt = (k) => committed.reduce((a, c) => a + (c.at <= t + k ? c.cap : 0), 0);
   const online = [];
-  for (const p of ready) {
+  for (const p of orderedReady) {
     const D = P(p);
-    const cap = capNow(G, p, t, true);
+    const cap = capNow(G, p, t, true, lc);
     // want：いま起動すれば間に合う時刻（起動時間のあと）に足りない。keep：これから先のどこかで足りない
     // 1.7.4 short：予備力の目標を除いても足りない（予備力のためだけの起動・運転かを画面に出す）
     let want = false, keep = false, wantShort = false, keepShort = false;
@@ -855,7 +899,7 @@ function runNet(G, lc, t, net, dem, fc, o) {
     if (on) online.push(p);
   }
   for (const p of net.plants) if (!o.dry && !ready.includes(p) && !(p.hold > t)) (p.on = false), (p.onAt = null);
-  res.readyCap = ready.reduce((s, p) => s + capNow(G, p, t), 0); // 1.7.4 網ごとの予備力（使える発電機の合計）
+  res.readyCap = ready.reduce((s, p) => s + capNow(G, p, t, false, lc), 0); // 1.7.4 網ごとの予備力（使える発電機の合計）
   if (A <= 0 && F <= 0) return res;
   if (blackout) {
     res.black = true;
@@ -864,10 +908,10 @@ function runNet(G, lc, t, net, dem, fc, o) {
   }
 
   // 予定の給電（予測の需要＋損失の見込み）。損失は一度流れを解いて見積もる
-  const mk = (p) => ({ p, kw: p.kw, cap: capNow(G, p, t), min: P(p).min * p.kw, head: 0 });
+  const mk = (p) => ({ p, kw: p.kw, cap: capNow(G, p, t, false, lc), min: P(p).min * p.kw, head: 0 });
   const units = online.map(mk);
   res.cap = units.reduce((s, u) => s + u.cap, 0);
-  const flowsFor = (out, served) => {
+  const flowsFor = (out, served, pumpMap = null) => {
     const inj = new Map();
     const add = (n, p, q) => {
       const v = inj.get(n) || { p: 0, q: 0 };
@@ -880,6 +924,12 @@ function runNet(G, lc, t, net, dem, fc, o) {
       const d = dem.get(n), r = served(n);
       add(n, d.a * r, d.q * r);
       Q += d.q * r;
+    }
+    if (pumpMap) {
+      for (const p of ready) {
+        const pw = pumpMap.get(p.id) || 0;
+        if (pw > 0) add(p.site, pw, 0);
+      }
     }
     for (const u of units) Pg += out.get(u.p.id) || 0;
     let fl = 0;
@@ -972,18 +1022,19 @@ function runNet(G, lc, t, net, dem, fc, o) {
       alive.forEach((u, i) => out.set(u.p.id, out.get(u.p.id) + fo.up[i]));
     }
   } else {
-    // 余り：出力を下げる（優先順位の低い順）。下げきれない分は蒸気を逃がす・水を流す。それでも余れば周波数が上がりすぎる
+    // 余り：出力を下げる（優先順位の低い順。1.12.0 原子力はいちばん最後に下げる）。下げきれない分は蒸気を逃がす・水を流す
     let sur = -dP;
     const room = alive.reduce((s, u) => s + (out.get(u.p.id) - Math.min(u.min, u.cap)), 0);
     const K = alive.reduce((a, u) => a + u.kw / (DROOP * f0), 0) + KL * A;
     res.x = Math.min(sur, room) / Math.max(K, 1e-9);
     res.K = K;
-    for (const u of [...alive].reverse()) {
+    const downOrder = [...alive.filter((u) => u.p.type !== 'nuclear').reverse(), ...alive.filter((u) => u.p.type === 'nuclear').reverse()];
+    for (const u of downOrder) {
       const d = Math.min(sur, out.get(u.p.id) - Math.min(u.min, u.cap));
       out.set(u.p.id, out.get(u.p.id) - d);
       sur -= d;
     }
-    const dump = alive.reduce((s, u) => s + (P(u.p).coal ? 0.1 * u.kw : u.cap), 0) + plan.waste;
+    const dump = alive.reduce((s, u) => s + (P(u.p).coal ? (u.p.type === 'nuclear' ? u.cap : 0.1 * u.kw) : u.cap), 0) + plan.waste;
     res.waste = Math.min(sur, dump);
     if (sur > dump + 1e-6 && (sur - dump) / Math.max(KL * A, 1e-9) > FREQ.over) {
       res.over = true;
@@ -993,8 +1044,52 @@ function runNet(G, lc, t, net, dem, fc, o) {
       res.tripped.push(last.p.id);
     }
   }
+  // 1.12.0 揚水のくみ上げ：発電していない揚水に、①余剰（捨てる分）を最優先でくみ上げ、②夜（22〜6時）は系統の余力（予備力を除いた分）でくみ上げる。売電はしない
+  res.pump = new Map();
+  res.pumpTotal = 0;
+  if (!net.dc && !res.black && alive.length) {
+    const pumpers = ready.filter((p) => p.type === 'pumped' && (out.get(p.id) || 0) <= 1e-6 && (p.store || 0) < p.kw * PUMPED_HOURS - 1e-6);
+    if (pumpers.length) {
+      const h = ((t % 24) + 24) % 24;
+      const isNight = h >= 22 || h <= 6;
+      const suppliers = alive.filter((u) => u.p.type !== 'pumped');
+      let nightAvail = 0;
+      if (isNight && res.shed === 0) {
+        const headSum = suppliers.reduce((a, u) => a + Math.max(0, u.cap - (out.get(u.p.id) || 0)), 0);
+        nightAvail = Math.max(0, headSum - A * reserve);
+      }
+      for (const p of pumpers) {
+        let room = Math.min(p.kw, p.kw * PUMPED_HOURS - (p.store || 0));
+        let got = 0;
+        if (res.waste > 1e-6 && room > 1e-6) {
+          const wTake = Math.min(room, res.waste);
+          res.waste -= wTake;
+          room -= wTake;
+          got += wTake;
+        }
+        if (isNight && nightAvail > 1e-6 && room > 1e-6) {
+          let want = Math.min(room, nightAvail);
+          for (const u of suppliers) {
+            if (want <= 1e-6) break;
+            const head = Math.max(0, u.cap - (out.get(u.p.id) || 0));
+            const add = Math.min(head, want);
+            if (add > 0) {
+              out.set(u.p.id, (out.get(u.p.id) || 0) + add);
+              want -= add;
+              nightAvail -= add;
+              got += add;
+            }
+          }
+        }
+        if (got > 1e-6) {
+          res.pump.set(p.id, got);
+          res.pumpTotal += got;
+        }
+      }
+    }
+  }
   for (const n of towns) res.served.set(n, ratio);
-  const fin = flowsFor(out, (n) => res.served.get(n));
+  const fin = flowsFor(out, (n) => res.served.get(n), res.pump);
   res.flows = fin.flows;
   res.subs = fin.subs;
   res.loss = fin.loss;
@@ -1590,7 +1685,7 @@ export function startEvent(G, lc, key, o = {}) {
     // 1.11.0 伊勢湾台風の高潮：海沿い（coast）の地点の火力が 2 日止まる（修理費は要らない）
     let stopped = 0;
     for (const p of G.plants) {
-      if (P(p).coal && p.readyAt <= G.t && nodeOf(G, p.site)?.tags?.includes('coast')) {
+      if (P(p).coal && p.type !== 'nuclear' && p.readyAt <= G.t && nodeOf(G, p.site)?.tags?.includes('coast')) {
         p.downUntil = Math.max(p.downUntil || 0, G.t + 48);
         p.downWhy = '高潮';
         p.on = false;
@@ -2408,6 +2503,22 @@ export function step(G, lc) {
     note(G, `${nodeOf(G, p.site).name}の${P(p).short}（${fmtKw(p.kw)}）が運転を始めた`);
     if (P(p).ac) raise(G, lc, 'parallelIn', { plant: p.id, what: `${nodeOf(G, p.site).name}の${P(p).short}（${fmtKw(p.kw)}）を、系統に並列投入する。`, cool: 1 });
   }
+  // 1.12.0 原子力の定期検査：選んだ季節の最初の 84 日間停止（修理費なし）
+  for (const p of G.plants) {
+    if (p.type !== 'nuclear' || p.readyAt > t) continue;
+    if (nucInspecting(p, t) && p.inspectYr !== yearOf(t)) {
+      p.inspectYr = yearOf(t);
+      p.on = false;
+      p.onAt = null;
+      const sn = SEASONS[p.inspectSeason ?? 0];
+      note(G, `${nodeOf(G, p.site).name}の原子力が定期検査に入った（${NUC_INSPECT_DAYS}日間）`);
+      addReport(G, {
+        title: '原子力発電所の定期検査',
+        what: `${nodeOf(G, p.site).name}の原子力発電所（${fmtKw(p.kw)}）が${sn}の定期検査に入った（${NUC_INSPECT_DAYS}日間停止、修理費はかからない）。検査の時期は発電所の詳細から変えられる。`,
+        units: ['generation-U09', 'denken3-denryoku-U03'],
+      });
+    }
+  }
   for (const s of G.subs) {
     if (s.done || s.readyAt > t) continue;
     s.done = true;
@@ -2443,7 +2554,7 @@ export function step(G, lc) {
   // お金と記録
   const quality = new Map();
   let fuel = 0, loss = 0, lineLossSum = 0, subLossSum = 0, wasteSum = 0, worst = 0, anyShed = false, anyBlack = false, anyBad = false, hzLoad = -1;
-  const last = { t, plants: {}, lines: {}, subs: {}, convs: {}, towns: {}, x: 0, hz: 0, demand: 0, served: 0, loss: 0, cap: 0, K: 0 };
+  const last = { t, plants: {}, lines: {}, subs: {}, convs: {}, towns: {}, x: 0, hz: 0, demand: 0, served: 0, loss: 0, cap: 0, K: 0, pump: 0, pumpedGen: 0, pumpBy: {} };
   const gen = { dc: 0, coal: 0, hydro: 0 };
   const ec = (G.econCur ||= newEconDay());
   const econK = 1 - 0.05 * perfNow(G, lc, 'econ');
@@ -2473,13 +2584,31 @@ export function step(G, lc) {
         ep.waste += pw;
       }
       gen[!P(p).ac ? 'dc' : P(p).coal ? 'coal' : 'hydro'] += o;
-      const yg = (G.yr.gen ||= { coal: 0, oil: 0, hydro: 0 });
+      const yg = (G.yr.gen ||= { coal: 0, oil: 0, lng: 0, nuclear: 0, hydro: 0, pumped: 0 });
       if (P(p).coal) {
         const fk = P(p).fuel || 'coal';
         yg[fk] = (yg[fk] || 0) + o;
-      } else yg.hydro = (yg.hydro || 0) + o;
+      } else {
+        yg.hydro = (yg.hydro || 0) + o;
+        if (p.type === 'pumped') yg.pumped = (yg.pumped || 0) + o;
+      }
       if (p.type === 'pond') p.store = Math.max(0, Math.min(p.kw * POND_HOURS, p.store + p.kw * flowFactor(G, t) * (POND_HOURS / 24) - o));
       else if (p.type === 'dam') p.store = Math.max(0, Math.min(p.kw * DAM_HOURS, p.store + p.kw * flowFactor(G, t) * 0.4 - o));
+      else if (p.type === 'pumped') {
+        const pumpIn = r.pump?.get(p.id) || 0;
+        const eff = pumpedEff(p, lc, G);
+        if (o > 0) {
+          p.store = Math.max(0, (p.store || 0) - o / eff);
+          last.pumpedGen += o;
+          ec.pumpedGen = (ec.pumpedGen || 0) + o;
+        }
+        if (pumpIn > 0) {
+          p.store = Math.min(p.kw * PUMPED_HOURS, (p.store || 0) + pumpIn);
+          last.pump += pumpIn;
+          last.pumpBy[p.id] = pumpIn;
+          ec.pump = (ec.pump || 0) + pumpIn;
+        }
+      }
     }
     loss += r.loss;
     lineLossSum += r.lineLoss ?? r.loss;
@@ -2721,6 +2850,8 @@ export function siteAllows(G, type, siteId) {
   if (at === 'coal') return !!n.town || !!n.coal;
   if (at === 'bigcoal') return !!n.coal || (!!n.town && n.tags.includes('coast'));
   if (at === 'coast') return !!n.town && n.tags.includes('coast');
+  if (at === 'nuclear') return !!n.npp;
+  if (at === 'pumped') return !!n.pumped || (!!n.hydro && (!!n.pond || !!n.dam));
   if (at === 'hydro') return !!n.hydro;
   if (at === 'dam') return !!n.hydro && !!n.dam;
   return !!n.hydro && !!n.pond;
@@ -2797,7 +2928,7 @@ export function quotePlant(G, lc, { type, kw, site, hz = null }) {
   if (!size) return { ok: false, why: '大きさが選べない' };
   const st = eraStatus(lc, Math.max(D.era, size[2]?.era || 0));
   if (st === 'no') return { ok: false, why: 'まだ先の時代の設備' };
-  if (!siteAllows(G, type, site)) return { ok: false, why: D.at === 'coast' ? 'タンカーで運ぶので、海沿いの町だけ' : D.at === 'dam' ? '貯水池式の水力（ダム）はダムの地点だけ' : 'この場所には建てられない' };
+  if (!siteAllows(G, type, site)) return { ok: false, why: D.at === 'coast' ? 'タンカーで運ぶので、海沿いの町だけ' : D.at === 'dam' ? '貯水池式の水力（ダム）はダムの地点だけ' : D.at === 'nuclear' ? '原子力発電所は原子力の地点（海沿い）だけ' : D.at === 'pumped' ? '揚水発電所は揚水・ダム・調整池の地点だけ' : 'この場所には建てられない' };
   if (!nodeOpen(G, site)) return { ok: false, why: closedWhy(G, nodeOf(G, site)), closed: true };
   const gc = gateCheck(lc, D.gates, !!D.masteredGate);
   if (gc) return gc;
@@ -2807,6 +2938,10 @@ export function quotePlant(G, lc, { type, kw, site, hz = null }) {
   if (node.hydro && !node.town) {
     const used = G.plants.filter((p) => p.site === site).reduce((a, p) => a + p.kw, 0);
     if (used + kw > node.hydro) return { ok: false, why: `この川で使える水は ${fmtKw(node.hydro)} まで（いま ${fmtKw(used)}）` };
+  }
+  if ((node.npp || node.pumped) && node.maxKw) {
+    const used = G.plants.filter((p) => p.site === site).reduce((a, p) => a + p.kw, 0);
+    if (used + kw > node.maxKw) return { ok: false, why: `この地点の上限は ${fmtKw(node.maxKw)} まで（いま ${fmtKw(used)}）` };
   }
   // 交流の発電機：まだ周波数のない網に初めて建てるときは、50 Hz／60 Hz を選ぶ（hz）。ある網なら、その周波数になる
   const netF = D.ac ? netHz(G, site) : null;
@@ -2820,13 +2955,14 @@ export function buildPlant(G, lc, spec) {
   const q = quotePlant(G, lc, spec);
   if (!q.ok) return q;
   if (!PLANTS[spec.type].ac) G.buffs.dcDiscount = false;
-  const p = { id: `P${G.nextId++}`, type: spec.type, kw: spec.kw, site: spec.site, cost: q.base, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, on: false, onAt: null, downUntil: 0, idle: false, store: 0, hold: 0, done: false };
+  const p = { id: `P${G.nextId++}`, type: spec.type, kw: spec.kw, site: spec.site, cost: q.base, proto: q.proto, builtAt: G.t, readyAt: G.t + q.hours, on: false, onAt: null, downUntil: 0, idle: false, store: 0, hold: 0, done: false, ...(spec.type === 'nuclear' ? { inspectSeason: 0 } : {}) };
   if (q.freq) p.hz = q.freq; // 交流の発電機の周波数（網が分かれたり、つながったりしても変えない）
   if (q.newHz) addReport(G, { title: `周波数を ${q.freq} Hz に決めた`, what: `${nodeOf(G, spec.site).name}の交流の網は、これから ${q.freq} Hz で動く。周波数の違う網と交流の線でつなぐと、脱調して切れる（網が分かれたり、つながったりしても、発電機の周波数は変わらない）。`, units: [] });
   G.plants.push(p);
   G.yr.built = (G.yr.built || 0) + 1;
-  // 燃料のいらない水力は、優先順位の先頭に入れる（あとで並べ替えられる）
-  if (PLANTS[spec.type].coal) G.priority.push(p.id);
+  // 1.12.0 原子力は最先頭、揚水は末尾（夜にくみ上げ昼の山で発電）、水力は先頭、火力は末尾に入れる（あとで並べ替えられる）
+  if (spec.type === 'nuclear') G.priority.unshift(p.id);
+  else if (spec.type === 'pumped' || PLANTS[spec.type].coal) G.priority.push(p.id);
   else G.priority.unshift(p.id);
   return { ...q, plant: p };
 }

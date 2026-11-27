@@ -24,7 +24,7 @@ export function typeStatus(lc, kind, key) {
 
 // ---- 地点のメニューの項目 ----
 // メニューに出す短い名前（丸いボタンの横の文字）
-export const SHORT = { dcCoal: '直流の火力', acCoal: '石炭火力', bigCoal: '大型火力', oilFire: '重油火力', ror: '水力 流れ込み', pond: '水力 調整池', dam: '水力 ダム', tr: '変圧器', rotary: '回転変流機', mercury: '水銀整流器' };
+export const SHORT = { dcCoal: '直流の火力', acCoal: '石炭火力', bigCoal: '大型火力', oilFire: '重油火力', lngFire: 'LNG 火力', nuclear: '原子力', ror: '水力 流れ込み', pond: '水力 調整池', dam: '水力 ダム', pumped: '揚水', tr: '変圧器', rotary: '回転変流機', mercury: '水銀整流器' };
 // その地点で建てられる種類（時代が先すぎるものは出さない。学習の条件を満たさないものは灰色 ok: false）
 export function buildChoices(g, lc, id) {
   const n = Gm.nodeOf(g, id);
@@ -471,6 +471,11 @@ export function statusChips(g) {
   const r = Gm.restrictOn(g);
   if (r) out.push({ kind: 'restrict', name: `使用制限 ${r}`, left: Gm.RESTRICT[r].name, cls: 'c-ev' });
   for (const w of (g.hzWork || []).filter((x) => x.until > t)) out.push({ kind: 'hzwork', node: w.node, name: '周波数の工事', left: `${w.from}→${w.to} Hz・${leftText(w.until - t)}`, cls: 'c-ev' });
+  const insp = (g.plants || []).filter((p) => Gm.nucInspecting(p, t));
+  if (insp.length) {
+    const until = Math.min(...insp.map((p) => Gm.nucInspectUntil(p, t)));
+    out.push({ kind: 'inspect', name: '原子力 定期検査中', left: `${insp.length > 1 ? `${insp.length}基・` : ''}${leftText(until - t)}`, cls: 'c-ev' });
+  }
   if ((g.debt || 0) > 0) out.push({ kind: 'debt', name: '借入れ返済中', left: `残り ${yenText(g.debt)}`, cls: 'c-ev' });
   else if (g.loanUntil > t) out.push({ kind: 'debt', name: '借入れ返済中', left: leftText(g.loanUntil - t), cls: 'c-ev' });
   return out;

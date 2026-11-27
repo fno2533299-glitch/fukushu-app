@@ -176,7 +176,7 @@ const timeShort = (g) => `${Gm.yearOf(g.t) + 1}年目 ${Gm.SEASONS[Gm.seasonOf(g
 const eraName = (n) => Gm.ERAS[n - 1].name;
 
 // ---- 絵（本人が Gemini で作った画像があれば使い、なければ仮の絵）。番号は 試作/系統ゲーム_画像プロンプト.md ----
-const PIC = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5: 'G23', era6: 'G24', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', oilFire: 'G07', lngFire: 'G07', ror: 'G08', pond: 'G09', dam: 'G09', sub: 'G10', rotary: 'G10', mercury: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22', load_lamp: 'G25', load_home: 'G26', load_cool: 'G26', load_shop: 'G27', load_factory: 'G28', load_tram: 'G27', M01: 'G29', M02: 'G30', M03: 'G31', M04: 'G32', M05: 'G33', M06: 'G34', M07: 'G35', M08: 'G36' };
+const PIC = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5: 'G23', era6: 'G24', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', oilFire: 'G07', lngFire: 'G07', nuclear: 'G07', ror: 'G08', pond: 'G09', dam: 'G09', pumped: 'G09', sub: 'G10', rotary: 'G10', mercury: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22', load_lamp: 'G25', load_home: 'G26', load_cool: 'G26', load_shop: 'G27', load_factory: 'G28', load_tram: 'G27', M01: 'G29', M02: 'G30', M03: 'G31', M04: 'G32', M05: 'G33', M06: 'G34', M07: 'G35', M08: 'G36' };
 const PH = {
   coal: '<path d="M8 30V16h6v-5h5v5h6v14z M30 30V20l8 4v-4l8 4v6z" fill="currentColor"/><path d="M16 9c0-3 3-3 3-6" fill="none" stroke="currentColor" stroke-width="1.5"/>',
   hydro: '<path d="M4 30L18 8l8 12 5-7 13 17z" fill="currentColor" opacity=".5"/><path d="M20 30c2-6 2-9 0-14M26 30c2-6 2-9 0-12" fill="none" stroke="currentColor" stroke-width="1.6"/>',
@@ -187,7 +187,7 @@ const PH = {
   dark: '<circle cx="24" cy="20" r="11" fill="currentColor" opacity=".25"/><path d="M19 15l10 10M29 15L19 25" stroke="currentColor" stroke-width="2.5"/>',
   light: '<circle cx="24" cy="18" r="8" fill="currentColor" opacity=".7"/><path d="M24 4v4M24 28v4M10 18h4M34 18h4M14 8l3 3M34 8l-3 3" stroke="currentColor" stroke-width="2"/>',
 };
-const PH_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'coal', oilFire: 'coal', lngFire: 'coal', ror: 'hydro', pond: 'hydro', dam: 'hydro', sub: 'sub', rotary: 'sub', mercury: 'sub', line: 'line', era1: 'town', era2: 'town', era3: 'town', era4: 'town', era5: 'town', era6: 'town', heat: 'light', cold: 'storm', typhoon: 'storm', snowstorm: 'storm', coalSpike: 'coal', priceWar: 'town', drought: 'hydro', blackout: 'dark', recover: 'light', rebuild: 'town', island: 'hydro', load_lamp: 'light', load_home: 'town', load_cool: 'town', load_shop: 'town', load_factory: 'coal', load_tram: 'town' };
+const PH_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'coal', oilFire: 'coal', lngFire: 'coal', nuclear: 'coal', ror: 'hydro', pond: 'hydro', dam: 'hydro', pumped: 'hydro', sub: 'sub', rotary: 'sub', mercury: 'sub', line: 'line', era1: 'town', era2: 'town', era3: 'town', era4: 'town', era5: 'town', era6: 'town', heat: 'light', cold: 'storm', typhoon: 'storm', snowstorm: 'storm', coalSpike: 'coal', priceWar: 'town', drought: 'hydro', blackout: 'dark', recover: 'light', rebuild: 'town', island: 'hydro', load_lamp: 'light', load_home: 'town', load_cool: 'town', load_shop: 'town', load_factory: 'coal', load_tram: 'town' };
 // 上の帯の背景に、時代の絵を薄く（絵がないときは出さない）
 const eraImg = (g) => {
   const src = picSrc(PIC[`era${g.era}`]);
@@ -2649,7 +2649,15 @@ function drawBuildCard() {
     const D = Gm.PLANTS[B.type];
     const sizes = D.sizes.filter((z) => Gm.eraStatus(lc, Math.max(D.era, z[2]?.era || 0)) !== 'no');
     q = Gm.quotePlant(g, lc, { type: B.type, kw: B.size, site: B.site, hz: B.hz });
-    const eff = D.coal ? `熱効率 ${(D.eff[0] * 100).toFixed(0)}〜${(D.eff[1] * 100).toFixed(0)}%（いま ${(Gm.plantEff({ type: B.type, proto: q.proto }, lc, g) * 100).toFixed(1)}%）・起動 ${D.start}時間・最低出力 ${pct(D.min)}` : B.type === 'ror' ? '燃料なし。出力は川の流量しだい（春 1.3・夏 1.0・秋 0.9・冬 0.6）' : B.type === 'dam' ? '燃料なし。大きなダムに 20 日分の水をためて使う（池＝出力の 480 時間分）' : '燃料なし。1日分の水をためて、時間をずらして使う（池＝出力の6時間分）';
+    const eff = D.coal
+      ? `熱効率 ${(D.eff[0] * 100).toFixed(0)}〜${(D.eff[1] * 100).toFixed(0)}%（いま ${(Gm.plantEff({ type: B.type, proto: q.proto }, lc, g) * 100).toFixed(1)}%）・起動 ${D.start}時間・最低出力 ${pct(D.min)}${B.type === 'nuclear' ? `・定期検査 1年に1回 ${Gm.NUC_INSPECT_DAYS}日停止（修理費なし）` : ''}`
+      : B.type === 'ror'
+        ? '燃料なし。出力は川の流量しだい（春 1.3・夏 1.0・秋 0.9・冬 0.6）'
+        : B.type === 'dam'
+          ? '燃料なし。大きなダムに 20 日分の水をためて使う（池＝出力の 480 時間分）'
+          : B.type === 'pumped'
+            ? `池＝出力の ${Gm.PUMPED_HOURS} 時間分・往復効率 ${(Gm.pumpedEff({ proto: q.proto }, lc, g) * 100).toFixed(0)}%（66〜72%）。夜や余剰でくみ上げ昼に出す（流量に左右されない）`
+            : '燃料なし。1日分の水をためて、時間をずらして使う（池＝出力の6時間分）';
     const fk = D.fuel || 'coal';
     const haul = D.coal ? (Gm.FUELS[fk]?.haul ? haulText(g, B.site) : `${Gm.FUELS[fk]?.name || ''}：運び代 ×1.0${D.at === 'coast' ? '（海沿い・タンカーで直接）' : ''}`) : '';
     h = `<p class="gbch"><b>${A.esc(Gm.nodeOf(g, B.site).name)}</b>：${D.name}</p>
@@ -2798,9 +2806,12 @@ const stateOf = (x, t) => (x.readyAt > t ? `工事中（あと ${x.readyAt - t}�
 function plantState(g, p) {
   const t = g.t;
   const out = g.last?.plants[p.id] || 0;
+  const pumpIn = g.last?.pumpBy?.[p.id] || 0;
   const conv = p.convUntil > t ? `・周波数の工事中（出力 8 割まで・あと${Mn.hoursText(p.convUntil - t)}）` : ''; // 1.10.0
-  const st = p.downUntil > t && p.downWhy ? `${p.downWhy}で停止（あと ${Math.max(1, p.downUntil - t)}時間）` : stateOf(p, t);
-  return (st || (p.idle ? '休止' : p.hold > t ? '停電からの復旧待ち' : p.on ? `運転中 ${kw(out)}／${kw(p.kw)}` : p.onAt != null ? `起動中（あと ${Math.max(1, p.onAt - t)}時間）` : '待機')) + conv;
+  const insp = Gm.nucInspecting(p, t) ? `定期検査中（あと ${Mn.leftText(Gm.nucInspectUntil(p, t) - t)}・修理費なし）` : null;
+  const st = insp || (p.downUntil > t && p.downWhy ? `${p.downWhy}で停止（あと ${Math.max(1, p.downUntil - t)}時間）` : stateOf(p, t));
+  const pumpedNote = p.type === 'pumped' && p.readyAt <= t ? `・池 ${Math.round(((p.store || 0) / (p.kw * Gm.PUMPED_HOURS)) * 100)}%` : '';
+  return (st || (p.idle ? '休止' : p.hold > t ? '停電からの復旧待ち' : pumpIn > 0 ? `くみ上げ中 ${kw(pumpIn)}` : p.on ? `運転中 ${kw(out)}／${kw(p.kw)}` : p.onAt != null ? `起動中（あと ${Math.max(1, p.onAt - t)}時間）` : '待機')) + pumpedNote + conv;
 }
 // 1.7.4 発電所が全開でない理由・待機や起動の理由（直近の1時間の判断。grid.js plantWhyText）
 function plantWhy(g, p) {
@@ -2914,7 +2925,7 @@ function nodePanel(g, lc, id) {
   const start = Gm.startId(g);
   const dist = start === id ? (Gm.isJapan(g) ? '始めた町' : '中央の町') : `${A.esc(Gm.nodeOf(g, start).name)}から ${Gm.distKm(g, start, id) < 0.5 ? '0' : Gm.distKm(g, start, id).toFixed(1)} km`;
   const where = Gm.isJapan(g) ? `${A.esc(n.pref)}${n.place ? ` ${A.esc(n.place)}` : ''}${n.river ? `・${A.esc(n.river)}` : ''} ・ ` : '';
-  let h = `<p class="small">${where}${n.town ? '町' : n.hydro ? `水力の地点（使える水 ${kw(n.hydro)}${n.dam ? '・ダムを作れる' : n.pond ? '・調整池を作れる' : ''}）` : n.coal && Gm.isJapan(g) ? '炭田' : '石炭火力の用地'} ・ ${dist} ・ この場所の危険：${hazardText(n.tags)}</p>`;
+  let h = `<p class="small">${where}${n.town ? '町' : n.npp ? `原子力の地点（上限 ${kw(n.maxKw)}）` : n.pumped ? `揚水の地点（上限 ${kw(n.maxKw)}）` : n.hydro ? `水力の地点（使える水 ${kw(n.hydro)}${n.dam ? '・ダムを作れる' : n.pond ? '・調整池を作れる' : ''}）` : n.coal && Gm.isJapan(g) ? '炭田' : '石炭火力の用地'} ・ ${dist} ・ この場所の危険：${hazardText(n.tags)}</p>`;
   if (n.coal && Gm.isJapan(g)) h += `<p class="small">炭田：石炭火力の燃料が安い（運び代がほとんどかからない・燃料費 ×${Gm.FUEL_HAUL.coal.toFixed(2)}）</p>`;
   if (!Gm.nodeOpen(g, n)) h += `<p class="warn small">まだ開いていない地点です（${eraName(Gm.openEra(g, n))}から）。</p>`;
   if (Gm.isJapan(g)) h += historyHtml(n);
@@ -2943,7 +2954,10 @@ function nodePanel(g, lc, id) {
     const ps = ecNode.plants?.[p.id];
     const fuelLine = D.coal ? `<p class="small">${plantFuelText(g, lc, p)}</p>${unitButtons(perfUnitsOf(lc, D.perf))}` : '';
     const wasteLine = ps && ps.waste > 0.5 ? `<p class="small gneg">最低出力で捨てた分 ${kwh(ps.waste)}/日</p>` : '';
-    return `<div class="gnodeplant"><p class="spread grow"><span>${D.short} ${kw(p.kw)}${p.proto ? '（試作）' : ''} ・ ${plantState(g, p)}${plantWhy(g, p) ? `<small class="gpw">${A.esc(plantWhy(g, p))}</small>` : ''}</span><button class="btn small" data-rm="plant:${p.id}">撤去</button></p>${fuelLine}${wasteLine}</div>`;
+    const inspLine = p.type === 'nuclear'
+      ? `<p class="small">定期検査の時期（年1回・${Gm.NUC_INSPECT_DAYS}日停止）：<span class="gseg">${Gm.SEASONS.map((sn, si) => `<button class="btn small ${(p.inspectSeason ?? 0) === si ? 'on' : ''}" data-insp="${p.id}:${si}" ${Gm.nucInspecting(p, t) ? 'disabled' : ''}>${sn}</button>`).join('')}</span></p>`
+      : '';
+    return `<div class="gnodeplant"><p class="spread grow"><span>${D.short} ${kw(p.kw)}${p.proto ? '（試作）' : ''} ・ ${plantState(g, p)}${plantWhy(g, p) ? `<small class="gpw">${A.esc(plantWhy(g, p))}</small>` : ''}</span><button class="btn small" data-rm="plant:${p.id}">撤去</button></p>${fuelLine}${inspLine}${wasteLine}</div>`;
   }).join('') : '<p class="small">なし</p>'}
 `;
   return {
@@ -2962,6 +2976,15 @@ function nodePanel(g, lc, id) {
       onAll('[data-cap]', 'click', (e) => capDialog(e.currentTarget.dataset.cap));
       onAll('[data-rm]', 'click', (e) => removeDialog(...e.currentTarget.dataset.rm.split(':')));
       onAll('[data-hzconv]', 'click', () => hzConvDialog(id));
+      onAll('[data-insp]', 'click', (e) => {
+        const [pid, si] = e.currentTarget.dataset.insp.split(':');
+        const r = Gm.setInspectSeason(g, pid, Number(si));
+        if (r.ok) {
+          save();
+          drawPanel(true);
+          toast(`定期検査の時期を${Gm.SEASONS[r.season]}にした`);
+        } else toast(r.why);
+      });
     },
   };
 }
@@ -3269,7 +3292,7 @@ function supplyPanel(g, lc) {
   return {
     title: '需給',
     html: `${ev.length ? `<div class="gev">${ev.map((e) => `<p class="gevrow">${pic(e.key, 'mini')}<span><b>${Gm.EVENTS[e.key].name}</b><small>${Gm.EVENTS[e.key].text}（あと ${Math.ceil((e.until - g.t) / 24)}日）</small></span></p>`).join('')}</div>` : ''}
-      ${l ? `<p class="small">いま：需要 ${kw(l.demand)} ・ 届いた ${kw(l.served)} ・ 損失 ${kw(l.loss)}${Gm.freqNow(g) ? ` ・ 周波数 ${(Gm.freqNow(g) + l.x).toFixed(2)} Hz` : ''} ・ ${gridState(g).text}</p>` : ''}
+      ${l ? `<p class="small">いま：需要 ${kw(l.demand)} ・ 届いた ${kw(l.served)} ・ 損失 ${kw(l.loss)}${l.pump > 0.5 ? ` ・ くみ上げ ${kw(l.pump)}` : ''}${l.pumpedGen > 0.5 ? ` ・ 揚水の発電 ${kw(l.pumpedGen)}` : ''}${Gm.freqNow(g) ? ` ・ 周波数 ${(Gm.freqNow(g) + l.x).toFixed(2)} Hz` : ''} ・ ${gridState(g).text}</p>` : ''}
       ${l?.why && Object.keys(l.why).length ? `<button class="btn small" data-nowsheet>届いていない町と原因（${Object.values(l.why).filter((w) => w.k !== 'dim').length}か所）</button>` : ''}
       ${netsHtml(g)}
       <h3>需要と電源（直近 ${hs.length}時間）</h3>
