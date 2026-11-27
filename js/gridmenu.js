@@ -420,10 +420,10 @@ export const PIC_FALLBACK = { I01: 'G11', I02: 'G11', I03: 'G15', I04: 'G06', I0
 export const LINE_PIC = { dc200: 'L01', ac3: 'L01', ac11: 'L02', ac22: 'L02', ac66: 'L03', ac110: 'L03', ac154: 'G11', ac275: 'G11', ac500: 'G11' };
 // 報告の形の事故（見出しが「◯◯発生」でないもの）：演出で上に小さく「事故発生」を足す
 export const isReport = (key) => !/発生$/.test(INC_HEAD[key] || '');
-export const EV_PIC = { heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18' };
+export const EV_PIC = { heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', oilShock: 'G16', priceWar: 'G17', drought: 'G18' };
 // 赤い太字の見出し（「◯◯発生」。起きたことではなく判断を求めるものは、それに合う言い方）
 export const INC_HEAD = { dcDrop: '電圧低下発生', parallelIn: '並列投入の判断', salt: '塩害発生', gallop: 'ギャロッピング発生', genTrip: '発電機故障発生', genShort: '発電機故障・予備力不足', reserve: '予備力不足', trLoss: '変圧器の損失報告', trParallel: '循環電流発生', trShare: '変圧器過負荷発生', lineOver: '送電線過負荷発生', factoryPf: '低力率の申し込み', motor: '電灯のちらつき発生', lightning: '落雷事故発生', backFlash: '逆フラッシオーバ発生', arc: '地絡アーク発生', catenary: '架線短絡・火災発生', drought: '渇水発生', outOfStep: '脱調発生' };
-export const EV_HEAD = { heat: '猛暑到来', cold: '厳冬到来', typhoon: '台風発生', snowstorm: '大雪発生', coalSpike: '石炭価格高騰', priceWar: '電力戦勃発', drought: '渇水発生' };
+export const EV_HEAD = { heat: '猛暑到来', cold: '厳冬到来', typhoon: '台風発生', snowstorm: '大雪発生', coalSpike: '石炭価格高騰', oilShock: '石油危機発生', priceWar: '電力戦勃発', drought: '渇水発生' };
 const evId = (e) => `${e.key}@${e.at}`;
 // いまある事故と出来事の印（これと比べて、新しく起きたものを見つける）
 export function alertSeen(g) {
@@ -492,6 +492,8 @@ export function evEffect(e) {
       return '雪の線の事故3倍';
     case 'coalSpike':
       return '石炭1.8倍';
+    case 'oilShock':
+      return '重油3倍';
     case 'priceWar':
       return '料金2割減';
     case 'drought':

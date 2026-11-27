@@ -176,7 +176,7 @@ const timeShort = (g) => `${Gm.yearOf(g.t) + 1}年目 ${Gm.SEASONS[Gm.seasonOf(g
 const eraName = (n) => Gm.ERAS[n - 1].name;
 
 // ---- 絵（本人が Gemini で作った画像があれば使い、なければ仮の絵）。番号は 試作/系統ゲーム_画像プロンプト.md ----
-const PIC = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5: 'G23', era6: 'G24', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', oilFire: 'G07', lngFire: 'G07', nuclear: 'G07', ror: 'G08', pond: 'G09', dam: 'G09', pumped: 'G09', sub: 'G10', rotary: 'G10', mercury: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22', load_lamp: 'G25', load_home: 'G26', load_cool: 'G26', load_shop: 'G27', load_factory: 'G28', load_tram: 'G27', M01: 'G29', M02: 'G30', M03: 'G31', M04: 'G32', M05: 'G33', M06: 'G34', M07: 'G35', M08: 'G36' };
+const PIC = { era1: 'G01', era2: 'G02', era3: 'G03', era4: 'G04', era5: 'G23', era6: 'G24', dcCoal: 'G05', acCoal: 'G06', bigCoal: 'G07', oilFire: 'G07', lngFire: 'G07', nuclear: 'G07', ror: 'G08', pond: 'G09', dam: 'G09', pumped: 'G09', sub: 'G10', rotary: 'G10', mercury: 'G10', line: 'G11', heat: 'G12', cold: 'G13', typhoon: 'G14', snowstorm: 'G15', coalSpike: 'G16', oilShock: 'G16', priceWar: 'G17', drought: 'G18', blackout: 'G19', recover: 'G20', rebuild: 'G21', island: 'G22', load_lamp: 'G25', load_home: 'G26', load_cool: 'G26', load_shop: 'G27', load_factory: 'G28', load_tram: 'G27', M01: 'G29', M02: 'G30', M03: 'G31', M04: 'G32', M05: 'G33', M06: 'G34', M07: 'G35', M08: 'G36' };
 const PH = {
   coal: '<path d="M8 30V16h6v-5h5v5h6v14z M30 30V20l8 4v-4l8 4v6z" fill="currentColor"/><path d="M16 9c0-3 3-3 3-6" fill="none" stroke="currentColor" stroke-width="1.5"/>',
   hydro: '<path d="M4 30L18 8l8 12 5-7 13 17z" fill="currentColor" opacity=".5"/><path d="M20 30c2-6 2-9 0-14M26 30c2-6 2-9 0-12" fill="none" stroke="currentColor" stroke-width="1.6"/>',
@@ -187,7 +187,7 @@ const PH = {
   dark: '<circle cx="24" cy="20" r="11" fill="currentColor" opacity=".25"/><path d="M19 15l10 10M29 15L19 25" stroke="currentColor" stroke-width="2.5"/>',
   light: '<circle cx="24" cy="18" r="8" fill="currentColor" opacity=".7"/><path d="M24 4v4M24 28v4M10 18h4M34 18h4M14 8l3 3M34 8l-3 3" stroke="currentColor" stroke-width="2"/>',
 };
-const PH_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'coal', oilFire: 'coal', lngFire: 'coal', nuclear: 'coal', ror: 'hydro', pond: 'hydro', dam: 'hydro', pumped: 'hydro', sub: 'sub', rotary: 'sub', mercury: 'sub', line: 'line', era1: 'town', era2: 'town', era3: 'town', era4: 'town', era5: 'town', era6: 'town', heat: 'light', cold: 'storm', typhoon: 'storm', snowstorm: 'storm', coalSpike: 'coal', priceWar: 'town', drought: 'hydro', blackout: 'dark', recover: 'light', rebuild: 'town', island: 'hydro', load_lamp: 'light', load_home: 'town', load_cool: 'town', load_shop: 'town', load_factory: 'coal', load_tram: 'town' };
+const PH_OF = { dcCoal: 'coal', acCoal: 'coal', bigCoal: 'coal', oilFire: 'coal', lngFire: 'coal', nuclear: 'coal', ror: 'hydro', pond: 'hydro', dam: 'hydro', pumped: 'hydro', sub: 'sub', rotary: 'sub', mercury: 'sub', line: 'line', era1: 'town', era2: 'town', era3: 'town', era4: 'town', era5: 'town', era6: 'town', heat: 'light', cold: 'storm', typhoon: 'storm', snowstorm: 'storm', coalSpike: 'coal', oilShock: 'coal', priceWar: 'town', drought: 'hydro', blackout: 'dark', recover: 'light', rebuild: 'town', island: 'hydro', load_lamp: 'light', load_home: 'town', load_cool: 'town', load_shop: 'town', load_factory: 'coal', load_tram: 'town' };
 // 上の帯の背景に、時代の絵を薄く（絵がないときは出さない）
 const eraImg = (g) => {
   const src = picSrc(PIC[`era${g.era}`]);
@@ -1100,7 +1100,27 @@ function showYearSummary(g) {
     { label: '建てた設備', val: ys.built || 0, fmt: (v) => `${Math.round(v)} 件`, arrow: '' },
     { label: '事故の対処', val: ys.incOk || 0, fmt: (v) => (ys.incTotal ? `${Math.round(v)}／${ys.incTotal} 件正解` : '事故なし'), arrow: '' },
     { label: '初めて電気が届いた町', val: ys.litTowns || 0, fmt: (v) => `${Math.round(v)} か所`, arrow: '' },
-    ...(ys.genMix ? [{ label: '電源の組み合わせ', val: ys.genMix.thermalPct, fmt: (v) => `火力 ${Math.round(v)}%・水力 ${100 - Math.round(v)}%`, arrow: '' }] : []),
+    ...(ys.genMix
+      ? [
+          {
+            label: '電源の組み合わせ',
+            val: ys.genMix.thermalPct,
+            fmt: () => {
+              const gm = ys.genMix;
+              const parts = [];
+              const th = [];
+              if (gm.coal > 0) th.push(`石炭 ${gm.coalPct}%`);
+              if (gm.oil > 0) th.push(`重油 ${gm.oilPct}%`);
+              if (gm.lng > 0) th.push(`LNG ${gm.lngPct}%`);
+              if (gm.thermalPct > 0 || th.length) parts.push(`火力 ${gm.thermalPct}%${th.length > 1 || gm.lng > 0 ? `（${th.join('・')}）` : ''}`);
+              if (gm.nuclear > 0) parts.push(`原子力 ${gm.nuclearPct}%`);
+              if (gm.hydro > 0 || !parts.length) parts.push(`水力 ${gm.hydroPct}%${gm.pumped > 0 ? `（うち揚水 ${gm.pumpedPct}%）` : ''}`);
+              return parts.join('・');
+            },
+            arrow: '',
+          },
+        ]
+      : []),
   ];
   const ov = document.createElement('div');
   ov.className = `goverlay gyrsum${src ? ' hasimg' : ''}${A.fx() ? ' fx' : ''}`;
@@ -3176,9 +3196,11 @@ function runPanel(g, lc) {
   const wasteLine = wasteByNet.size ? `<p class="small gneg">最低出力で捨てた分（直近7日の1日あたり）：${[...wasteByNet].map(([nm, v]) => `${nm} ${kwh(v)}/日`).join(' ・ ')}</p>` : '';
   const mNorm = Gm.dailyMaint(g, 'normal');
   const mDef = Gm.dailyMaint(g, 'defer');
+  const oilShockOn = Gm.evOn(g, 'oilShock');
   return {
     title: '運転',
-    html: `<h3>給電の優先順位</h3>
+    html: `${oilShockOn ? `<div class="gev"><p class="gevrow">${pic('oilShock', 'mini')}<span><b>石油危機が起きている</b><small>${Gm.OILSHOCK_HINT}。</small></span></p>${unitButtons(Gm.OILSHOCK_UNITS)}</div>` : ''}
+      <h3>給電の優先順位</h3>
       <p class="small">番号の小さい順に使います。${lc.gate.econ ? '▲▼で並べ替え（燃料の安い順にすると得）' : '並べ替えは、電力系統工学「等増分燃料費」を1問正解すると使えます'}。直流の火力は、つないだ町の需要だけを先にまかないます。</p>
       ${!lc.gate.econ ? unitButtons((lc.tables || Gm.gridTables(null)).gate.econ) : ''}
       ${wasteLine}

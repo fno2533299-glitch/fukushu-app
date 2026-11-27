@@ -454,6 +454,7 @@ export function newGrid(seed = 1, nowMs = 0, { terrain = 'standard', start = nul
     haulNotice: true, // 1.10.1 新しく始める系統には移行の報告書を出さない
     eraKNotice: true, // 1.10.2 新しく始める系統には移行の報告書を出さない
   };
+  if (G.era >= 6 && G.era6Year == null) G.era6Year = yearOf(G.t);
   return G;
 }
 // 日本列島で新しく始める（1.6.0）
@@ -503,6 +504,7 @@ export function upgrade(G) {
       if (!G.fuel[k]) G.fuel[k] = { base: F.base, contract: F.base, spot: F.base * 0.85 };
     }
   }
+  if (G.era >= 6 && G.era6Year == null) G.era6Year = yearOf(G.t);
   return G;
 }
 // ---- 1.8.0 史実モードと自由モード ----
@@ -515,7 +517,7 @@ export function maxPerf(a = {}, b = {}) {
   return out;
 }
 const newAcc = () => ({ hours: 0, rev: 0, fuel: 0, maint: 0, repair: 0, loan: 0, unserved: 0, shedH: 0, blackH: 0, badH: 0, fails: 0, apps: 0, notes: [] });
-const newYear = (idx, startAcc = 0) => ({ idx, profit: 0, unserved: 0, okH: 0, hours: 0, served: 0, maxD: 0, built: 0, incTotal: 0, incOk: 0, litNew: 0, blackH: 0, shedH: 0, startAcc, gen: { coal: 0, oil: 0, hydro: 0 } });
+const newYear = (idx, startAcc = 0) => ({ idx, profit: 0, unserved: 0, okH: 0, hours: 0, served: 0, maxD: 0, seasonMaxD: [0, 0, 0, 0], summerBadH: 0, built: 0, incTotal: 0, incOk: 0, litNew: 0, blackH: 0, shedH: 0, startAcc, gen: { coal: 0, oil: 0, lng: 0, nuclear: 0, hydro: 0, pumped: 0 } });
 // 1.10.2 日ごとの電力・収支の記録（30日分）。5.1 の横棒・5.2 の発電所ごと・5.3 の赤字判定・5.4 の再建見込みに使う
 const newEconDay = () => ({ h: 0, gen: 0, served: 0, lineLoss: 0, subLoss: 0, waste: 0, rev: 0, fuel: 0, maint: 0, repair: 0, loan: 0, reward: 0, plants: {} });
 // 修理費の増減を系統の残高・まとめ・年・日次収支にまとめて反映する（delta が負なら返金）
@@ -1663,6 +1665,7 @@ export const EVENTS = {
   typhoon: { name: '台風', days: 5, text: '送電線の事故が増える。海沿いは塩害' },
   snowstorm: { name: '大雪', days: 3, text: '雪の地域の送電線の事故が増える' },
   coalSpike: { name: '石炭価格の高騰', days: 60, text: '石炭が 1.8 倍に値上がり（長期契約は次の見直しまで据え置き）' },
+  oilShock: { name: '石油危機', days: 336, text: '重油の値段が 3 倍に跳ね上がる（危機のあとも基準は 1.6 倍のまま）' },
   priceWar: { name: '電力戦', days: 60, text: '競争で料金が 20% 下がる' },
   drought: { name: '渇水', days: 30, text: '水力の出力が 4 割に落ちる' },
 };
@@ -1674,13 +1677,38 @@ const DROUGHT_MS = ['M08', 'M12']; // 渇水の間を見張るミッション
 export const Y1959_FACT = '1959年9月26日、伊勢湾台風が上陸。中部電力では高潮で火力の全号機が止まり、多くの配電線が傷んで大停電になった';
 export const Y1959_HINT = '海沿いの火力だけに頼ると、高潮で一度に止まる。内陸の水力や別の地域の火力があると持ちこたえやすい';
 export const Y1959_UNITS = ['power-system-U14', 'power-system-U12'];
+export const Y1973_FACT = '1973年10月、第4次中東戦争（第1次石油ショック）。11月、石油緊急対策要綱で石油・電力の 10% 使用節約、1974年1月から 15%。1974年、電力使用制限と9社いっせいの料金改定、6月に電源三法';
+export const OILSHOCK_HINT = '重油に頼る割合を下げると、燃料の値上がりに強くなる。使用制限で需要を減らすこともできる';
+export const OILSHOCK_UNITS = ['power-system-U05', 'power-system-U15'];
+function oilShareOf(y) {
+  const g0 = y?.gen || {};
+  const tot = (g0.coal || 0) + (g0.oil || 0) + (g0.lng || 0) + (g0.nuclear || 0) + (g0.hydro || 0);
+  return tot > 1e-6 ? ((g0.oil || 0) / tot) * 100 : 0;
+}
 export function startEvent(G, lc, key, o = {}) {
   if (evOn(G, key)) return;
   const E = EVENTS[key];
-  const ev = { key, at: G.t, until: G.t + 24 * E.days, ...(o.y1939 ? { y1939: true } : {}), ...(o.y1951 ? { y1951: true } : {}), ...(o.y1959 ? { y1959: true } : {}) };
+  const ev = { key, at: G.t, until: G.t + 24 * E.days, ...(o.y1939 ? { y1939: true } : {}), ...(o.y1951 ? { y1951: true } : {}), ...(o.y1959 ? { y1959: true } : {}), ...(o.y1973 ? { y1973: true } : {}) };
   // 1.8.0 ミッション M08（渇水をしのぐ）・1.10.0 M12（渇水を使用制限でしのぐ）：始まったときにどちらかが出ていれば、渇水の間の負荷遮断・全域停電（と使用制限の時間）を数える
   if (key === 'drought' && missionsOn(G) && DROUGHT_MS.some((id) => G.era >= Ms.missionOf(id).era && !G.missions?.done?.[id])) Object.assign(ev, { mWatch: true, mBad: 0, mServed: 0, mRH: 0 });
+  if (key === 'oilShock') {
+    G.lastOilShock = G.t;
+    const preY = G.years?.length ? G.years[G.years.length - 1] : G.yr;
+    if (missionsOn(G) && G.era >= 6 && !G.missions?.done?.M20) Object.assign(ev, { mWatch: true, mBad: 0, mServed: 0, preOilPct: oilShareOf(preY) });
+    const oil = fuelObj(G, 'oil');
+    oil.base = FUELS.oil.base * 3;
+    oil.spot = oil.base * 0.85;
+  }
   G.events.push(ev);
+  if (key === 'oilShock') {
+    note(G, `${E.name}（重油 3 倍）${o.y1973 ? '・1973年の石油危機に準じる' : ''}`);
+    addReport(G, {
+      title: o.y1973 ? `${E.name}（1973年の石油危機に準じる）` : E.name,
+      what: `${E.text}。${E.days}日間。${OILSHOCK_HINT}。${o.y1973 ? `史実：${Y1973_FACT}（S15・S34・S38）。` : ''}`,
+      units: OILSHOCK_UNITS,
+    });
+    return;
+  }
   if (o.y1959) {
     // 1.11.0 伊勢湾台風の高潮：海沿い（coast）の地点の火力が 2 日止まる（修理費は要らない）
     let stopped = 0;
@@ -1727,8 +1755,16 @@ function daily(G, lc) {
   // 1.8.2 日ごとの利益（収益の使い道の値段の元。直近 30 日）。前の日の 0 時からの G.yr.profit の差（年の変わり目の日は数えない）
   if (G.dayMark && G.dayMark.idx === G.yr.idx) G.profDays = [...(G.profDays || []), Math.round(G.yr.profit - G.dayMark.profit)].slice(-30);
   const s = seasonOf(t);
-  missionDaily(G); // 1.8.0 ミッションの判定（前の日の結果で）。終わった渇水の判定があるので、出来事を片づける前に
-  G.events = G.events.filter((e) => e.until > t || (e.key === 'coalSpike' && ((fuelObj(G, 'coal').base = FUELS.coal.base), false)));
+  missionDaily(G); // 1.8.0 ミッションの判定（前の日の結果で）。終わった渇水・石油危機の判定があるので、出来事を片づける前に
+  G.events = G.events.filter((e) => {
+    if (e.until > t) return true;
+    if (e.key === 'coalSpike') fuelObj(G, 'coal').base = FUELS.coal.base;
+    if (e.key === 'oilShock') {
+      G.oilPostShock = true;
+      fuelObj(G, 'oil').base = FUELS.oil.base * 1.6;
+    }
+    return false;
+  });
   // 季節の出来事・時代の出来事
   const roll = (p) => rnd(G) < p;
   if (s === 1 && roll(0.006)) startEvent(G, lc, 'heat');
@@ -1738,6 +1774,8 @@ function daily(G, lc) {
   if (G.era >= 3 && roll(0.003)) startEvent(G, lc, 'coalSpike');
   if (G.era >= 3 && roll(0.002)) startEvent(G, lc, 'priceWar');
   if (G.era >= 4 && roll(0.003)) startEvent(G, lc, 'drought');
+  // 1.12.0 自由モードの石油危機：E5 からまれに起きる（coalSpike と同じ確率、一度起きたら 2 年は起きない）
+  if (G.era >= 6 && modeOf(G) === 'free' && !(G.lastOilShock != null && t - G.lastOilShock < 2 * 24 * YEAR_DAYS) && roll(0.003)) startEvent(G, lc, 'oilShock');
   // 1.8.0 史実モード（日本列島）：E4 に入ったあとの最初の夏に、1939 年の渇水に準じた渇水を1回、決まって起こす（ほかの出来事は今の確率のまま）
   if (G.era >= 4 && s === 1 && isJapan(G) && modeOf(G) === 'history' && G.drought1939 == null && !evOn(G, 'drought')) {
     G.drought1939 = t;
@@ -1752,6 +1790,11 @@ function daily(G, lc) {
   if (G.era >= 6 && s === 2 && isJapan(G) && modeOf(G) === 'history' && G.typhoon1959 == null && !evOn(G, 'typhoon')) {
     G.typhoon1959 = t;
     startEvent(G, lc, 'typhoon', { y1959: true });
+  }
+  // 1.12.0 史実モード：E5 に入ってから 3 年目の秋に、1973 年の石油危機に準じた石油危機を 1 回決まって起こす
+  if (G.era >= 6 && s === 2 && isJapan(G) && modeOf(G) === 'history' && G.oilShock1973 == null && !evOn(G, 'oilShock') && yearOf(t) >= (G.era6Year ?? 0) + 2) {
+    G.oilShock1973 = t;
+    startEvent(G, lc, 'oilShock', { y1973: true });
   }
   // 燃料：スポットは毎日 ±30%（平均は長期契約の 0.85 倍）。長期契約は1年ごとに見直し（1.11.0 燃料ごとに別々に動く）
   if (!G.fuel || typeof G.fuel.coal !== 'object') G.fuel = initFuel();
@@ -1895,12 +1938,29 @@ export function buildYearSummary(G, y, prevY = null) {
   else if ((y.unserved || 0) > 10) goal = '届いていない町の原因を確かめて、送電線や電源を補ってみよう。';
   else if ((y.profit || 0) < 0) goal = '需給の「収支のまとめ」で燃料費・損失・捨てた分を見直して、黒字を目指そう。';
   else if ((G.apps || []).length >= 3) goal = '保留や未対応の申し込みから、余裕のある町の需要を受けてみよう。';
-  // 1.11.0 1年の電源の組み合わせ（火力・水力の発電電力量）
+  // 1.11.0 / 1.12.0 1年の電源の組み合わせ（石炭・重油・LNG・原子力・水力・うち揚水）
   const yg = y.gen || {};
-  const yHydro = yg.hydro || 0;
-  const yThermal = Object.entries(yg).filter(([k]) => k !== 'hydro').reduce((a, [, v]) => a + (v || 0), 0);
-  const yGenTot = yHydro + yThermal;
-  const genMix = yGenTot > 1e-6 ? { thermalPct: Math.round((yThermal / yGenTot) * 100), hydroPct: Math.round((yHydro / yGenTot) * 100), coal: Math.round(yg.coal || 0), oil: Math.round(yg.oil || 0), hydro: Math.round(yHydro) } : null;
+  const yCoal = yg.coal || 0, yOil = yg.oil || 0, yLng = yg.lng || 0, yNuc = yg.nuclear || 0, yHydro = yg.hydro || 0, yPump = yg.pumped || 0;
+  const yThermal = yCoal + yOil + yLng;
+  const yGenTot = yThermal + yNuc + yHydro;
+  const pctOf = (v) => (yGenTot > 1e-6 ? Math.round((v / yGenTot) * 100) : 0);
+  const genMix = yGenTot > 1e-6
+    ? {
+        thermalPct: pctOf(yThermal),
+        hydroPct: pctOf(yHydro),
+        coalPct: pctOf(yCoal),
+        oilPct: pctOf(yOil),
+        lngPct: pctOf(yLng),
+        nuclearPct: pctOf(yNuc),
+        pumpedPct: pctOf(yPump),
+        coal: Math.round(yCoal),
+        oil: Math.round(yOil),
+        lng: Math.round(yLng),
+        nuclear: Math.round(yNuc),
+        hydro: Math.round(yHydro),
+        pumped: Math.round(yPump),
+      }
+    : null;
   return {
     yearNo: y.idx + 1,
     era: G.era,
@@ -1933,13 +1993,15 @@ function closeYear(G) {
   if (!G.best || y.profit > G.best.profit) G.best = y;
   note(G, `${y.idx + 1}年目の決算：利益 ${Math.round(y.profit).toLocaleString('ja-JP')} 円`);
   G.yr = newYear(y.idx + 1, accepted);
-  // 1.11.0 M15（火主水従）：年の変わり目の決算で火力の発電電力量が水力を上回ったらすぐ達成
+  // 1.11.0 M15（火主水従）・1.12.0 M17（夏の山）・M20（石油危機を越える）：年の変わり目の決算で即判定
   if (missionsOn(G)) {
     G.missions ||= { done: {} };
-    const m15 = Ms.missionOf('M15');
-    if (m15 && missionOpen(G, m15) && !missionDone(G, 'M15')) {
-      const r = missionCheck(G, m15, null);
-      if (r) achieveMission(G, m15, r);
+    for (const mid of ['M15', 'M17', 'M20']) {
+      const m = Ms.missionOf(mid);
+      if (m && missionOpen(G, m) && !missionDone(G, mid)) {
+        const r = missionCheck(G, m, null);
+        if (r) achieveMission(G, m, r);
+      }
     }
   }
 }
@@ -2284,6 +2346,15 @@ function missionHour(G, last, bad) {
     e.mServed += last.served || 0;
     if (restrictOn(G)) e.mRH = (e.mRH || 0) + 1; // 1.10.0 M12：渇水の間に使用制限を使った時間
   }
+  const oe = G.events.find((x) => x.key === 'oilShock' && x.mWatch && x.until > last.t);
+  if (oe) {
+    if (bad) oe.mBad++;
+    oe.mServed += last.served || 0;
+  }
+  // 1.12.0 M18（揚水で山を受ける）：夜（22〜6時）にくみ上げ、24時間以内の昼（10〜17時）に出す
+  const h = ((last.t % 24) + 24) % 24;
+  if ((h >= 22 || h <= 6) && (last.pump || 0) > 1e-6) G.pumpNightAt = last.t;
+  if (h >= 10 && h <= 17 && (last.pumpedGen || 0) > 1e-6 && G.pumpNightAt != null && last.t - G.pumpNightAt <= 24) d.pumpedCycle = true;
 }
 function missionDaily(G) {
   if (!missionsOn(G)) {
@@ -2293,7 +2364,20 @@ function missionDaily(G) {
   const day = G.day?.h > 0 ? G.day : null;
   G.day = newDay();
   G.missions ||= { done: {} };
-  if (day) G.revDays = [...(G.revDays || []), Math.round(day.rev)].slice(-7);
+  if (day) {
+    G.revDays = [...(G.revDays || []), Math.round(day.rev)].slice(-7);
+    if (day.pumpedCycle) G.pumpedCycleDays = (G.pumpedCycleDays || 0) + 1;
+    const nucGen = G.plants.some((p) => p.type === 'nuclear' && (day.plants?.[p.id] || 0) > 0);
+    G.nucStreak = nucGen ? (G.nucStreak || 0) + 1 : 0;
+  }
+  // 石油危機の終了チェック（M20：危機の間に負荷遮断・全域停電なし）
+  for (const oe of G.events) {
+    if (oe.key !== 'oilShock' || !oe.mWatch || oe.until > G.t || oe.judged) continue;
+    oe.judged = true;
+    if (!oe.mBad && oe.mServed > 0) {
+      G.oilShockSurvived = { at: G.t, preOilPct: oe.preOilPct ?? 0 };
+    }
+  }
   for (const m of Ms.MISSIONS) {
     if (!missionOpen(G, m) || G.missions.done[m.id]) continue;
     const r = missionCheck(G, m, day);
@@ -2413,6 +2497,34 @@ export function missionCheck(G, m, day) {
       const thermal = Object.entries(g0).filter(([k]) => k !== 'hydro').reduce((a, [, v]) => a + (v || 0), 0);
       return { info: { yearNo: hit.idx + 1, thermalPct: Math.round((thermal / (thermal + hydro)) * 100) } };
     }
+    case 'summerPeak': {
+      // 1.12.0 M17：1年の記録で、夏の最大需要が冬の最大需要の 1.1 倍以上で、その夏に負荷遮断・全域停電がない
+      const hit = (G.years || []).find((y) => {
+        const sm = y.seasonMaxD || [0, 0, 0, 0];
+        return sm[3] > 1e-6 && sm[1] >= sm[3] * 1.1 - 1e-9 && !(y.summerBadH > 0);
+      });
+      if (!hit) return null;
+      return { info: { yearNo: hit.idx + 1, summer: Math.round(hit.seasonMaxD[1]), winter: Math.round(hit.seasonMaxD[3]) } };
+    }
+    case 'pumpedCycle':
+      // 1.12.0 M18：揚水を1つ動かし、夜にくみ上げた電気を同じ日の昼に出す日を 7 日以上
+      return (G.pumpedCycleDays || 0) >= (c.days || 7) ? { info: { days: G.pumpedCycleDays } } : null;
+    case 'nucStreak':
+      // 1.12.0 M19：原子力を1つ動かし、30 日以上続けて出す
+      return (G.nucStreak || 0) >= (c.days || 30) ? { info: { days: G.nucStreak } } : null;
+    case 'oilShockClear': {
+      // 1.12.0 M20：石油危機の間に負荷遮断・全域停電がなく、危機のあとの1年の記録で重油の割合が危機の前より 10 ポイント以上下がる
+      const sv = G.oilShockSurvived;
+      if (!sv) return null;
+      const hit = (G.years || []).find((y) => {
+        const yEnd = (y.idx + 1) * 24 * YEAR_DAYS;
+        if (yEnd < sv.at) return false;
+        const pct = oilShareOf(y);
+        return pct <= sv.preOilPct - 10 + 1e-9;
+      });
+      if (!hit) return null;
+      return { info: { preOilPct: Math.round(sv.preOilPct), afterOilPct: Math.round(oilShareOf(hit)) } };
+    }
     default:
       return null;
   }
@@ -2473,6 +2585,20 @@ export function missionProgress(G, m) {
       const w = (G.hzWork || [])[0];
       if (w) return `工事中：${nodeOf(G, w.node)?.name || ''}の網 ${w.from} Hz → ${w.to} Hz（あと${hoursShort(w.until - G.t)}）`;
       return '周波数をそろえる工事 0 / 1';
+    }
+    case 'summerPeak': {
+      const sm = G.yr?.seasonMaxD || [0, 0, 0, 0];
+      return `今年：夏の最大 ${fmtKw(sm[1])} ・ 冬の最大 ${fmtKw(sm[3])}${G.yr?.summerBadH ? `（夏の停電・遮断 ${G.yr.summerBadH}時間）` : ''}`;
+    }
+    case 'pumpedCycle':
+      return `夜くみ上げ→昼発電の日 ${G.pumpedCycleDays || 0} / ${c.days || 7} 日`;
+    case 'nucStreak':
+      return `原子力の連続運転 ${G.nucStreak || 0} / ${c.days || 30} 日`;
+    case 'oilShockClear': {
+      const oe = G.events.find((x) => x.key === 'oilShock' && x.mWatch && x.until > G.t);
+      if (oe) return `石油危機の間：あと${Math.ceil((oe.until - G.t) / 24)}日 ・ 負荷遮断と全域停電 ${oe.mBad}時間`;
+      if (G.oilShockSurvived) return `石油危機を無停電で通過（危機前の重油 ${Math.round(G.oilShockSurvived.preOilPct)}% → 10 ポイント以上下げて決算）`;
+      return '石油危機（E5 の 3 年目の秋）を待つ';
     }
     case 'oilHalf': {
       const n = G.plants.filter((p) => p.type === 'oilFire' && p.kw >= (c.minKw || 325000)).length;
@@ -2732,6 +2858,10 @@ export function step(G, lc) {
   y.unserved += unserved;
   y.served += served;
   y.maxD = Math.max(y.maxD || 0, demand);
+  const sn = seasonOf(t);
+  y.seasonMaxD ||= [0, 0, 0, 0];
+  y.seasonMaxD[sn] = Math.max(y.seasonMaxD[sn] || 0, demand);
+  if (sn === 1 && (anyBlack || anyShed)) y.summerBadH = (y.summerBadH || 0) + 1;
   if (anyBlack) y.blackH = (y.blackH || 0) + 1;
   if (anyShed) y.shedH = (y.shedH || 0) + 1;
   if (!anyBad && !anyShed && !anyBlack) y.okH++;
@@ -2766,6 +2896,7 @@ export function applyLearning(G, lc) {
   if (lc.era > G.era) {
     const before = G.era;
     G.era = lc.era;
+    if (lc.era >= 6 && G.era6Year == null) G.era6Year = yearOf(G.t);
     G.eraUp = lc.era;
     G.eraUpFrom = Math.min(G.eraUpFrom ?? before, before); // 演出を見る前に2つ進んだときも、開いたエリアをまとめて出す
     const E = ERAS[lc.era - 1];
